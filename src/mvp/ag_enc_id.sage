@@ -83,13 +83,36 @@ def Encrypt(pp: PublicParamethers, S: list[int], v, m):
 
     return c1, c2, c3
 
+def Decrypt(pp, S: list[int], i: int, d_i, C):
+    c1, c2, c3 = C
+
+    b_iS = 0
+    for j in S:
+        if j != i:
+            b_iS += pp.param[pp.n - j + i]
+
+    top = (d_i + b_iS).weil_pairing(c1, pp.ord)
+    down = pp.param[i].weil_pairing(c2, pp.ord)
+
+    return c3 * (top / down)
+
+
 def main():
     pp = Setup(l=None, n=20)
+
     msk, v, keyset = KeyGen(pp)
+    
     # K_S = Extract(pp, [i for i in range(2, 20)])
+    
     S = [i for i in range(2, 20)]
-    m = 22222
-    c1, c2, c3 = Encrypt(pp, S, v, m)
+    m = 123456787654321
+    C = Encrypt(pp, S, v, m)
+    
+    i = 10
+    m_ = Decrypt(pp, S, i, keyset[i], C)
+
+    print("m: ", m)
+    print("m':", m_)
 
 if __name__ == "__main__":
     main()
