@@ -51,9 +51,23 @@ def Setup(l: int, n: int) -> PublicParamethers:
     )
     return pp
 
+def KeyGen(pp: PublicParamethers):
+    gamma = randint(2, pp.p)
+    msk = gamma
+    v = gamma * pp.G
+
+    keyset = np.empty(
+        (pp.n),
+        dtype=sage.schemes.elliptic_curves.ell_point.EllipticCurvePoint_finite_field
+    )
+    for i in range(0, pp.n):
+        keyset[i] = gamma * pp.param[i]
+    
+    return msk, v, keyset
 
 def main():
     pp = Setup(l=None, n=20)
+    msk, v, keyset = KeyGen(pp)
 
 if __name__ == "__main__":
     main()
