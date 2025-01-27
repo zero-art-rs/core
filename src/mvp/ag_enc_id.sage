@@ -1,4 +1,59 @@
 # there must be Setup, KeyGen, Extract, Encrypt, Decrypt functions of AgEncID protocol
+import numpy as np
+
+class PublicParamethers:
+    def __init__(self, p, ord, t, E, G, alpha, param, n):
+        self.p = p
+        self.ord = ord
+        self.t = t
+        self.E = E
+        self.G = G
+        self.ord = E.order()
+        self.alpha = alpha
+        self.param = param
+        self.n = n
+    
+# def Setup(lambda_: int, n: int) -> None:
+def Setup(l: int, n: int) -> PublicParamethers:
+    p = 1461501624496790265145448589920785493717258890819
+    ord = 1461501624496790265145447380994971188499300027613
+    t = 1208925814305217958863207
+
+    E = EllipticCurve(GF(p), [0,3])
+    G = E([1, 2])
+
+    alpha = randint(2,p)
+
+    Temp = G
+
+    param = np.empty(
+        (2 * n),
+        dtype=sage.schemes.elliptic_curves.ell_point.EllipticCurvePoint_finite_field
+    )
+    for i in range(0, n):
+        Temp = alpha * Temp
+        param[i] = Temp
+
+    Temp = alpha * Temp
+    for i in range(n+1, 2*n):
+        Temp = alpha * Temp
+        param[i] = Temp
+
+    pp = PublicParamethers(
+        p=p,
+        ord=ord,
+        t=t,
+        E=E,
+        G=G,
+        alpha=alpha,
+        param=param,
+        n=n
+    )
+    return pp
+
 
 def main():
-    pass
+    pp = Setup(l=None, n=20)
+
+if __name__ == "__main__":
+    main()
