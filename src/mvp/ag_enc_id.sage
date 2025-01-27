@@ -13,7 +13,6 @@ class PublicParamethers:
         self.param = param
         self.n = n
     
-# def Setup(lambda_: int, n: int) -> None:
 def Setup(l: int, n: int) -> PublicParamethers:
     p = 1461501624496790265145448589920785493717258890819
     ord = 1461501624496790265145447380994971188499300027613
@@ -101,13 +100,11 @@ def main():
     pp = Setup(l=None, n=20)
 
     msk, v, keyset = KeyGen(pp)
-    
-    # K_S = Extract(pp, [i for i in range(2, 20)])
-    
+
     S = [i for i in range(2, 20)]
     m = 123456787654321
     C = Encrypt(pp, S, v, m)
-    
+
     i = 10
     m_ = Decrypt(pp, S, i, keyset[i], C)
 
