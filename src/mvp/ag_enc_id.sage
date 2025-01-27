@@ -72,10 +72,24 @@ def Extract(pp: PublicParamethers, S: list[int]):
 
     return K_S
 
+def Encrypt(pp: PublicParamethers, S: list[int], v, m):
+    t = randint(2, pp.p)
+
+    K_S = Extract(pp, S)
+
+    c1 = t * pp.G
+    c2 = t * (v + K_S)
+    c3 = m * pp.param[pp.n - 1].weil_pairing(t * pp.param[0], pp.ord)
+
+    return c1, c2, c3
+
 def main():
     pp = Setup(l=None, n=20)
     msk, v, keyset = KeyGen(pp)
-    K_S = Extract(pp, [i for i in range(2, 20)])
+    # K_S = Extract(pp, [i for i in range(2, 20)])
+    S = [i for i in range(2, 20)]
+    m = 22222
+    c1, c2, c3 = Encrypt(pp, S, v, m)
 
 if __name__ == "__main__":
     main()
