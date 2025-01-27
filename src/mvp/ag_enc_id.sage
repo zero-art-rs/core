@@ -65,9 +65,17 @@ def KeyGen(pp: PublicParamethers):
     
     return msk, v, keyset
 
+def Extract(pp: PublicParamethers, S: list[int]):
+    K_S = 0
+    for j in S:
+        K_S += pp.param[pp.n - j]
+
+    return K_S
+
 def main():
     pp = Setup(l=None, n=20)
     msk, v, keyset = KeyGen(pp)
+    K_S = Extract(pp, [i for i in range(2, 20)])
 
 if __name__ == "__main__":
     main()

@@ -56,7 +56,7 @@ def Setup(l: int, n: int) -> PublicParamethers:
     )
     return pp
 
-def KeyGen(pp):
+def KeyGen(pp: PublicParamethers):
     gamma = randint(_sage_const_2 , pp.p)
     msk = gamma
     v = gamma * pp.G
@@ -70,11 +70,19 @@ def KeyGen(pp):
     
     return msk, v, keyset
 
+def Extract(pp: PublicParamethers, S: list[int]):
+    K_S = _sage_const_0 
+    for j in S:
+        K_S += pp.param[pp.n - j]
+
+    return K_S
+
 def main():
     pp = Setup(l=None, n=_sage_const_20 )
     msk, v, keyset = KeyGen(pp)
+    K_S = Extract(pp, [i for i in range(_sage_const_2 , _sage_const_20 )])
 
-    print(msk, v, keyset)
+    print(K_S)
 
 if __name__ == "__main__":
     main()
