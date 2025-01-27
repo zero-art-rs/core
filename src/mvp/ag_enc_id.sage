@@ -1,4 +1,6 @@
 # there must be Setup, KeyGen, Extract, Encrypt, Decrypt functions of AgEncID protocol
+import time
+
 import numpy as np
 
 class PublicParamethers:
@@ -95,13 +97,39 @@ def Decrypt(pp, S: list[int], i: int, d_i, C):
 
     return c3 * (top / down)
 
+def time_evalation(n: int):
+    time_start = time.time()
+    pp = Setup(l=None, n=n)
+    time_finish = time.time()
+    print(f"Setup time: {time_finish - time_start:0.3f} s.")
 
-def main():
-    pp = Setup(l=None, n=20)
+    time_start = time.time()
+    msk, v, keyset = KeyGen(pp)
+    time_finish = time.time()
+    print(f"KeyGen time: {time_finish - time_start:0.3f} s.")
+
+    S = [i for i in range(2, pp.n)]
+    m = 123456787654321
+    time_start = time.time()
+    C = Encrypt(pp, S, v, m)
+    time_finish = time.time()
+    print(f"Encrypt time: {time_finish - time_start:0.3f} s.")
+
+    i = 10
+    time_start = time.time()
+    m_ = Decrypt(pp, S, i, keyset[i], C)
+    time_finish = time.time()
+    print(f"Decrypt time: {time_finish - time_start:0.3f} s.")
+
+    print("m: ", m)
+    print("m':", m_)
+
+def main(n: int):
+    pp = Setup(l=None, n=n)
 
     msk, v, keyset = KeyGen(pp)
 
-    S = [i for i in range(2, 20)]
+    S = [i for i in range(2, pp.n)]
     m = 123456787654321
     C = Encrypt(pp, S, v, m)
 
@@ -112,4 +140,5 @@ def main():
     print("m':", m_)
 
 if __name__ == "__main__":
-    main()
+    # main(100)
+    time_evalation(10000)
