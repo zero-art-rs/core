@@ -44,7 +44,7 @@ def Encrypt(S: list[int], pk, pairing):
 
     C1 = (-k) * pk[0]
 
-
+    # Compute C2 as a polinomial where H^(gamma^i) is a random variable x^i
     R = PolynomialRing(GF(pairing.r), "x")
     mul_poly = R(1)
     for ID in S:
@@ -52,6 +52,7 @@ def Encrypt(S: list[int], pk, pairing):
     
     mul_poly = R(k) * mul_poly
 
+    # Compute C2 using coefficients in polinomial
     C2 = 0
     for power, coeff in mul_poly.monomial_coefficients().items():
         C2 += coeff * pk[power + 2]
