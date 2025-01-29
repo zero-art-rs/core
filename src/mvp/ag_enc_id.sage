@@ -16,7 +16,7 @@ def Hash(number: int, p: int):
 def Setup(l: int, m: int):
     pairing = BN381Pairing()
     
-    gamma = randint(1, pairing.p)
+    gamma = randint(1, pairing.r)
 
     G = pairing.P1
     H = pairing.P2
