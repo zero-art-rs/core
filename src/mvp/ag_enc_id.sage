@@ -39,16 +39,26 @@ def Extract(msk, ID: int, pairing):
 
     return sk_ID
 
-def Encrypt(pp, S: list[int], v, m):
-    t = randint(2, pp.p)
+def Encrypt(S: list[int], pk, pairing):
+    k = randint(2, pairing.r)
 
-    K_S = Extract(pp, S)
+    C1 = (-k) * pk[0]
 
-    c1 = t * pp.G
-    c2 = t * (v + K_S)
-    c3 = m * pp.param[pp.n - 1].weil_pairing(t * pp.param[0], pp.ord)
 
-    return c1, c2, c3
+    R = PolynomialRing(GF(pairing.r), "x")
+    mul_poly = R(1)
+    for ID in S:
+        mul_poly *= R(x + Hash(ID, pairing.r))
+    
+    mul_poly = R(k) * mul_poly
+
+    C2 = 0
+    for power, coeff in mul_poly.monomial_coefficients().items():
+        C2 += coeff * pk[power + 2]
+
+    K = k * pk[1]
+
+    return (C1, C2), K
 
 def Decrypt(pp, S: list[int], i: int, d_i, C):
     c1, c2, c3 = C
@@ -93,9 +103,11 @@ def time_evalation(n: int):
 def main(m: int):
     msk, pk, pairing = Setup(l=None, m=m)
 
-    # S = [i for i in range(2, pp.n)]
-    # m = 123456787654321
-    # C = Encrypt(pp, S, v, m)
+    # S = [i for i in range(2, m)]
+    S = [2, 4, 56]
+    Hdr, K = Encrypt(S, pk, pairing)
+    print(Hdr)
+    print(K)
 
     # i = 10
     # m_ = Decrypt(pp, S, i, keyset[i], C)
