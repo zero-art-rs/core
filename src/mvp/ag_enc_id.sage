@@ -59,7 +59,7 @@ def Encrypt(S: list[int], pk, pairing):
     for power, coeff in mul_poly.monomial_coefficients().items():
         C2 += coeff * pk[power + 2]
 
-    K = k * pk[1]
+    K = pow(pk[1], k)
 
     return (C1, C2), K
 
