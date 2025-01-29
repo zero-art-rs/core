@@ -25,9 +25,9 @@ def Setup(l: int, m: int):
     msk = (G, gamma)
 
     pk = [gamma * G, pairing.e(G, H)]
-    temp = 0
+    temp = H
     for i in range(m):
-        temp += H
+        temp += gamma * temp
         pk.append(temp)
 
     return msk, pk, pairing
