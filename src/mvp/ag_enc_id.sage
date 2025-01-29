@@ -44,7 +44,7 @@ def Encrypt(S: list[int], pk, pairing):
 
     C1 = (-k) * pk[0]
 
-    # Compute C2 as a polinomial where H^(gamma^i) is a random variable x^i
+    # Compute C2 as a polynomial where H^(gamma^i) is a random variable x^i
     R = PolynomialRing(GF(pairing.r), "x")
     mul_poly = R(1)
     for ID in S:
@@ -52,7 +52,7 @@ def Encrypt(S: list[int], pk, pairing):
     
     mul_poly = R(k) * mul_poly
 
-    # Compute C2 using coefficients in polinomial
+    # Compute C2 using coefficients in polynomial
     C2 = 0
     for power, coeff in mul_poly.monomial_coefficients().items():
         C2 += coeff * pk[power + 2]
@@ -61,18 +61,38 @@ def Encrypt(S: list[int], pk, pairing):
 
     return (C1, C2), K
 
-def Decrypt(pp, S: list[int], i: int, d_i, C):
-    c1, c2, c3 = C
+def Decrypt(S, ID, sk_ID, Hdr, pk, pairing):
+    C1, C2 = Hdr
+    
+    S_i = S.copy() # for beter iteration remove ID from set S
+    S_i.remove(ID)
+    
+    exponent = 1
+    for ID_i in S:
+        exponent = (exponent * Hash(ID_i, pairing.r)) % pairing.r
+    exponent = pow(exponent, -1, pairing.r)
 
-    b_iS = 0
-    for j in S:
-        if j != i:
-            b_iS += pp.param[pp.n - j + i]
+    # Compute H^(p_iS) using polynomial p_iS_polly
+    R = PolynomialRing(GF(pairing.r), "x")
+    p_iS_polly = R(1)
+    for ID_i in S_i:
+        p_iS_polly *= R(x + Hash(ID_i, pairing.r))
+    
+    prod = R(1)
+    for ID_i in S_i:
+        prod *= Hash(ID_i, pairing.r)
+    
+    p_iS_polly -= prod
+        
 
-    top = (d_i + b_iS).weil_pairing(c1, pp.ord)
-    down = pp.param[i].weil_pairing(c2, pp.ord)
+    # Compute H^(p_iS) using coefficients in polynomial p_iS_polly
+    Hp_iS = 0
+    for power, coeff in p_iS_polly.monomial_coefficients().items():
+        Hp_iS += coeff * pk[power + 1]    
 
-    return c3 * (top / down)
+    K = pow(pairing.e(C1, Hp_iS) * pairing.e(sk_ID, C2), exponent)
+
+    return K
 
 def time_evalation(n: int):
     time_start = time.time()
@@ -104,17 +124,20 @@ def time_evalation(n: int):
 def main(m: int):
     msk, pk, pairing = Setup(l=None, m=m)
 
+    ID = 4
+    sk_ID = Extract(msk=msk, ID=ID, pairing=pairing)
+
     # S = [i for i in range(2, m)]
-    S = [2, 4, 56]
+    S = [2, 4, 9, 11, 56]
     Hdr, K = Encrypt(S, pk, pairing)
-    print(Hdr)
+
+    K_ = Decrypt(S=S, ID=ID, sk_ID=sk_ID, Hdr=Hdr, pk=pk, pairing=pairing)
+
     print(K)
-
-    # i = 10
-    # m_ = Decrypt(pp, S, i, keyset[i], C)
-
-    # print("m: ", m)
-    # print("m':", m_)
+    print("")
+    print(K_)
+    print("")
+    print("K == K_:", K == K_)
 
 if __name__ == "__main__":
     main(100)
