@@ -2,3 +2,5 @@
 # virtual inviroment
 .venv
 
+# python files compiled from sage
+*.sage.py
