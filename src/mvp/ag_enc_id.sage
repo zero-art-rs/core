@@ -19,9 +19,8 @@ def Setup(l: int, m: int):
     
     gamma = randint(1, pairing.r)
 
-    #TODO: Change points G and H to random generators
-    G = pairing.P1
-    H = pairing.P2
+    G = randint(1, pairing.r) * pairing.P1
+    H = randint(1, pairing.r) * pairing.P2
 
     msk = (G, gamma)
 
