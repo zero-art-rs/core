@@ -28,20 +28,21 @@ def Setup(l: int, m: int):
 
     # Change P1 to random generator
     msk = (G, gamma)
+
     pk = [gamma * G, pairing.e(G, H)]
     temp = _sage_const_0 
     for i in range(m):
         temp += H
         pk.append(temp)
 
-    return msk, pk
+    return msk, pk, pairing
 
-def Extract(pp, S: list[int]):
-    K_S = _sage_const_0 
-    for j in S:
-        K_S += pp.param[pp.n - j]
+def Extract(msk, ID: int, pairing):
+    G, gamma = msk
 
-    return K_S
+    sk_ID = pow(gamma + Hash(ID, pairing.r), -_sage_const_1 , pairing.r) * G
+
+    return sk_ID
 
 def Encrypt(pp, S: list[int], v, m):
     t = randint(_sage_const_2 , pp.p)
@@ -95,9 +96,7 @@ def time_evalation(n: int):
     print("m':", m_)
 
 def main(m: int):
-    msk, pk = Setup(l=None, m=m)
-
-    # msk, v, keyset = KeyGen(pp)
+    msk, pk, pairing = Setup(l=None, m=m)
 
     # S = [i for i in range(2, pp.n)]
     # m = 123456787654321
