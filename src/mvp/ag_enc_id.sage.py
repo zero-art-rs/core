@@ -36,20 +36,6 @@ def Setup(l: int, m: int):
 
     return msk, pk
 
-def KeyGen(pp):
-    gamma = randint(_sage_const_2 , pp.p)
-    msk = gamma
-    v = gamma * pp.G
-
-    keyset = np.empty(
-        (pp.n),
-        dtype=sage.schemes.elliptic_curves.ell_point.EllipticCurvePoint_finite_field
-    )
-    for i in range(_sage_const_0 , pp.n):
-        keyset[i] = gamma * pp.param[i]
-    
-    return msk, v, keyset
-
 def Extract(pp, S: list[int]):
     K_S = _sage_const_0 
     for j in S:
