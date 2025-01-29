@@ -1,3 +1,4 @@
+# BN381 from https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-pairing-friendly-curves-11#name-bn-curves-for-the-128-bit-s
 class BN381Pairing:
     def __init__(self):
         BN381_1 = {
@@ -7,9 +8,9 @@ class BN381Pairing:
                   0x0118ea0460f7f7abb82b33676a7432a490eeda842cccfa7d788c659650426e6af77df11b8ae40eb80f475432c66600622ecaa8a5734d36fb03de),
             "b": 5
         }
-        Fp = GF(BN381_1["p"])
+        self.Fp = GF(BN381_1["p"])
 
-        E0 = EllipticCurve(Fp, [0,BN381_1["b"]])
+        E0 = EllipticCurve(self.Fp, [0,BN381_1["b"]])
         E0.set_order(BN381_1["r"])
 
         Fp12.<x> = GF(BN381_1["p"]^12)
@@ -23,6 +24,7 @@ class BN381Pairing:
           0x073ef0cbd438cbe0172c8ae37306324d44d5e6b0c69ac57b393f1ab370fd725cc647692444a04ef87387aa68d53743493b9eba14cc552ca2a93a*i),
             "b": -i+2
         }
+        self.p = BN381_1["p"]
         self.r = BN381_1["r"]
         self.E1 = EllipticCurve(Fp12, [0,BN381_1["b"]])
         self.E2 = EllipticCurve(Fp12, [0,BN381_2["b"]])
