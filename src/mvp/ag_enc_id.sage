@@ -1,58 +1,37 @@
 # there must be Setup, KeyGen, Extract, Encrypt, Decrypt functions of AgEncID protocol
 import time
+import hashlib
 
 import numpy as np
 
-class PublicParamethers:
-    def __init__(self, p, ord, t, E, G, alpha, param, n):
-        self.p = p
-        self.ord = ord
-        self.t = t
-        self.E = E
-        self.G = G
-        self.ord = E.order()
-        self.alpha = alpha
-        self.param = param
-        self.n = n
+load('src/mvp/bn381.sage')
+
+def Hash(number: int, p: int):
+    number_bytes = number.to_bytes((number.bit_length() + 7) // 8, byteorder='big')
+
+    sha3_384_hash = hashlib.sha3_384(number_bytes).hexdigest()
+
+    return int(sha3_384_hash, 16) % p
     
-def Setup(l: int, n: int) -> PublicParamethers:
-    p = 1461501624496790265145448589920785493717258890819
-    ord = 1461501624496790265145447380994971188499300027613
-    t = 1208925814305217958863207
+def Setup(l: int, m: int):
+    pairing = BN381Pairing()
+    
+    gamma = randint(1, pairing.p)
 
-    E = EllipticCurve(GF(p), [0,3])
-    G = E([1, 2])
+    G = pairing.P1
+    H = pairing.P2
 
-    alpha = randint(2,p)
+    # Change P1 to random generator
+    msk = (G, gamma)
+    pk = [gamma * G, pairing.e(G, H)]
+    temp = 0
+    for i in range(m):
+        temp += H
+        pk.append(temp)
 
-    Temp = G
+    return msk, pk
 
-    param = np.empty(
-        (2 * n),
-        dtype=sage.schemes.elliptic_curves.ell_point.EllipticCurvePoint_finite_field
-    )
-    for i in range(0, n):
-        Temp = alpha * Temp
-        param[i] = Temp
-
-    Temp = alpha * Temp
-    for i in range(n+1, 2*n):
-        Temp = alpha * Temp
-        param[i] = Temp
-
-    pp = PublicParamethers(
-        p=p,
-        ord=ord,
-        t=t,
-        E=E,
-        G=G,
-        alpha=alpha,
-        param=param,
-        n=n
-    )
-    return pp
-
-def KeyGen(pp: PublicParamethers):
+def KeyGen(pp):
     gamma = randint(2, pp.p)
     msk = gamma
     v = gamma * pp.G
@@ -66,14 +45,14 @@ def KeyGen(pp: PublicParamethers):
     
     return msk, v, keyset
 
-def Extract(pp: PublicParamethers, S: list[int]):
+def Extract(pp, S: list[int]):
     K_S = 0
     for j in S:
         K_S += pp.param[pp.n - j]
 
     return K_S
 
-def Encrypt(pp: PublicParamethers, S: list[int], v, m):
+def Encrypt(pp, S: list[int], v, m):
     t = randint(2, pp.p)
 
     K_S = Extract(pp, S)
@@ -124,21 +103,21 @@ def time_evalation(n: int):
     print("m: ", m)
     print("m':", m_)
 
-def main(n: int):
-    pp = Setup(l=None, n=n)
+def main(m: int):
+    msk, pk = Setup(l=None, m=m)
 
-    msk, v, keyset = KeyGen(pp)
+    # msk, v, keyset = KeyGen(pp)
 
-    S = [i for i in range(2, pp.n)]
-    m = 123456787654321
-    C = Encrypt(pp, S, v, m)
+    # S = [i for i in range(2, pp.n)]
+    # m = 123456787654321
+    # C = Encrypt(pp, S, v, m)
 
-    i = 10
-    m_ = Decrypt(pp, S, i, keyset[i], C)
+    # i = 10
+    # m_ = Decrypt(pp, S, i, keyset[i], C)
 
-    print("m: ", m)
-    print("m':", m_)
+    # print("m: ", m)
+    # print("m':", m_)
 
 if __name__ == "__main__":
-    # main(100)
-    time_evalation(10000)
+    main(100)
+    # time_evalation(100)
