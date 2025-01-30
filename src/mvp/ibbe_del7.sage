@@ -1,4 +1,4 @@
-# there must be Setup, KeyGen, Extract, Encrypt, Decrypt functions of AgEncID protocol
+# IBBE protocol by Cecile Delerablee (2007)
 import hashlib
 
 load('./bn381.sage')
