@@ -96,34 +96,6 @@ def Decrypt(S, ID, sk_ID, Hdr, pk, pairing):
 
     return K
 
-# TODO: update time evaluation function
-# def time_evalation(n: int):
-#     time_start = time.time()
-#     pp = Setup(l=None, n=n)
-#     time_finish = time.time()
-#     print(f"Setup time: {time_finish - time_start:0.3f} s.")
-
-#     time_start = time.time()
-#     msk, v, keyset = KeyGen(pp)
-#     time_finish = time.time()
-#     print(f"KeyGen time: {time_finish - time_start:0.3f} s.")
-
-#     S = [i for i in range(2, pp.n)]
-#     m = 123456787654321
-#     time_start = time.time()
-#     C = Encrypt(pp, S, v, m)
-#     time_finish = time.time()
-#     print(f"Encrypt time: {time_finish - time_start:0.3f} s.")
-
-#     i = 10
-#     time_start = time.time()
-#     m_ = Decrypt(pp, S, i, keyset[i], C)
-#     time_finish = time.time()
-#     print(f"Decrypt time: {time_finish - time_start:0.3f} s.")
-
-#     print("m: ", m)
-#     print("m':", m_)
-
 def main(m: int):
     msk, pk, pairing = Setup(l=None, m=m)
 
