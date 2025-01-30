@@ -4,7 +4,8 @@ import hashlib
 
 import numpy as np
 
-load('src/mvp/bn381.sage')
+# load('src/mvp/bn381.sage')
+load('./bn381.sage')
 
 def Hash(number: int, p: int) -> int:
     '''return hash of number modulo p'''
@@ -64,25 +65,25 @@ def Encrypt(S: list[int], pk, pairing):
 
 def Decrypt(S, ID, sk_ID, Hdr, pk, pairing):
     C1, C2 = Hdr
-    
-    S_i = S.copy() # for beter readability remove ID from set S
-    S_i.remove(ID)
-    
+
     exponent = 1
-    for ID_i in S_i:
-        exponent = (exponent * Hash(ID_i, pairing.r)) % pairing.r
+    for ID_i in S:
+        if ID_i != ID:
+            exponent = (exponent * Hash(ID_i, pairing.r)) % pairing.r
     exponent = pow(exponent, -1, pairing.r)
 
     # Compute H^(p_iS) using polynomial p_iS_polly
     R = PolynomialRing(GF(pairing.r), "x")
     p_iS_polly = R(1)
-    for ID_i in S_i:
-        p_iS_polly *= R(x + Hash(ID_i, pairing.r))
+    for ID_i in S:
+        if ID_i != ID:
+            p_iS_polly *= R(x + Hash(ID_i, pairing.r))
     
     # remove product of Hash(ID, pairing.r)
     prod = R(1)
-    for ID_i in S_i:
-        prod *= Hash(ID_i, pairing.r)
+    for ID_i in S:
+        if ID_i != ID:
+            prod *= Hash(ID_i, pairing.r)
     
     p_iS_polly -= prod
     
@@ -135,12 +136,12 @@ def main(m: int):
 
     K_ = Decrypt(S=S, ID=ID, sk_ID=sk_ID, Hdr=Hdr, pk=pk, pairing=pairing)
 
-    print(K)
+    print("K: ", K)
     print("")
-    print(K_)
+    print("K':", K_)
     print("")
-    print("K == K_:", K == K_)
+    print("K == K':", K == K_)
 
 if __name__ == "__main__":
-    main(10)
-    # time_evalation(100)
+    main(100)
+
