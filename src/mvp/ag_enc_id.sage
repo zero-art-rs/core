@@ -20,13 +20,13 @@ def Setup(l: int, m: int):
     
     gamma = randint(1, pairing.r)
 
-    G = randint(1, pairing.r) * pairing.P1
-    H = randint(1, pairing.r) * pairing.P2
+    G = randint(1, pairing.r) * pairing.P2
+    H = randint(1, pairing.r) * pairing.P1
 
     msk = (G, gamma)
 
     # Compute pk
-    pk = [gamma * G, pairing.e(G, H), H] # pk = [w, v, H]
+    pk = [gamma * G, pairing.e(H, G), H] # pk = [w, v, H]
     temp = H
     for i in range(m): # Append h^(gamma^j) to pk, for j in [1, m]
         temp = gamma * temp
@@ -92,7 +92,7 @@ def Decrypt(S, ID, sk_ID, Hdr, pk, pairing):
     for power, coeff in p_iS_polly.monomial_coefficients().items():
         Hp_iS += coeff * pk[power + 1] # divided by gamma, so index is smaller
 
-    K = pow(pairing.e(C1, Hp_iS) * pairing.e(sk_ID, C2), exponent)
+    K = pow(pairing.e(Hp_iS, C1) * pairing.e(C2, sk_ID), exponent)
 
     return K
 
