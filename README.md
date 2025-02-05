@@ -23,26 +23,30 @@ Several modes of preserving identity is [proposed](https://github.com/distribute
 
 ## Encryption
 
-The main algorithm for assymetric encryption is IBBE `Del7.Encrypt` function. A user generates header and symmetric encryption key with the mentioned function for group of receivers. A symmetric key is used after for `AES256-GCM` authenticated encryption of messege. After receiving messege user calls `Del7.Decrypt` function on messege header to decapsulate key and decrypt encrypted messege. The main construction is not [forward](https://yaogroup.cs.vt.edu/papers/fs-hibe-full.pdf) nor backword secure yet. This investigation is yet to be done.
+The main algorithm for assymetric encryption is IBBE `PM25.Encrypt` function. A user generates header and symmetric encryption key with the mentioned function for group of receivers. A symmetric key is used after for `AES256-GCM` authenticated encryption of messege. After receiving messege user calls `PM25.Decrypt` function on messege header to decapsulate key and decrypt encrypted messege. The main construction is not [forward](https://yaogroup.cs.vt.edu/papers/fs-hibe-full.pdf) nor backword secure yet. Recently we managed to provide a *forward secure* construction which is described in our [paper](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849) (`PM25`) currently under developement.
 
 ## Group management
 
 In this section we briefly describe some desirable properties of `Project M` group system.
 
-Every group is an abstract tuple `G = <S, M, attrs, mk, pp>` where `S = {ID_1, ID_2, ..., ID_m}` - set of user identifiers in group (possibly encrypted from unauthorized users), `M \subseteq S` - subset of group managers who can endure the entrance ceremony, `attrs` - group attributes (name, creation date, etc., possibly encrypted), `mk` - group master key, `pp` - public parameters. Every member of a group gets a piece of group secret along with other public data during entrance ceremony.
+Every group is an abstract tuple $G = <S, M, attrs, mk, pp>$ where $S = {ID_1, ID_2, ..., ID_m}$ - set of user identifiers in group (possibly encrypted from unauthorized users), $M \subseteq S$ - subset of group managers who can endure the entrance ceremony, `attrs` - group attributes (name, creation date, etc., possibly encrypted), `mk` - group master key, `pp` - public parameters. Every member of a group gets a piece of group secret along with other public data during entrance ceremony.
 
 ### Creation of a group
 
-1. The author of a group creates group `G` along with initialization of master key and public params with `Del7.Setup` procedure
+1. The author of a group creates group `G` along with initialization of master key and public params with `PM25.Setup` procedure
 2. The author invites other group members, gives them permissions and possibly shares master key pieces with them
 
 ### Entrance ceremony
 
-When a new user with some `ID` wants to join the group set of group managers could reach consensus and include new user into group performing additional `Del7.AddMember` procedure. After reaching consensus last group manager performs `Del7.Extract` obtaining `sk_ID`, creates ephemeral Diffie-Hellman keys with the new member, derives encryption key and send encrypted `sk_ID` to the new member.
+When a new user with some $ID$ wants to join the group set of group managers could reach consensus and include new user into group performing additional `PM25.AddMember` procedure. After reaching consensus last group manager performs `PM25.Extract` obtaining $presk_{ID}$, creates ephemeral Diffie-Hellman keys with the new member, derives encryption key and send encrypted $presk_{ID}$ to the new member. After that user endures `PM25.KeyGen` procedure which produces a secret key $sk_{ID}$ and updates public aggregated value `pp.R`.
+
+### Key Update ceremony
+
+Every user could update his $sk_{ID}$ using `P25.KeyUpdate` procedure at the arbitrary moment of time deriving new key and updating group parameter `pp.R` using zk-proof of corectness, ideally after every messege sent achieving perfect forward secrecy.
 
 ### Revocation ceremony
 
-When managers decide to revoke user they begin revocation ceremony which is yet to be done probably along with forward secrecy mechanism so that revoked member could not access future communication inside group even some other member send encrypted messeges for him.
+When managers decide to revoke user they begin revocation ceremony, one approach is to rebuild `pp.R` using only valid at the time members of group excluding revoked member even though it's not perfectly efficient. Improvements are yet to be done.
 
 ## Infrastructure
 
@@ -63,3 +67,4 @@ Optionally some users could be equipped with an additonal role of rate-limiting 
 7. [Wonderful thesis describing Weil pairings and BLS](https://www.sagemath.org/files/thesis/hansen-thesis-2009.pdf)
 8. [In Da Club](https://github.com/distributed-lab/papers/blob/main/in-da-club/In_Da_Club.pdf)
 9. [Forward Secrecy on BE](https://yaogroup.cs.vt.edu/papers/fs-hibe-full.pdf)
+10.[Current Project M Paper, referred as PM25](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849)
