@@ -52,5 +52,5 @@ def time_measurement_in_general(): # example
     step = 10
     for _ in range(3):
         number_of_users *= step
-        time_evalation(number_of_users=number_of_users)
+        time_measurement(number_of_users=number_of_users)
 
