@@ -43,7 +43,7 @@ class FS_IBBE_Del7:
         for i, H_i in enumerate(pk_H):
             pk_H[i] = r * H_i
 
-        return sk
+        return (sk, r)
 
     def Encrypt(self, S: list[int], pk):
         k = self.randint()
@@ -68,7 +68,8 @@ class FS_IBBE_Del7:
 
         return (C1, C2), K
 
-    def Decrypt(self, S, ID, sk_ID, Hdr, pk, r):
+    def Decrypt(self, S, ID, sk, Hdr, pk):
+        sk_ID, r = sk
         C1, C2 = Hdr
         pk_O, pk_H = pk
 
@@ -101,7 +102,8 @@ class FS_IBBE_Del7:
 
         return K
 
-    def KeyUpdate(self, pk, r_old, r_new, sk_ID):
+    def KeyUpdate(self, pk, r_new, sk):
+        sk_ID, r_old, = sk
         pk_O, pk_H = pk
 
         sk_upd = r_old * self.inverse(r_new) * sk_ID
@@ -109,7 +111,7 @@ class FS_IBBE_Del7:
         for i, H_i in enumerate(pk_H):
             pk_H[i] = r_new * self.inverse(r_old) * H_i
 
-        return sk_upd
+        return (sk_upd, r_new)
 
     def randint(self):
         return randint(1, self.pairing.r - 1)
@@ -149,7 +151,7 @@ def FS_IBBE_Del7_usage_example(number_of_users: int=10):
     print("Encryption and Decryption example")
     user = 0
     Hdr, K = ibbe.Encrypt(S=S, pk=pk)
-    K_ = ibbe.Decrypt(S=S, ID=S[user], sk_ID=secret_keys[user], Hdr=Hdr, pk=pk, r=random_values[user])
+    K_ = ibbe.Decrypt(S=S, ID=S[user], sk=secret_keys[user], Hdr=Hdr, pk=pk)
 
     # print("Encryption key K:", K)
     # print("")
@@ -160,12 +162,11 @@ def FS_IBBE_Del7_usage_example(number_of_users: int=10):
 
     print("Example with KeyUpdate usage")
     r_new = ibbe.randint()
-    secret_keys[user] = ibbe.KeyUpdate(pk=pk, r_old=random_values[user], r_new=r_new, sk_ID=secret_keys[user])
-    random_values[user] = r_new
+    secret_keys[user] = ibbe.KeyUpdate(pk=pk, r_new=r_new, sk=secret_keys[user])
 
     user = 0
     Hdr, K = ibbe.Encrypt(S=S, pk=pk)
-    K_ = ibbe.Decrypt(S=S, ID=S[user], sk_ID=secret_keys[user], Hdr=Hdr, pk=pk, r=random_values[user])
+    K_ = ibbe.Decrypt(S=S, ID=S[user], sk=secret_keys[user], Hdr=Hdr, pk=pk)
 
     # print("Encryption key K:", K)
     # print("")
