@@ -97,9 +97,6 @@ def time_measurement_fs_ibbe_del7(number_of_users: int, repeat: int=10):
         time_finish = time.time()
         time_table["KeyUpdate"] += time_finish - time_start
 
-        if K != K_:
-            print("Wrong encryption")
-
     summary_time_finish = time.time()
 
     print(f"--- Evaluation: {number_of_users} users, repeat {repeat} times ---")
