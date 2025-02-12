@@ -43,10 +43,10 @@ def time_measurement_ibbe_del7(number_of_users: int, repeat: int=10):
     summary_time_finish = time.time()
 
     print(f"--- Evaluation: {number_of_users} users, repeat {repeat} times ---")
-    print(f"Avarage Setup time: {time_table["Setup"] / repeat:0.3f} s.")
-    print(f"Avarage Extract time: {time_table["Extract"] / repeat:0.3f} s.")
-    print(f"Avarage Encrypt time: {time_table["Encrypt"] / repeat:0.3f} s.")
-    print(f"Avarage Decrypt time: {time_table["Decrypt"] / repeat:0.3f} s.")
+    print(f"Average Setup time: {time_table["Setup"] / repeat:0.3f} s.")
+    print(f"Average Extract time: {time_table["Extract"] / repeat:0.3f} s.")
+    print(f"Average Encrypt time: {time_table["Encrypt"] / repeat:0.3f} s.")
+    print(f"Average Decrypt time: {time_table["Decrypt"] / repeat:0.3f} s.")
     print(f"Test time: {(summary_time_finish - summary_time_start):0.3f} s.")
 
 def time_measurement_in_general_ibbe_del7(): # example
@@ -64,7 +64,8 @@ def time_measurement_fs_ibbe_del7(number_of_users: int, repeat: int=10):
     time_table = defaultdict(int)
 
     S = [i for i in range(number_of_users)]
-    ID = 0
+    ID = randint(0, number_of_users - 1)
+    M = ibbe.randint()
 
     for _ in range(repeat):
         time_start = time.time()
@@ -97,12 +98,22 @@ def time_measurement_fs_ibbe_del7(number_of_users: int, repeat: int=10):
         time_finish = time.time()
         time_table["KeyUpdate"] += time_finish - time_start
 
+        time_start = time.time()
+        s = ibbe.Sign(M=M, pk=pk, sk=sk)
+        time_finish = time.time()
+        time_table["Sign"] += time_finish - time_start
+
+        time_start = time.time()
+        sig_rez = ibbe.Verify(M=M, s=s, pk=pk, ID=ID)
+        time_finish = time.time()
+        time_table["Verify"] += time_finish - time_start
+
     summary_time_finish = time.time()
 
     print(f"--- Evaluation: {number_of_users} users, repeat {repeat} times ---")
     print(f"Test time: {(summary_time_finish - summary_time_start):0.3f} s.")
     for key in time_table:
-        print(f"Avarage {key} time: {time_table[key] / repeat:0.3f} s.")
+        print(f"Average {key} time: {time_table[key] / repeat:0.3f} s.")
 
 def time_measurement_in_general_fs_ibbe_del7(): # example
     number_of_users = 1
