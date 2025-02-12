@@ -17,7 +17,7 @@ class FS_IBBE_Del7:
 
         msk = (G, gamma)
 
-        pk_O = [gamma * G, self.pairing.e(H, G), H, self.inverse(gamma) * H] # pk = [w, v, h]
+        pk_O = [gamma * G, self.pairing.e(H, G), H, self.inverse(gamma) * H, gamma * H] # pk = [w, v, h]
 
         pk_H = [self.inverse(gamma) * H, H]
         # Append (gamma^j) H to pk, for j in [1, number_of_users]
@@ -113,6 +113,23 @@ class FS_IBBE_Del7:
 
         return (sk_upd, r_new)
 
+    def Sign(self, M, pk, sk):
+        sk_ID, r = sk
+        pk_O, pk_H = pk
+        
+        k = self.randint()
+        sigma = k * r * self.hash_mod(M) * sk_ID
+
+        return sigma, k * pk_O[3]
+
+    def Verify(self, M, s, pk, ID):
+        pk_O, pk_H = pk
+
+        left = self.pairing.e(pk_O[4] + self.hash_mod(ID) * pk_O[2], s[0])
+        right = pow(self.pairing.e(s[1], pk_O[0]), self.hash_mod(M))
+
+        return left == right
+
     def randint(self):
         return randint(1, self.pairing.r - 1)
 
@@ -173,3 +190,8 @@ def FS_IBBE_Del7_usage_example(number_of_users: int=10):
     # print("Decryption key K':", K_)
     # print("")
     print("K == K':", K == K_)
+
+    print("Signature example")
+    M = ibbe.randint()
+    s = ibbe.Sign(M=M, pk=pk, sk=secret_keys[user])
+    print(ibbe.Verify(M=M, s=s, pk=pk, ID=user))
