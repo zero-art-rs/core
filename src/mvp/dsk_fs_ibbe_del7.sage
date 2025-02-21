@@ -59,9 +59,11 @@ class FS_IBBE_Del7:
 
         return (presk_1, presk_2)
 
-    def KeyGen(self, S, ID, r, alpha, pk, presk):
+    def KeyGen(self, S, ID, r, pk, presk):
         presk1, presk2 = presk
         pk_O, pk_H, pk_R = pk
+
+        alpha = self.randint()
 
         coeff = r * self.inverse(alpha)
 
@@ -78,7 +80,7 @@ class FS_IBBE_Del7:
 
         return (presk1, sk2, r)
 
-    def Encrypt(self, S: list[int], pk, alpha):
+    def Encrypt(self, S: list[int], pk):
         k = self.randint()
 
         pk_O, pk_H, pk_R = pk
@@ -103,7 +105,7 @@ class FS_IBBE_Del7:
 
         return (C1, C2), K
 
-    def Decrypt(self, S, ID, sk, Hdr, pk, alpha):
+    def Decrypt(self, S, ID, sk, Hdr, pk):
         sk_1, sk_2, r = sk
         C1, C2 = Hdr
         pk_O, pk_H, pk_R = pk
@@ -161,17 +163,16 @@ def example(number_of_users: int=10):
         presk_store.append(presk)
 
     r_store = [ibbe.randint() for _ in range(len(S))]
-    alpha_store = [ibbe.randint() for _ in range(len(S))]
 
     sk_store = []
     for i, ID in enumerate(S):
-        sk = ibbe.KeyGen(r=r_store[i], S=S, ID=ID, alpha=alpha_store[i], pk=pk, presk=presk_store[i])
+        sk = ibbe.KeyGen(r=r_store[i], S=S, ID=ID, pk=pk, presk=presk_store[i])
         sk_store.append(sk)
 
     print("Encryption and Decryption example")
     user = 0
-    Hdr, K = ibbe.Encrypt(S=S, pk=pk, alpha=alpha_store[user])
-    K_ = ibbe.Decrypt(S=S, ID=user, sk=sk_store[user], Hdr=Hdr, pk=pk, alpha=alpha_store[user])
+    Hdr, K = ibbe.Encrypt(S=S, pk=pk)
+    K_ = ibbe.Decrypt(S=S, ID=user, sk=sk_store[user], Hdr=Hdr, pk=pk)
 
     print("Encryption key K:", K)
     print("")
