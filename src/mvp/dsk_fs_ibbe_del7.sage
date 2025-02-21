@@ -136,6 +136,26 @@ class FS_IBBE_Del7:
 
         return K
 
+    def KeyUpdate(self, S, ID, pk, r_new, sk):
+        alpha = self.randint()
+
+        sk1, sk2, r_old = sk
+        pk_O, pk_H, pk_R = pk
+
+        coeff = r_new * self.inverse(r_old) * self.inverse(alpha) # reuse optimisation
+        for i, R_i in enumerate(pk_R):
+            if S[i] == ID:
+                pk_R[i] = r_new * self.inverse(r_old) * R_i
+            else:
+                pk_R[i] = coeff * R_i
+
+        pk_O["egH2"] = coeff * pk_O["egH2"]
+        pk_O["ggH2"] = coeff * pk_O["ggH2"]
+
+        sk2_new = r_old * alpha * self.inverse(r_new) * sk2
+
+        return (sk1, sk2_new, r_new)
+
     def randint(self) -> int:
         return randint(1, self.pairing.r - 1)
 
@@ -169,7 +189,7 @@ def example(number_of_users: int=10):
         sk = ibbe.KeyGen(r=r_store[i], S=S, ID=ID, pk=pk, presk=presk_store[i])
         sk_store.append(sk)
 
-    print("Encryption and Decryption example")
+    print("> Encryption and Decryption example")
     user = 0
     Hdr, K = ibbe.Encrypt(S=S, pk=pk)
     K_ = ibbe.Decrypt(S=S, ID=user, sk=sk_store[user], Hdr=Hdr, pk=pk)
@@ -179,6 +199,20 @@ def example(number_of_users: int=10):
     print("Decryption key K':", K_)
     print("")
     print("K == K':", K == K_)
-    print("")
 
+    print("")
+    print("> Example with KeyUpdate usage")
+
+    r_new = ibbe.randint()
+    sk_store[user] = ibbe.KeyUpdate(pk=pk, r_new=r_new, sk=sk_store[user], S=S, ID=user)
+
+    user = 0
+    Hdr, K = ibbe.Encrypt(S=S, pk=pk)
+    K_ = ibbe.Decrypt(S=S, ID=S[user], sk=sk_store[user], Hdr=Hdr, pk=pk)
+
+    print("Encryption key K:", K)
+    print("")
+    print("Decryption key K':", K_)
+    print("")
+    print("K == K':", K == K_)
 
