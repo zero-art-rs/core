@@ -5,13 +5,14 @@
 if [ -n "$1" ] ; then
   number_of_nodes="$1"
 else
-  #  default value
-  number_of_nodes=50
+  number_of_nodes=50 #  default value
 fi
 
-docker build -t chat-node-rust .
+if ! docker build -t chat-node-rust . ; then # check if docker build failed
+  echo "Docker build failed. Exiting..."
+  exit 1
+fi
 
-#number_of_nodes=100
 for (( i=0; i < number_of_nodes; ++i ))
 do
   docker run -td --rm chat-node-rust
