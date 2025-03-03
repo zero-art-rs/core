@@ -269,14 +269,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             noise::Config::new,
             yamux::Config::default,
         )?
-        .with_quic()
         .with_behaviour(|key| {
 
             // Set a custom gossipsub configuration
             let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(1)) // This is set to aid debugging by not cluttering the log space
                 .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message
                 // signing)
+                .published_message_ids_cache_time(Duration::from_secs(10))
+                .heartbeat_initial_delay(Duration::from_millis(100))
+                .duplicate_cache_time(Duration::from_secs(60 * 10))
                 .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
                 .build()
                 .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))?; // Temporary hack because `build` does not return a proper `std::error::Error`.
@@ -293,20 +294,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })?
         .build();
 
-    // Create a Gossipsub topic
     let topic = gossipsub::IdentTopic::new("test-net");
-    // subscribes to our topic
     swarm.behaviour_mut().gossipsub.subscribe(&topic)?;
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
     // Listen on all interfaces and whatever port the OS assigns
-    swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-    // if let Some(addr) = std::env::args().nth(0) {
-    //     swarm.listen_on( addr.parse()?)?;
-    // }
+
 
     println!("Start messaging..");
     println!("Local peer id: {}", swarm.local_peer_id().to_string());
