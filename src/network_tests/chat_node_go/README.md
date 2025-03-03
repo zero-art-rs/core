@@ -32,7 +32,6 @@ There where done several tests for different size of network. They wheree done o
 |25 nodes | 28.652397ms | 25 messages |
 |50 nodes | 130.252518ms | 48.775 messages |
 |75 nodes | 148.373209ms | 67.175 messages |
-|100 nodes | 266.87369ms | 89.84 messages |
 |100 nodes | 288.23903ms | 88.265 messages |
 |125 nodes | 488.655505ms | 103.446667 messages |
 |150 nodes | 597.046248ms | 111.566667 messages |
