@@ -2,12 +2,12 @@
 
 
 
-|           | latency    | ping requests delivered |
-|-----------|------------|-------------------------|
-| 25 nodes  | 35.98 ms   | 25 messages             |
-| 50 nodes  | 65.786 ms  | 45 messages             |
-| 75 nodes  | 219.079 ms | 74.904 messages         |
-| 100 nodes | 655.284 ms   | 100 messages            |
+|           | latency   | ping requests delivered |
+|-----------|-----------|-------------------------|
+| 25 nodes  | 36.08 ms  | 25 messages             |
+| 50 nodes  | 102.42 ms | 50 messages             |
+| 75 nodes  | 517.32 ms | 73.274 messages         |
+| 100 nodes | 725.53 ms | 96.80 messages          |
 
 
 
