@@ -1,11 +1,12 @@
 use num::BigUint;
 use sha2::{Digest, Sha256, Sha512};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::num::Saturating;
 use std::process::{Command, ExitStatus};
 
 use ark_ec::{AffineRepr, pairing::Pairing};
 use ark_ff::{BigInt, Field, Fp, Fp256, MontBackend};
-use ark_std::UniformRand;
+use ark_std::{One, UniformRand, Zero};
 
 // use ark_test_curves::bls12_381::{Bls12_381, G1Projective as G1, G2Projective as G2, Fq12 as Fq12};
 // use ark_test_curves::bls12_381::Fr as ScalarField;
@@ -17,7 +18,7 @@ use ark_bn254::{
 };
 use ark_ec::bn::{Bn, G1Projective, G2Projective};
 use ark_ec::pairing::PairingOutput;
-use rand::random;
+use rand::Rng;
 // use ark_ec::twisted_edwards::Projective;
 // use sha2::digest::Output;
 
@@ -25,6 +26,17 @@ use rand::random;
 pub struct IBBEDel7 {}
 
 impl IBBEDel7 {
+    // return random ScalarField element, which isn't zero or one
+    fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
+        rng: &mut R,
+    ) -> Fp256<MontBackend<FrConfig, 4>> {
+        let mut k = ScalarField::zero();
+        while k.eq(&ScalarField::one()) || k.eq(&ScalarField::zero()) {
+            k = ScalarField::rand(rng);
+        }
+
+        k
+    }
     pub fn run_setup(
         max_number_of_users: u32,
     ) -> (
@@ -38,7 +50,7 @@ impl IBBEDel7 {
     ) {
         let mut rng = ark_std::test_rng();
 
-        let gamma = ScalarField::rand(&mut rng);
+        let gamma = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
 
         let g = G2::rand(&mut rng);
         let h = G1::rand(&mut rng);
