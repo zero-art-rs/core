@@ -9,3 +9,6 @@ ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 ark-std = "0.5.0"
 ark-test-curves = {version = "0.5.0", features = ["bls12_381_curve"] }
+num = "0.4.3"
+sha2 = "0.10.8"
+rand = "0.8.5"
