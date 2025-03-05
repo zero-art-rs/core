@@ -146,4 +146,54 @@ impl IBBEDel7 {
 
         ((c1, c2), k_public)
     }
+
+    pub fn decrypt(
+        legitimate_users: &Vec<u32>,
+        user_id: u32,
+        sk_id: &Projective<ark_bn254::g2::Config>,
+        hdr: &(
+            Projective<ark_bn254::g2::Config>,
+            Projective<ark_bn254::g1::Config>,
+        ),
+        pk: &(
+            ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config>,
+            PairingOutput<Bn<Config>>,
+            G1Projective<Config>,
+            Vec<G1Projective<Config>>,
+        ),
+    ) -> Fp12<Fq12Config> {
+        let (c1, c2) = hdr;
+        let (_, _, _, powers_of_h) = pk;
+
+        let mut exponent = ScalarField::one();
+        for id in legitimate_users {
+            if id.ne(&user_id) {
+                let id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(*id);
+                exponent = exponent * id_hash;
+            }
+        }
+        exponent = exponent.inverse().unwrap();
+        let exponent = BigInt::from(exponent);
+
+        let mut id_hashes = Vec::new();
+        for id in legitimate_users {
+            if user_id.ne(&id) {
+                id_hashes.push(IBBEDel7::sha512_from_u32_to_scalar_field(*id));
+            }
+        }
+
+        let mut coefficients = IBBEDel7::compute_polynomial_coefficients(&id_hashes);
+        coefficients.remove(0);
+
+        let mut left_part = G1::zero();
+        for (power, coefficient) in coefficients.iter().enumerate() {
+            left_part += powers_of_h[power] * coefficient;
+        }
+
+        let left_pairing = Bn254::pairing(left_part, c1).0;
+        let right_pairing = Bn254::pairing(c2, sk_id).0;
+        let key = (left_pairing * right_pairing).pow(exponent);
+
+        key
+    }
 }
