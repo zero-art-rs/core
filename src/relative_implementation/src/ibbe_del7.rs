@@ -142,9 +142,9 @@ impl IBBEDel7 {
 
         let y = v.0;
         let k_value = BigInt::from(k);
-        let k_public = y.pow(&k_value);
+        let key = y.pow(&k_value);
 
-        ((c1, c2), k_public)
+        ((c1, c2), key)
     }
 
     pub fn decrypt(
