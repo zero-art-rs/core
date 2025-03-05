@@ -1,10 +1,10 @@
 use num::BigUint;
 use sha2::{Digest, Sha512};
-use std::hash::Hash;
-
-use ark_ec::{AffineRepr, pairing::Pairing};
+// use std::hash::Hash;
+use ark_ec::pairing::Pairing;
 use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend};
 use ark_std::{One, UniformRand, Zero};
+use std::ops::{Add, Mul};
 
 use ark_bn254::{
     Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
@@ -50,12 +50,12 @@ impl IBBEDel7 {
 
         let msk = (g, gamma);
 
-        let w = g * gamma;
+        let w = g.mul(gamma);
         let v = Bn254::pairing(h, g);
 
         let mut powers_of_h = vec![h];
         let mut power_of_h = h;
-        for i in 1..max_number_of_users {
+        for _ in 1..max_number_of_users {
             power_of_h = power_of_h * gamma;
             powers_of_h.push(power_of_h);
         }
@@ -75,19 +75,18 @@ impl IBBEDel7 {
     }
 
     pub fn extract(
-        msk: (G2Projective<Config>, ScalarField),
+        msk: &(G2Projective<Config>, ScalarField),
         id: u32,
     ) -> ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config> {
-        let (g, gamma): (G2Projective<Config>, ScalarField) = msk;
+        let (g, gamma) = &msk;
 
         // sk_id = (gamma + hash(ID))^{-1} * G
         let sk_id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(id);
-        let sk_id: ScalarField = gamma + sk_id_hash;
-        let sk_id: ScalarField = Fp256::inverse(&sk_id).unwrap();
-        g * sk_id
+        let sk_id = gamma.add(&sk_id_hash).inverse().unwrap();
+        g.mul(sk_id)
     }
 
-    fn compute_polynomial_coefficients(roots: Vec<ScalarField>) -> Vec<ScalarField> {
+    fn compute_polynomial_coefficients(roots: &Vec<ScalarField>) -> Vec<ScalarField> {
         let n = roots.len();
 
         let mut coefs = vec![ScalarField::zero(); n + 1];
@@ -107,9 +106,9 @@ impl IBBEDel7 {
     }
 
     pub fn encrypt(
-        legitimate_users: Vec<u32>,
-        pk: (
-            ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config>,
+        legitimate_users: &Vec<u32>,
+        pk: &(
+            Projective<ark_bn254::g2::Config>,
             PairingOutput<Bn<Config>>,
             G1Projective<Config>,
             Vec<G1Projective<Config>>,
@@ -121,20 +120,20 @@ impl IBBEDel7 {
         ),
         Fp12<Fq12Config>,
     ) {
-        let (w, v, h, powers_of_h) = pk;
+        let (w, v, _, powers_of_h) = pk;
 
         let mut rng = ark_std::test_rng();
 
         let k = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
-        let c1 = w * -k;
+        let c1 = w.mul(-k);
 
         // compute c2
         let mut id_hashes = Vec::new();
         for id in legitimate_users {
-            id_hashes.push(IBBEDel7::sha512_from_u32_to_scalar_field(id));
+            id_hashes.push(IBBEDel7::sha512_from_u32_to_scalar_field(*id));
         }
 
-        let coefficients = IBBEDel7::compute_polynomial_coefficients(id_hashes);
+        let coefficients = IBBEDel7::compute_polynomial_coefficients(&id_hashes);
 
         let mut c2 = G1::zero();
         for (power, coefficient) in coefficients.iter().enumerate() {
