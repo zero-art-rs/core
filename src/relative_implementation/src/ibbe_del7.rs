@@ -55,7 +55,7 @@ impl IBBEDel7 {
 
         let mut powers_of_h = vec![h];
         let mut power_of_h = h;
-        for _ in 1..max_number_of_users {
+        for _ in 0..max_number_of_users {
             power_of_h = power_of_h * gamma;
             powers_of_h.push(power_of_h);
         }
