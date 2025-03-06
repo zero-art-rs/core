@@ -1,6 +1,7 @@
 extern crate relative_implementation;
 
 use relative_implementation::ibbe_del7::IBBEDel7;
+use relative_implementation::ibbe_del7_time_measurements::SpeedMetrics;
 
 fn example() {
     let number_of_users = 15u32;
@@ -26,5 +27,6 @@ fn example() {
 }
 
 fn main() {
-    example();
+    // example();
+    SpeedMetrics::test_all(100);
 }
