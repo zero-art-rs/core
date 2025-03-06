@@ -4,19 +4,19 @@
 use num::BigUint;
 use sha2::{Digest, Sha512};
 // use std::hash::Hash;
-use ark_ec::pairing::Pairing;
-use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
-use ark_std::{One, UniformRand, Zero};
-use std::ops::{Add, Mul};
-
 use ark_bn254::{
     Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
     fr::Fr as ScalarField, fr::FrConfig,
 };
 use ark_ec::bn::{Bn, G1Projective, G2Projective};
+use ark_ec::pairing::Pairing;
 use ark_ec::pairing::PairingOutput;
 use ark_ec::short_weierstrass::Projective;
+use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
+use ark_std::{One, UniformRand, Zero};
 use rand::Rng;
+use std::ops::{Add, Mul, Neg};
+use std::ptr::hash;
 
 #[derive(Debug)]
 pub struct IBBEDel7 {}
@@ -206,5 +206,64 @@ impl IBBEDel7 {
         let key = (left_pairing * right_pairing).pow(exponent);
 
         key
+    }
+
+    pub fn sign(
+        message: &String,
+        sk_id: &Projective<ark_bn254::g2::Config>,
+        pk: &(
+            Projective<ark_bn254::g2::Config>,
+            PairingOutput<Bn<Config>>,
+            G1Projective<Config>,
+            Vec<G1Projective<Config>>,
+        ),
+    ) -> (
+        Fp256<MontBackend<FrConfig, 4>>,
+        Projective<ark_bn254::g2::Config>,
+    ) {
+        let (w, v, h, powers_of_h) = pk;
+
+        let mut rng = ark_std::rand::thread_rng();
+        let x = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
+        let r = v.0.pow(&x.into_bigint());
+
+        let mut message_as_bytes = message.as_bytes().to_vec();
+        message_as_bytes.append(&mut r.to_string().into_bytes());
+        let hash = IBBEDel7::sha512_from_byte_vec_to_scalar_field(&message_as_bytes);
+
+        let s = sk_id.mul(x + hash);
+
+        (hash, s)
+    }
+
+    pub fn verify(
+        message: &String,
+        sigma: &(
+            Fp256<MontBackend<FrConfig, 4>>,
+            Projective<ark_bn254::g2::Config>,
+        ),
+        id: u32,
+        pk: &(
+            Projective<ark_bn254::g2::Config>,
+            PairingOutput<Bn<Config>>,
+            G1Projective<Config>,
+            Vec<G1Projective<Config>>,
+        ),
+    ) -> bool {
+        let (w, v, h, powers_of_h) = pk;
+        let (hash, s) = sigma;
+
+        let id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(id);
+
+        let neg_hash = hash.neg();
+        let mut right_part = Bn254::pairing(h.mul(id_hash) + powers_of_h[1], s).0
+            * v.0.pow(&neg_hash.into_bigint());
+
+        let mut message_as_bytes = message.as_bytes().to_vec();
+        message_as_bytes.append(&mut right_part.to_string().into_bytes());
+
+        hash.eq(&IBBEDel7::sha512_from_byte_vec_to_scalar_field(
+            &message_as_bytes,
+        ))
     }
 }
