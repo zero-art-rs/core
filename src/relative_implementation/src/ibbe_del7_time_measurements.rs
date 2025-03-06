@@ -6,13 +6,6 @@ use std::time::Instant;
 pub struct SpeedMetrics {}
 
 impl SpeedMetrics {
-    pub fn test_all(number_of_iterations: u128) {
-        SpeedMetrics::test_complex(10, number_of_iterations);
-        SpeedMetrics::test_complex(100, number_of_iterations);
-        SpeedMetrics::test_complex(1000, number_of_iterations);
-        SpeedMetrics::test_complex(10000, 10);
-    }
-
     pub fn test_setup(number_of_users: u32, number_of_iterations: u128) {
         let mut total_execution_time = 0u128;
 
@@ -26,7 +19,7 @@ impl SpeedMetrics {
 
         let avg_duration = total_execution_time / number_of_iterations;
         println!(
-            "test_setup {number_of_users} users: {} ms",
+            "test_setup {number_of_users} users: {} ms on average",
             avg_duration as f64 / 1000000.0
         );
     }
@@ -49,7 +42,7 @@ impl SpeedMetrics {
         }
 
         let avg_duration = total_execution_time / number_of_iterations;
-        println!("test_extract: {} ms", avg_duration as f64 / 1000000.0);
+        println!("test_extract: {} ms on average", avg_duration as f64 / 1000000.0);
     }
 
     pub fn test_encrypt(number_of_users: u32, number_of_iterations: u128) {
@@ -72,7 +65,7 @@ impl SpeedMetrics {
 
         let avg_duration = total_execution_time / number_of_iterations;
         println!(
-            "test_encrypt {number_of_users} users: {} ms",
+            "test_encrypt {number_of_users} users: {} ms on average",
             avg_duration as f64 / 1000000.0
         );
     }
@@ -98,7 +91,7 @@ impl SpeedMetrics {
 
         let avg_duration = total_execution_time / number_of_iterations;
         println!(
-            "test_decrypt {number_of_users} users: {} ms",
+            "test_decrypt {number_of_users} users: {} ms on average",
             avg_duration as f64 / 1000000.0
         );
     }
@@ -138,20 +131,59 @@ impl SpeedMetrics {
 
         println!();
         println!(
-            "test_setup {number_of_users} users, {number_of_iterations} iterations: {} ms",
+            "test_setup {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
             (total_execution_time_setup as f64 / number_of_iterations as f64) / 1000000.0
         );
         println!(
-            "test_extract {number_of_users} users, {number_of_iterations} iterations: {} ms",
+            "test_extract {number_of_iterations} iterations: {} ms on average",
             (total_execution_time_extract as f64 / number_of_iterations as f64) / 1000000.0
         );
         println!(
-            "test_encrypt {number_of_users} users, {number_of_iterations} iterations: {} ms",
+            "test_encrypt {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
             (total_execution_time_encrypt as f64 / number_of_iterations as f64) / 1000000.0
         );
         println!(
-            "test_decrypt {number_of_users} users, {number_of_iterations} iterations: {} ms",
+            "test_decrypt {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
             (total_execution_time_decrypt as f64 / number_of_iterations as f64) / 1000000.0
+        );
+    }
+
+    pub fn test_signature_complex(number_of_users: u32, number_of_iterations: u128) {
+        let mut total_execution_time_signature = 0u128;
+        let mut total_execution_time_verification = 0u128;
+
+        let mut rng = rand::thread_rng();
+        let set_of_users: Vec<u32> = (0..number_of_users).collect();
+
+        for _ in 0..number_of_iterations {
+            let (msk, pk) = IBBEDel7::run_setup(number_of_users);
+
+            let user_id = rng.gen_range(0..number_of_users);
+            let sk_id = IBBEDel7::extract(&msk, user_id);
+
+            let message: String = (0..100)
+                .map(|_| char::from(rng.gen_range(32..127)))
+                .collect();
+
+            let start_time: Instant = Instant::now();
+            let sigma = IBBEDel7::sign(&message, &sk_id, &pk);
+            let end_time: Instant = Instant::now();
+            total_execution_time_signature += end_time.duration_since(start_time).as_nanos();
+
+            let start_time: Instant = Instant::now();
+            IBBEDel7::verify(&message, &sigma, user_id, &pk);
+            let end_time: Instant = Instant::now();
+            total_execution_time_verification += end_time.duration_since(start_time).as_nanos();
+        }
+
+        println!();
+        println!(
+            "test_signature {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_signature as f64 / number_of_iterations as f64) / 1000000.0
+        );
+        println!(
+            "test_verification {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_verification as f64 / number_of_iterations as f64) / 1000000.0
         );
     }
 }

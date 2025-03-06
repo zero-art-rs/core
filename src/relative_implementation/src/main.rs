@@ -24,9 +24,25 @@ fn example() {
     println!("decrypted_key = {decrypted_key}\n");
 
     println!("key == decrypted_key: {}\n", key.eq(&decrypted_key));
+
+    let message = String::from("Some string");
+    let sigma = IBBEDel7::sign(&message, &sk_id, &pk);
+    println!("sigma = {:?}", sigma);
+    println!(
+        "signature verification = {:?}",
+        IBBEDel7::verify(&message, &sigma, user_id, &pk)
+    );
+}
+
+fn measure_time(number_of_iterations: u128) {
+    SpeedMetrics::test_complex(10, number_of_iterations);
+    SpeedMetrics::test_complex(100, number_of_iterations);
+    // SpeedMetrics::test_complex(1000, number_of_iterations);
+
+    SpeedMetrics::test_signature_complex(100, number_of_iterations);
 }
 
 fn main() {
     // example();
-    SpeedMetrics::test_all(100);
+    measure_time(100);
 }
