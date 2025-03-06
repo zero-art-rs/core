@@ -1,8 +1,11 @@
+// IBBE protocol by Cecile Delerablee (2007)
+// Signature by Paulo S.L.M. Barreto et.al (2005)
+
 use num::BigUint;
 use sha2::{Digest, Sha512};
 // use std::hash::Hash;
 use ark_ec::pairing::Pairing;
-use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend};
+use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
 use ark_std::{One, UniformRand, Zero};
 use std::ops::{Add, Mul};
 
@@ -41,7 +44,7 @@ impl IBBEDel7 {
             Vec<G1Projective<Config>>,
         ),
     ) {
-        let mut rng = ark_std::test_rng();
+        let mut rng = ark_std::rand::thread_rng();
 
         let gamma = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
 
@@ -72,6 +75,14 @@ impl IBBEDel7 {
         let number_hash = &hasher.finalize()[..];
         let number_hash = BigUint::from_bytes_le(number_hash);
         ScalarField::from(number_hash)
+    }
+
+    fn sha512_from_byte_vec_to_scalar_field(bytes: &Vec<u8>) -> Fp256<MontBackend<FrConfig, 4>> {
+        let mut hasher = Sha512::new();
+        hasher.update(bytes);
+        let hash = &hasher.finalize()[..];
+        let hash = BigUint::from_bytes_le(hash);
+        ScalarField::from(hash)
     }
 
     pub fn extract(
@@ -122,7 +133,7 @@ impl IBBEDel7 {
     ) {
         let (w, v, _, powers_of_h) = pk;
 
-        let mut rng = ark_std::test_rng();
+        let mut rng = ark_std::rand::thread_rng();
 
         let k = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
         let c1 = w.mul(-k);
