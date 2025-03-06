@@ -256,8 +256,8 @@ impl IBBEDel7 {
         let id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(id);
 
         let neg_hash = hash.neg();
-        let mut right_part = Bn254::pairing(h.mul(id_hash) + powers_of_h[1], s).0
-            * v.0.pow(&neg_hash.into_bigint());
+        let mut right_part =
+            Bn254::pairing(h.mul(id_hash) + powers_of_h[1], s).0 * v.0.pow(&neg_hash.into_bigint());
 
         let mut message_as_bytes = message.as_bytes().to_vec();
         message_as_bytes.append(&mut right_part.to_string().into_bytes());
