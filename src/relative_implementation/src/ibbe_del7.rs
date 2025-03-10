@@ -1,60 +1,86 @@
 // IBBE protocol by Cecile Delerablee (2007)
 // Signature by Paulo S.L.M. Barreto et.al (2005)
 
-use num::BigUint;
-use sha2::{Digest, Sha512};
-// use std::hash::Hash;
+use crate::tools;
 use ark_bn254::{
     Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
     fr::Fr as ScalarField, fr::FrConfig,
 };
 use ark_ec::bn::{Bn, G1Projective, G2Projective};
-use ark_ec::pairing::Pairing;
-use ark_ec::pairing::PairingOutput;
+use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_ec::short_weierstrass::Projective;
 use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
 use ark_std::{One, UniformRand, Zero};
-use rand::Rng;
+use num::BigUint;
+use num::bigint::Sign;
+use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
-use std::ptr::hash;
+
+#[derive(Hash, Debug)]
+pub struct UserIdentity {
+    pub id: u32,
+}
+
+impl UserIdentity {
+    pub fn hash_to_scalar_field(&self) -> Fp256<MontBackend<FrConfig, 4>> {
+        tools::sha512_from_byte_vec_to_scalar_field(&self.id.to_be_bytes().to_vec())
+    }
+}
 
 #[derive(Debug)]
-pub struct IBBEDel7 {}
+pub struct PublicKey {
+    pub w: Projective<ark_bn254::g2::Config>,
+    pub v: Fp12<Fq12Config>,
+    pub powers_of_h: Vec<G1Projective<Config>>,
+}
+
+#[derive(Debug)]
+pub struct SecretKey {
+    pub sk: Projective<ark_bn254::g2::Config>,
+}
+
+#[derive(Debug)]
+pub struct MasterSecretKey {
+    pub g: G2Projective<Config>,
+    pub gamma: ScalarField,
+}
+
+#[derive(Debug)]
+pub struct Header {
+    pub c1: Projective<ark_bn254::g2::Config>,
+    pub c2: Projective<ark_bn254::g1::Config>,
+}
+
+#[derive(Debug)]
+pub struct EncryptionKey {
+    pub key: Fp12<Fq12Config>,
+}
+
+#[derive(Debug)]
+pub struct Signature {
+    pub hash: Fp256<MontBackend<FrConfig, 4>>,
+    pub s: Projective<ark_bn254::g2::Config>,
+}
+
+#[derive(Debug)]
+pub struct IBBEDel7 {
+    pub pk: PublicKey,
+    pub msk: Option<MasterSecretKey>,
+}
 
 impl IBBEDel7 {
-    // return random ScalarField element, which isn't zero or one
-    fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
-        rng: &mut R,
-    ) -> Fp256<MontBackend<FrConfig, 4>> {
-        let mut k = ScalarField::zero();
-        while k.eq(&ScalarField::one()) || k.eq(&ScalarField::zero()) {
-            k = ScalarField::rand(rng);
-        }
-
-        k
-    }
-    pub fn run_setup(
-        max_number_of_users: u32,
-    ) -> (
-        (G2Projective<Config>, Fp256<MontBackend<FrConfig, 4>>),
-        (
-            ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config>,
-            PairingOutput<Bn<Config>>,
-            G1Projective<Config>,
-            Vec<G1Projective<Config>>,
-        ),
-    ) {
+    pub fn setup(max_number_of_users: u32) -> Self {
         let mut rng = ark_std::rand::thread_rng();
 
-        let gamma = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
+        let gamma = tools::random_non_neutral_scalar_field_element(&mut rng);
 
         let g = G2::rand(&mut rng);
         let h = G1::rand(&mut rng);
 
-        let msk = (g, gamma);
+        let msk = MasterSecretKey { g, gamma };
 
         let w = g.mul(gamma);
-        let v = Bn254::pairing(h, g);
+        let v = Bn254::pairing(h, g).0;
 
         let mut powers_of_h = vec![h];
         let mut power_of_h = h;
@@ -63,123 +89,70 @@ impl IBBEDel7 {
             powers_of_h.push(power_of_h);
         }
 
-        let pk = (w, v, h, powers_of_h);
+        let pk = PublicKey { w, v, powers_of_h };
 
-        return (msk, pk);
+        return IBBEDel7 { pk, msk: Some(msk) };
     }
 
-    // compute hash, and convert to ScalarField
-    fn sha512_from_u32_to_scalar_field(number: u32) -> Fp256<MontBackend<FrConfig, 4>> {
-        let mut hasher = Sha512::new();
-        hasher.update(number.to_be_bytes());
-        let number_hash = &hasher.finalize()[..];
-        let number_hash = BigUint::from_bytes_le(number_hash);
-        ScalarField::from(number_hash)
+    pub fn from(pk: PublicKey) -> Self {
+        IBBEDel7 { pk, msk: None }
     }
 
-    fn sha512_from_byte_vec_to_scalar_field(bytes: &Vec<u8>) -> Fp256<MontBackend<FrConfig, 4>> {
-        let mut hasher = Sha512::new();
-        hasher.update(bytes);
-        let hash = &hasher.finalize()[..];
-        let hash = BigUint::from_bytes_le(hash);
-        ScalarField::from(hash)
-    }
+    pub fn extract(&self, user: &UserIdentity) -> Result<SecretKey, String> {
+        match &self.msk {
+            Some(msk) => {
+                // sk_id = (gamma + hash(ID))^{-1} * G
+                let sk_id_hash = user.hash_to_scalar_field();
+                let sk_id = msk.gamma.add(&sk_id_hash).inverse().unwrap();
 
-    pub fn extract(
-        msk: &(G2Projective<Config>, ScalarField),
-        id: u32,
-    ) -> ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config> {
-        let (g, gamma) = &msk;
-
-        // sk_id = (gamma + hash(ID))^{-1} * G
-        let sk_id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(id);
-        let sk_id = gamma.add(&sk_id_hash).inverse().unwrap();
-        g.mul(sk_id)
-    }
-
-    fn compute_polynomial_coefficients(roots: &Vec<ScalarField>) -> Vec<ScalarField> {
-        let n = roots.len();
-
-        let mut coefs = vec![ScalarField::zero(); n + 1];
-        coefs[0] = ScalarField::one();
-        let mut current_degree = 0;
-        for value in roots {
-            coefs[current_degree + 1] = coefs[current_degree];
-            for i in (1..=current_degree).rev() {
-                coefs[i] = coefs[i - 1] + coefs[i] * value;
+                Ok(SecretKey {
+                    sk: msk.g.mul(sk_id),
+                })
             }
-            coefs[0] *= value;
-
-            current_degree += 1;
+            None => Err("MasterSecretKey is unknown".to_string()),
         }
-
-        coefs
     }
 
     pub fn encrypt(
-        legitimate_users: &Vec<u32>,
-        pk: &(
-            Projective<ark_bn254::g2::Config>,
-            PairingOutput<Bn<Config>>,
-            G1Projective<Config>,
-            Vec<G1Projective<Config>>,
-        ),
-    ) -> (
-        (
-            Projective<ark_bn254::g2::Config>,
-            Projective<ark_bn254::g1::Config>,
-        ),
-        Fp12<Fq12Config>,
-    ) {
-        let (w, v, _, powers_of_h) = pk;
+        &self,
+        legitimate_users: &Vec<UserIdentity>,
+    ) -> (Header, EncryptionKey) {
+        let mut rng = rand::thread_rng();
 
-        let mut rng = ark_std::rand::thread_rng();
-
-        let k = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
-        let c1 = w.mul(-k);
+        let k = tools::random_non_neutral_scalar_field_element(&mut rng);
+        let c1 = self.pk.w.mul(-k);
 
         // compute c2
         let mut id_hashes = Vec::new();
-        for id in legitimate_users {
-            id_hashes.push(IBBEDel7::sha512_from_u32_to_scalar_field(*id));
+        for user in legitimate_users {
+            id_hashes.push(user.hash_to_scalar_field());
         }
 
-        let coefficients = IBBEDel7::compute_polynomial_coefficients(&id_hashes);
+        let coefficients = tools::compute_polynomial_coefficients(&id_hashes);
 
         let mut c2 = G1::zero();
         for (power, coefficient) in coefficients.iter().enumerate() {
-            c2 += powers_of_h[power] * (k * coefficient);
+            c2 += self.pk.powers_of_h[power] * (k * coefficient);
         }
 
-        let y = v.0;
+        let y = self.pk.v;
         let k_value = BigInt::from(k);
         let key = y.pow(&k_value);
 
-        ((c1, c2), key)
+        (Header { c1, c2 }, EncryptionKey { key })
     }
 
     pub fn decrypt(
-        legitimate_users: &Vec<u32>,
-        user_id: u32,
-        sk_id: &Projective<ark_bn254::g2::Config>,
-        hdr: &(
-            Projective<ark_bn254::g2::Config>,
-            Projective<ark_bn254::g1::Config>,
-        ),
-        pk: &(
-            ark_ec::short_weierstrass::Projective<ark_bn254::g2::Config>,
-            PairingOutput<Bn<Config>>,
-            G1Projective<Config>,
-            Vec<G1Projective<Config>>,
-        ),
-    ) -> Fp12<Fq12Config> {
-        let (c1, c2) = hdr;
-        let (_, _, _, powers_of_h) = pk;
-
+        &self,
+        legitimate_users: &Vec<UserIdentity>,
+        user_id: &UserIdentity,
+        sk_id: &SecretKey,
+        hdr: &Header,
+    ) -> EncryptionKey {
         let mut exponent = ScalarField::one();
-        for id in legitimate_users {
-            if id.ne(&user_id) {
-                let id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(*id);
+        for user in legitimate_users {
+            if user.id.ne(&user_id.id) {
+                let id_hash = user.hash_to_scalar_field();
                 exponent = exponent * id_hash;
             }
         }
@@ -187,82 +160,59 @@ impl IBBEDel7 {
         let exponent = BigInt::from(exponent);
 
         let mut id_hashes = Vec::new();
-        for id in legitimate_users {
-            if user_id.ne(&id) {
-                id_hashes.push(IBBEDel7::sha512_from_u32_to_scalar_field(*id));
+        for user in legitimate_users {
+            if user_id.id.ne(&user.id) {
+                id_hashes.push(user.hash_to_scalar_field());
             }
         }
 
-        let mut coefficients = IBBEDel7::compute_polynomial_coefficients(&id_hashes);
+        let mut coefficients = tools::compute_polynomial_coefficients(&id_hashes);
         coefficients.remove(0);
 
         let mut left_part = G1::zero();
         for (power, coefficient) in coefficients.iter().enumerate() {
-            left_part += powers_of_h[power] * coefficient;
+            left_part += self.pk.powers_of_h[power] * coefficient;
         }
 
-        let left_pairing = Bn254::pairing(left_part, c1).0;
-        let right_pairing = Bn254::pairing(c2, sk_id).0;
+        let left_pairing = Bn254::pairing(left_part, hdr.c1).0;
+        let right_pairing = Bn254::pairing(hdr.c2, sk_id.sk).0;
         let key = (left_pairing * right_pairing).pow(exponent);
 
-        key
+        EncryptionKey { key }
     }
 
-    pub fn sign(
-        message: &String,
-        sk_id: &Projective<ark_bn254::g2::Config>,
-        pk: &(
-            Projective<ark_bn254::g2::Config>,
-            PairingOutput<Bn<Config>>,
-            G1Projective<Config>,
-            Vec<G1Projective<Config>>,
-        ),
-    ) -> (
-        Fp256<MontBackend<FrConfig, 4>>,
-        Projective<ark_bn254::g2::Config>,
-    ) {
-        let (w, v, h, powers_of_h) = pk;
-
+    pub fn sign(&self, message: &String, sk_id: &SecretKey) -> Signature {
         let mut rng = ark_std::rand::thread_rng();
-        let x = IBBEDel7::random_non_neutral_scalar_field_element(&mut rng);
-        let r = v.0.pow(&x.into_bigint());
+        let x = tools::random_non_neutral_scalar_field_element(&mut rng);
+        let r = self.pk.v.pow(&x.into_bigint());
 
         let mut message_as_bytes = message.as_bytes().to_vec();
         message_as_bytes.append(&mut r.to_string().into_bytes());
-        let hash = IBBEDel7::sha512_from_byte_vec_to_scalar_field(&message_as_bytes);
+        let hash = tools::sha512_from_byte_vec_to_scalar_field(&message_as_bytes);
 
-        let s = sk_id.mul(x + hash);
+        let s = sk_id.sk.mul(x + hash);
 
-        (hash, s)
+        Signature { hash, s }
     }
 
     pub fn verify(
+        &self,
         message: &String,
-        sigma: &(
-            Fp256<MontBackend<FrConfig, 4>>,
-            Projective<ark_bn254::g2::Config>,
-        ),
-        id: u32,
-        pk: &(
-            Projective<ark_bn254::g2::Config>,
-            PairingOutput<Bn<Config>>,
-            G1Projective<Config>,
-            Vec<G1Projective<Config>>,
-        ),
+        sigma: &Signature,
+        user: &UserIdentity,
     ) -> bool {
-        let (w, v, h, powers_of_h) = pk;
-        let (hash, s) = sigma;
+        let id_hash = user.hash_to_scalar_field();
 
-        let id_hash = IBBEDel7::sha512_from_u32_to_scalar_field(id);
-
-        let neg_hash = hash.neg();
+        let neg_hash = sigma.hash.neg();
         let mut right_part =
-            Bn254::pairing(h.mul(id_hash) + powers_of_h[1], s).0 * v.0.pow(&neg_hash.into_bigint());
+            Bn254::pairing(self.pk.powers_of_h[0].mul(id_hash) + self.pk.powers_of_h[1], sigma.s).0;
+
+        right_part *= self.pk.v.pow(&neg_hash.into_bigint());
 
         let mut message_as_bytes = message.as_bytes().to_vec();
         message_as_bytes.append(&mut right_part.to_string().into_bytes());
 
-        hash.eq(&IBBEDel7::sha512_from_byte_vec_to_scalar_field(
+        sigma.hash.eq(&tools::sha512_from_byte_vec_to_scalar_field(
             &message_as_bytes,
         ))
     }

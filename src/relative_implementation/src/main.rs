@@ -1,36 +1,47 @@
 extern crate relative_implementation;
 
-use relative_implementation::ibbe_del7::IBBEDel7;
-use relative_implementation::ibbe_del7_time_measurements::SpeedMetrics;
+// use relative_implementation::art::ARTAgent;
+use relative_implementation::tools;
+use relative_implementation::{
+    ibbe_del7::{IBBEDel7, UserIdentity},
+    ibbe_del7_time_measurements::SpeedMetrics,
+};
 
 fn example() {
     let number_of_users = 15u32;
-    let (msk, pk) = IBBEDel7::run_setup(number_of_users);
-    println!("msk = {:?}\n", msk);
-    println!("pk = {:?}\n", pk);
+    let ibbe = IBBEDel7::setup(number_of_users);
+    println!("msk = {:?}\n", ibbe.msk);
+    println!("pk = {:?}\n", ibbe.pk);
 
-    let user_id = 8u32;
-    let sk_id = IBBEDel7::extract(&msk, user_id);
+    let user_alice = UserIdentity { id: 8u32 };
+    let sk_id = ibbe.extract(&user_alice).unwrap();
     println!("sk_id = {:?}\n", sk_id);
 
-    let users_set = vec![1, 8, 4, 5, 3];
+    let users_id = vec![1, 8, 4, 5, 3];
+    let mut users = Vec::new();
+    for user_id in users_id {
+        users.push(UserIdentity { id: user_id });
+    }
 
-    let (hdr, key) = IBBEDel7::encrypt(&users_set, &pk);
-    println!("c1 = {}\n", hdr.0);
-    println!("c2 = {}\n", hdr.1);
-    println!("key = {key}\n");
+    let (hdr, key) = ibbe.encrypt(&users);
+    println!("c1 = {}\n", hdr.c1);
+    println!("c2 = {}\n", hdr.c2);
+    println!("key = {}\n", key.key);
 
-    let decrypted_key = IBBEDel7::decrypt(&users_set, user_id, &sk_id, &hdr, &pk);
-    println!("decrypted_key = {decrypted_key}\n");
+    let decrypted_key = ibbe.decrypt(&users, &user_alice, &sk_id, &hdr);
+    println!("decrypted_key = {:?}\n", decrypted_key);
 
-    println!("key == decrypted_key: {}\n", key.eq(&decrypted_key));
+    println!(
+        "key == decrypted_key: {:?}\n",
+        key.key.eq(&decrypted_key.key)
+    );
 
     let message = String::from("Some string");
-    let sigma = IBBEDel7::sign(&message, &sk_id, &pk);
+    let sigma = ibbe.sign(&message, &sk_id);
     println!("sigma = {:?}", sigma);
     println!(
         "signature verification = {:?}",
-        IBBEDel7::verify(&message, &sigma, user_id, &pk)
+        ibbe.verify(&message, &sigma, &user_alice)
     );
 }
 
@@ -43,6 +54,6 @@ fn measure_time(number_of_iterations: u128) {
 }
 
 fn main() {
-    // example();
+    example();
     measure_time(100);
 }
