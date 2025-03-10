@@ -34,6 +34,13 @@ pub struct PublicKey {
     pub powers_of_h: Vec<G1Projective<Config>>,
 }
 
+impl PublicKey {
+    pub fn get_h(&self) -> &G1Projective<Config> {
+        // for use instead of pk.powers_of_h[0]
+        &self.powers_of_h[0]
+    }
+}
+
 #[derive(Debug)]
 pub struct SecretKey {
     pub sk: Projective<ark_bn254::g2::Config>,
@@ -113,10 +120,7 @@ impl IBBEDel7 {
         }
     }
 
-    pub fn encrypt(
-        &self,
-        legitimate_users: &Vec<UserIdentity>,
-    ) -> (Header, EncryptionKey) {
+    pub fn encrypt(&self, legitimate_users: &Vec<UserIdentity>) -> (Header, EncryptionKey) {
         let mut rng = rand::thread_rng();
 
         let k = tools::random_non_neutral_scalar_field_element(&mut rng);
@@ -195,17 +199,15 @@ impl IBBEDel7 {
         Signature { hash, s }
     }
 
-    pub fn verify(
-        &self,
-        message: &String,
-        sigma: &Signature,
-        user: &UserIdentity,
-    ) -> bool {
+    pub fn verify(&self, message: &String, sigma: &Signature, user: &UserIdentity) -> bool {
         let id_hash = user.hash_to_scalar_field();
 
         let neg_hash = sigma.hash.neg();
-        let mut right_part =
-            Bn254::pairing(self.pk.powers_of_h[0].mul(id_hash) + self.pk.powers_of_h[1], sigma.s).0;
+        let mut right_part = Bn254::pairing(
+            self.pk.powers_of_h[0].mul(id_hash) + self.pk.powers_of_h[1],
+            sigma.s,
+        )
+        .0;
 
         right_part *= self.pk.v.pow(&neg_hash.into_bigint());
 
