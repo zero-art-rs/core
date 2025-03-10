@@ -1,6 +1,6 @@
 extern crate relative_implementation;
 
-// use relative_implementation::art::ARTAgent;
+use relative_implementation::art::ARTAgent;
 use relative_implementation::tools;
 use relative_implementation::{
     ibbe_del7::{IBBEDel7, UserIdentity},
@@ -53,7 +53,22 @@ fn measure_time(number_of_iterations: u128) {
     SpeedMetrics::test_signature_complex(100, number_of_iterations);
 }
 
+fn art_tree_example() {
+    let number_of_users = 15u32;
+    let ibbe = IBBEDel7::setup(number_of_users);
+    let user = UserIdentity { id: 8u32 };
+    let sk_id = ibbe.extract(&user);
+
+    let mut users = Vec::new();
+    for id in 0..20 {
+        users.push(UserIdentity { id });
+    }
+
+    let art_agent = ARTAgent::setup_art(&ibbe.msk.unwrap(), &ibbe.pk, &users);
+}
+
 fn main() {
-    example();
-    measure_time(100);
+    // example();
+    // measure_time(100);
+    art_tree_example()
 }
