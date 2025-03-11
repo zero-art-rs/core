@@ -16,7 +16,7 @@ use num::bigint::Sign;
 use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
 
-#[derive(Hash, Debug)]
+#[derive(Hash, Debug, Clone, Copy)]
 pub struct UserIdentity {
     pub id: u32,
 }
@@ -39,31 +39,41 @@ impl PublicKey {
         // for use instead of pk.powers_of_h[0]
         &self.powers_of_h[0]
     }
+
+    pub fn clone(&self) -> Self {
+        let powers_of_h_copy = self.powers_of_h.clone();
+
+        PublicKey {
+            w: self.w,
+            v: self.v,
+            powers_of_h: powers_of_h_copy,
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SecretKey {
     pub sk: Projective<ark_bn254::g2::Config>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct MasterSecretKey {
     pub g: G2Projective<Config>,
     pub gamma: ScalarField,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Header {
     pub c1: Projective<ark_bn254::g2::Config>,
     pub c2: Projective<ark_bn254::g1::Config>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct EncryptionKey {
     pub key: Fp12<Fq12Config>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Signature {
     pub hash: Fp256<MontBackend<FrConfig, 4>>,
     pub s: Projective<ark_bn254::g2::Config>,

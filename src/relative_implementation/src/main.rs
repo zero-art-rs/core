@@ -56,15 +56,30 @@ fn measure_time(number_of_iterations: u128) {
 fn art_tree_example() {
     let number_of_users = 15u32;
     let ibbe = IBBEDel7::setup(number_of_users);
-    let user = UserIdentity { id: 8u32 };
-    let sk_id = ibbe.extract(&user);
 
     let mut users = Vec::new();
+
     for id in 0..20 {
         users.push(UserIdentity { id });
     }
 
-    let art_agent = ARTAgent::setup_art(&ibbe.msk.unwrap(), &ibbe.pk, &users);
+    let user_index = 5;
+    let user = users[user_index].clone();
+    let sk_id = ibbe.extract(&user).unwrap();
+
+    let msk = ibbe.msk.clone().expect("Secret key must be set up.");
+    let mut art_agent = ARTAgent::setup(Some(msk), ibbe.pk.clone(), user);
+    let ciphertexts = art_agent.setup_art(&users);
+    // println!("ciphertexts = {:?}\n", ciphertexts);
+    println!("computed_key1 = {:?}\n", art_agent.compute_hash());
+
+    let computed_key2 = art_agent.tree_gen(ciphertexts[user_index], sk_id);
+    println!("computed_key2 = {:?}\n", computed_key2);
+
+    println!(
+        "Keys are equal: {:?}",
+        computed_key2.eq(&art_agent.compute_hash())
+    );
 }
 
 fn main() {
