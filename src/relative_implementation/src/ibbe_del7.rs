@@ -17,13 +17,24 @@ use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
 
 #[derive(Hash, Debug, Clone, Copy)]
-pub struct UserIdentity {
-    pub id: u32,
+pub struct UserIdentity<T> {
+    pub identity: T,
 }
 
-impl UserIdentity {
+impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
     pub fn hash_to_scalar_field(&self) -> Fp256<MontBackend<FrConfig, 4>> {
-        tools::sha512_from_byte_vec_to_scalar_field(&self.id.to_be_bytes().to_vec())
+        let byte_repr = self.identity.clone().into();
+        tools::sha512_from_byte_vec_to_scalar_field(&byte_repr)
+    }
+
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.identity.eq(&other.identity)
+    }
+
+    #[inline]
+    fn ne(&self, other: &Self) -> bool {
+        self.identity.ne(&other.identity)
     }
 }
 
@@ -115,7 +126,10 @@ impl IBBEDel7 {
         IBBEDel7 { pk, msk: None }
     }
 
-    pub fn extract(&self, user: &UserIdentity) -> Result<SecretKey, String> {
+    pub fn extract<T: Into<Vec<u8>> + Clone + PartialEq>(
+        &self,
+        user: &UserIdentity<T>,
+    ) -> Result<SecretKey, String> {
         match &self.msk {
             Some(msk) => {
                 // sk_id = (gamma + hash(ID))^{-1} * G
@@ -130,7 +144,10 @@ impl IBBEDel7 {
         }
     }
 
-    pub fn encrypt(&self, legitimate_users: &Vec<UserIdentity>) -> (Header, EncryptionKey) {
+    pub fn encrypt<T: Into<Vec<u8>> + Clone + PartialEq>(
+        &self,
+        legitimate_users: &Vec<UserIdentity<T>>,
+    ) -> (Header, EncryptionKey) {
         let mut rng = rand::thread_rng();
 
         let k = tools::random_non_neutral_scalar_field_element(&mut rng);
@@ -156,16 +173,16 @@ impl IBBEDel7 {
         (Header { c1, c2 }, EncryptionKey { key })
     }
 
-    pub fn decrypt(
+    pub fn decrypt<T: Into<Vec<u8>> + Clone + PartialEq>(
         &self,
-        legitimate_users: &Vec<UserIdentity>,
-        user_id: &UserIdentity,
+        legitimate_users: &Vec<UserIdentity<T>>,
+        user_id: &UserIdentity<T>,
         sk_id: &SecretKey,
         hdr: &Header,
     ) -> EncryptionKey {
         let mut exponent = ScalarField::one();
         for user in legitimate_users {
-            if user.id.ne(&user_id.id) {
+            if user.ne(&user_id) {
                 let id_hash = user.hash_to_scalar_field();
                 exponent = exponent * id_hash;
             }
@@ -175,7 +192,7 @@ impl IBBEDel7 {
 
         let mut id_hashes = Vec::new();
         for user in legitimate_users {
-            if user_id.id.ne(&user.id) {
+            if user_id.ne(&user) {
                 id_hashes.push(user.hash_to_scalar_field());
             }
         }
@@ -209,7 +226,12 @@ impl IBBEDel7 {
         Signature { hash, s }
     }
 
-    pub fn verify(&self, message: &String, sigma: &Signature, user: &UserIdentity) -> bool {
+    pub fn verify<T: Into<Vec<u8>> + Clone + PartialEq>(
+        &self,
+        message: &String,
+        sigma: &Signature,
+        user: &UserIdentity<T>,
+    ) -> bool {
         let id_hash = user.hash_to_scalar_field();
 
         let neg_hash = sigma.hash.neg();

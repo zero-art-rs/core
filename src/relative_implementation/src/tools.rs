@@ -6,9 +6,12 @@ use ark_ff::{Fp256, MontBackend};
 use ark_std::{One, UniformRand, Zero};
 use num::BigUint;
 use rand::Rng;
+use std::convert::identity;
 
+use crate::ibbe_del7::UserIdentity;
+use hex_literal::hex;
+use hkdf::Hkdf;
 use sha2::{Digest, Sha512};
-use std::ptr::hash;
 
 // return random ScalarField element, which isn't zero or one
 pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
@@ -50,4 +53,25 @@ pub fn compute_polynomial_coefficients(roots: &Vec<ScalarField>) -> Vec<ScalarFi
     }
 
     coefs
+}
+
+pub fn crete_set_of_identities(number_of_users: u32) -> Vec<UserIdentity<String>> {
+    let mut set_of_users = Vec::new();
+
+    for id in 0..number_of_users {
+        set_of_users.push(UserIdentity {
+            identity: String::from(id.to_string()),
+        });
+    }
+
+    set_of_users
+}
+
+pub fn hkdf(ikm: &[u8], salt: &[u8], info: &[u8]) -> Vec<u8> {
+    let hk = Hkdf::<Sha512>::new(Some(&salt[..]), &ikm);
+    let mut okm = [0u8; 42];
+    hk.expand(&info, &mut okm)
+        .expect("42 is a valid length for Sha512 to output");
+
+    okm.to_vec()
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::art::ARTAgent;
 use crate::ibbe_del7::{IBBEDel7, UserIdentity};
 use rand::Rng;
 use std::time::Instant;
@@ -24,7 +25,7 @@ impl SpeedMetrics {
         );
     }
 
-    pub fn test_extract(number_of_iterations: u128) {
+    pub fn test_extract<T: Into<Vec<u8>> + Clone + PartialEq>(number_of_iterations: u128) {
         let mut total_execution_time = 0u128;
         let mut rng = rand::thread_rng();
         let number_of_users = 10u32;
@@ -35,7 +36,9 @@ impl SpeedMetrics {
             let user_id = rng.gen_range(0..number_of_users);
 
             let start_time: Instant = Instant::now();
-            _ = ibbe.extract(&UserIdentity { id: user_id });
+            _ = ibbe.extract(&UserIdentity {
+                identity: String::from(user_id.to_string()),
+            });
             let end_time: Instant = Instant::now();
 
             total_execution_time += end_time.duration_since(start_time).as_nanos()
@@ -48,20 +51,25 @@ impl SpeedMetrics {
         );
     }
 
-    pub fn test_encrypt(number_of_users: u32, number_of_iterations: u128) {
+    pub fn test_encrypt<T: Into<Vec<u8>> + Clone + PartialEq>(
+        number_of_users: u32,
+        number_of_iterations: u128,
+    ) {
         let mut total_execution_time = 0u128;
         let mut rng = rand::thread_rng();
         let users_id: Vec<u32> = (0..number_of_users).collect();
         let mut set_of_users = Vec::new();
         for id in users_id {
-            set_of_users.push(UserIdentity { id });
+            set_of_users.push(UserIdentity {
+                identity: String::from(rng.gen_range(0..number_of_users).to_string()),
+            });
         }
 
         let ibbe = IBBEDel7::setup(number_of_users);
 
         for _ in 0..number_of_iterations {
             let user_id = UserIdentity {
-                id: rng.gen_range(0..number_of_users),
+                identity: String::from(rng.gen_range(0..number_of_users).to_string()),
             };
             let sk_id = ibbe.extract(&user_id);
 
@@ -79,20 +87,19 @@ impl SpeedMetrics {
         );
     }
 
-    pub fn test_decrypt(number_of_users: u32, number_of_iterations: u128) {
+    pub fn test_decrypt<T: Into<Vec<u8>> + Clone + PartialEq>(
+        number_of_users: u32,
+        number_of_iterations: u128,
+    ) {
         let mut total_execution_time = 0u128;
         let mut rng = rand::thread_rng();
-        let users_id: Vec<u32> = (0..number_of_users).collect();
-        let mut set_of_users = Vec::new();
-        for id in users_id {
-            set_of_users.push(UserIdentity { id });
-        }
+        let mut set_of_users = tools::crete_set_of_identities(number_of_users);
 
         let ibbe = IBBEDel7::setup(number_of_users);
 
         for _ in 0..number_of_iterations {
             let user_id = UserIdentity {
-                id: rng.gen_range(0..number_of_users),
+                identity: String::from(rng.gen_range(0..number_of_users).to_string()),
             };
             let sk_id = ibbe.extract(&user_id).unwrap();
             let (hdr, _) = ibbe.encrypt(&set_of_users);
@@ -111,18 +118,17 @@ impl SpeedMetrics {
         );
     }
 
-    pub fn test_complex(number_of_users: u32, number_of_iterations: u128) {
+    pub fn test_complex<T: Into<Vec<u8>> + Clone + PartialEq>(
+        number_of_users: u32,
+        number_of_iterations: u128,
+    ) {
         let mut total_execution_time_setup = 0u128;
         let mut total_execution_time_extract = 0u128;
         let mut total_execution_time_encrypt = 0u128;
         let mut total_execution_time_decrypt = 0u128;
 
         let mut rng = rand::thread_rng();
-        let users_id: Vec<u32> = (0..number_of_users).collect();
-        let mut set_of_users = Vec::new();
-        for id in users_id {
-            set_of_users.push(UserIdentity { id });
-        }
+        let set_of_users = tools::crete_set_of_identities(number_of_users);
 
         for _ in 0..number_of_iterations {
             let start_time: Instant = Instant::now();
@@ -131,7 +137,7 @@ impl SpeedMetrics {
             total_execution_time_setup += end_time.duration_since(start_time).as_nanos();
 
             let user_id = UserIdentity {
-                id: rng.gen_range(0..number_of_users),
+                identity: String::from(rng.gen_range(0..number_of_users).to_string()),
             };
 
             let start_time: Instant = Instant::now();
@@ -169,19 +175,23 @@ impl SpeedMetrics {
         );
     }
 
-    pub fn test_signature_complex(number_of_users: u32, number_of_iterations: u128) {
+    pub fn test_signature_complex<T: Into<Vec<u8>> + Clone + PartialEq>(
+        number_of_users: u32,
+        number_of_iterations: u128,
+    ) {
         let mut total_execution_time_signature = 0u128;
         let mut total_execution_time_verification = 0u128;
 
         let mut rng = rand::thread_rng();
-        let set_of_users: Vec<u32> = (0..number_of_users).collect();
+        let set_of_users = tools::crete_set_of_identities(number_of_users);
 
         for _ in 0..number_of_iterations {
             let ibbe = IBBEDel7::setup(number_of_users);
 
             let user_id = UserIdentity {
-                id: rng.gen_range(0..number_of_users),
+                identity: String::from(rng.gen_range(0..number_of_users).to_string()),
             };
+
             let sk_id = ibbe.extract(&user_id).unwrap();
 
             let message: String = (0..100)
@@ -207,6 +217,55 @@ impl SpeedMetrics {
         println!(
             "test_verification {number_of_iterations} iterations: {} ms on average",
             (total_execution_time_verification as f64 / number_of_iterations as f64) / 1000000.0
+        );
+    }
+
+    pub fn test_art_agent<T: Into<Vec<u8>> + Clone + PartialEq>(
+        number_of_users: u32,
+        number_of_iterations: u128,
+    ) {
+        let mut total_execution_time_art_setup = 0u128;
+        let mut total_execution_time_tree_gen = 0u128;
+
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..number_of_iterations {
+            let ibbe = IBBEDel7::setup(number_of_users);
+            let mut users = Vec::new();
+            for id in 0..number_of_users {
+                users.push(UserIdentity {
+                    identity: String::from(id.to_string()),
+                });
+            }
+
+            let user_index = rand::thread_rng().gen_range(0..number_of_users) as usize;
+            let user = users[user_index].clone();
+            let sk_id = ibbe.extract(&user).unwrap();
+
+            let msk = ibbe.msk.clone().expect("Secret key must be set up.");
+            let mut art_agent = ARTAgent::new(msk, ibbe.pk.clone());
+
+            let start_time: Instant = Instant::now();
+            let (tree, ciphertexts) = art_agent.compute_art_and_ciphertexts(&users);
+            let end_time: Instant = Instant::now();
+            total_execution_time_art_setup += end_time.duration_since(start_time).as_nanos();
+
+            let start_time: Instant = Instant::now();
+            let computed_key2 = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk);
+            let end_time: Instant = Instant::now();
+            total_execution_time_tree_gen += end_time.duration_since(start_time).as_nanos();
+
+            assert!(computed_key2.eq(&tree.root_key.unwrap().key));
+        }
+
+        println!();
+        println!(
+            "test art_setup {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_art_setup as f64 / number_of_iterations as f64) / 1000000.0
+        );
+        println!(
+            "test tree_gen {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_tree_gen as f64 / number_of_iterations as f64) / 1000000.0
         );
     }
 }

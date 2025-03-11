@@ -1,4 +1,5 @@
 pub mod art;
+pub mod hybrid_encryption;
 pub mod ibbe_del7;
 pub mod ibbe_del7_time_measurements;
 pub mod tools;
@@ -6,26 +7,24 @@ pub mod tools;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::art::ARTAgent;
-    use ibbe_del7::{IBBEDel7, UserIdentity};
+    use crate::{
+        art::ARTAgent,
+        ibbe_del7::{IBBEDel7, UserIdentity},
+        tools,
+    };
 
     #[test]
     fn test_ibbedel7_with_random_values() {
         let number_of_users = 15u32;
         let ibbe = IBBEDel7::setup(number_of_users);
 
-        let user_alice = UserIdentity { id: 8u32 };
-        let sk_id = ibbe.extract(&user_alice).unwrap();
-
-        let users_id = vec![1, 8, 4, 5, 3];
-        let mut users = Vec::new();
-        for user_id in users_id {
-            users.push(UserIdentity { id: user_id });
-        }
+        let users = tools::crete_set_of_identities(number_of_users);
+        let alice = users.get(0).unwrap();
+        let sk_id = ibbe.extract(&alice).unwrap();
 
         let (hdr, key) = ibbe.encrypt(&users);
 
-        let decrypted_key = ibbe.decrypt(&users, &user_alice, &sk_id, &hdr);
+        let decrypted_key = ibbe.decrypt(&users, &alice, &sk_id, &hdr);
 
         // correct encryption
         assert!(key.key.eq(&decrypted_key.key));
@@ -34,7 +33,7 @@ mod tests {
         let sigma = ibbe.sign(&message, &sk_id);
 
         // correct signature
-        assert!(ibbe.verify(&message, &sigma, &user_alice));
+        assert!(ibbe.verify(&message, &sigma, &alice));
     }
 
     #[test]
@@ -42,22 +41,18 @@ mod tests {
         let number_of_users = 15u32;
         let ibbe = IBBEDel7::setup(number_of_users);
 
-        let mut users = Vec::new();
-
-        for id in 0..20 {
-            users.push(UserIdentity { id });
-        }
+        let mut users = tools::crete_set_of_identities(number_of_users);
 
         let user_index = 5;
         let user = users[user_index].clone();
         let sk_id = ibbe.extract(&user).unwrap();
 
         let msk = ibbe.msk.clone().expect("Secret key must be set up.");
-        let mut art_agent = ARTAgent::setup(Some(msk), ibbe.pk.clone(), user);
-        let ciphertexts = art_agent.setup_art(&users);
+        let mut art_agent = ARTAgent::new(msk, ibbe.pk.clone());
+        let (tree, ciphertexts) = art_agent.compute_art_and_ciphertexts(&users);
 
-        let computed_key2 = art_agent.tree_gen(ciphertexts[user_index], sk_id);
+        let computed_root_key = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk);
 
-        assert!(computed_key2.eq(&art_agent.compute_hash()));
+        assert!(computed_root_key.eq(&tree.root_key.unwrap().key));
     }
 }
