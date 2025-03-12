@@ -45,13 +45,8 @@ pub struct PublicKey {
     pub powers_of_h: Vec<G1Projective<Config>>,
 }
 
-impl PublicKey {
-    pub fn get_h(&self) -> &G1Projective<Config> {
-        // for use instead of pk.powers_of_h[0]
-        &self.powers_of_h[0]
-    }
-
-    pub fn clone(&self) -> Self {
+impl Clone for PublicKey {
+    fn clone(&self) -> Self {
         let powers_of_h_copy = self.powers_of_h.clone();
 
         PublicKey {
@@ -59,6 +54,13 @@ impl PublicKey {
             v: self.v,
             powers_of_h: powers_of_h_copy,
         }
+    }
+}
+
+impl PublicKey {
+    pub fn get_h(&self) -> &G1Projective<Config> {
+        // for use instead of pk.powers_of_h[0]
+        &self.powers_of_h[0]
     }
 }
 
@@ -90,7 +92,7 @@ pub struct Signature {
     pub s: Projective<ark_bn254::g2::Config>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IBBEDel7 {
     pub pk: PublicKey,
     pub msk: Option<MasterSecretKey>,

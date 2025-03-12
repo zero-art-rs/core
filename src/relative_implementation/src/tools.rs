@@ -9,9 +9,13 @@ use rand::Rng;
 use std::convert::identity;
 
 use crate::ibbe_del7::UserIdentity;
+use aes_gcm::{
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+};
 use hex_literal::hex;
 use hkdf::Hkdf;
-use sha2::{Digest, Sha512};
+use sha2::{Digest, Sha256, Sha512};
 
 // return random ScalarField element, which isn't zero or one
 pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
@@ -67,11 +71,43 @@ pub fn crete_set_of_identities(number_of_users: u32) -> Vec<UserIdentity<String>
     set_of_users
 }
 
-pub fn hkdf(ikm: &[u8], salt: &[u8], info: &[u8]) -> Vec<u8> {
-    let hk = Hkdf::<Sha512>::new(Some(&salt[..]), &ikm);
+pub fn hkdf(ikm: &Vec<u8>, salt: Option<&[u8]>, info: &[u8]) -> Vec<u8> {
+    let hk = Hkdf::<Sha512>::new(salt, ikm);
     let mut okm = [0u8; 42];
     hk.expand(&info, &mut okm)
         .expect("42 is a valid length for Sha512 to output");
 
     okm.to_vec()
+}
+
+pub fn encrypt_aes(key_bytes: Vec<u8>, plaintext: String) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(key_bytes);
+    let result = hasher.finalize();
+
+    let key = Key::<Aes256Gcm>::from_slice(&result[..]);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(key);
+    let ciphered_data = cipher
+        .encrypt(&nonce, plaintext.as_bytes())
+        .expect("failed to encrypt");
+
+    let mut encrypted_data: Vec<u8> = nonce.to_vec();
+    encrypted_data.extend_from_slice(&ciphered_data);
+    encrypted_data
+}
+
+pub fn decrypt_aes(key_bytes: Vec<u8>, encrypted_data: Vec<u8>) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key_bytes);
+    let result = hasher.finalize();
+
+    let key = Key::<Aes256Gcm>::from_slice(&result[..]);
+    let (nonce_arr, ciphered_data) = encrypted_data.split_at(12);
+    let nonce = Nonce::from_slice(nonce_arr);
+    let cipher = Aes256Gcm::new(key);
+    let plaintext = cipher
+        .decrypt(nonce, ciphered_data)
+        .expect("failed to decrypt data");
+    String::from_utf8(plaintext).expect("failed to convert vector of bytes to string")
 }

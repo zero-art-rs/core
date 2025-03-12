@@ -6,12 +6,18 @@ pub mod tools;
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
     use super::*;
+    use crate::art::BranchChanges;
+    use crate::hybrid_encryption::HybridEncryption;
     use crate::{
         art::ARTAgent,
         ibbe_del7::{IBBEDel7, UserIdentity},
         tools,
     };
+    use ark_bn254::Bn254;
+    use ark_ec::pairing::Pairing;
+    use rand::thread_rng;
 
     #[test]
     fn test_ibbedel7_with_random_values() {
@@ -49,10 +55,149 @@ mod tests {
 
         let msk = ibbe.msk.clone().expect("Secret key must be set up.");
         let mut art_agent = ARTAgent::new(msk, ibbe.pk.clone());
-        let (tree, ciphertexts) = art_agent.compute_art_and_ciphertexts(&users);
+        let (mut tree, ciphertexts, root_tree) = art_agent.compute_art_and_ciphertexts(&users);
 
-        let computed_root_key = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk);
+        let computed_root_key = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk.get_h());
 
-        assert!(computed_root_key.eq(&tree.root_key.unwrap().key));
+        assert!(computed_root_key.key.eq(&root_tree.key));
+    }
+
+    #[test]
+    fn test_art_tree_update() {
+        let number_of_users = 15u32;
+        let ibbe = IBBEDel7::setup(number_of_users);
+
+        let mut users = tools::crete_set_of_identities(number_of_users);
+
+        let user_index = 5;
+        let user = users[user_index].clone();
+        let sk_id = ibbe.extract(&user).unwrap();
+
+        let msk = ibbe.msk.clone().expect("Secret key must be set up.");
+        let mut art_agent = ARTAgent::new(msk, ibbe.pk.clone());
+        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+
+        let old_root_public_key = tree.get_root().get_public_key().to_string();
+
+        let computed_root_key = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk.get_h());
+
+        // Assert trusted party and users computed the same tree key. Skip lambda because trusted party cant compute it
+        assert!(computed_root_key.key.eq(&root_key.key));
+
+        let (new_key, _) = tree.update_key().unwrap();
+
+        // Assert tree.update_key() changes key and lambda
+        assert!(computed_root_key.key.ne(&new_key.key));
+        assert!(computed_root_key.lambda.ne(&new_key.lambda));
+
+        let (old_updated_key, _) = tree
+            .change_lambda(computed_root_key.lambda.unwrap())
+            .unwrap();
+
+        // Assert, that change of lambdas: lambda1 -> lambda2 -> lambda1, gives the same values
+        assert!(computed_root_key.lambda.eq(&old_updated_key.lambda));
+        assert!(computed_root_key.key.eq(&old_updated_key.key));
+    }
+
+    #[test]
+    fn test_art_update_from_two_users() {
+        let number_of_users = 15u32;
+        let users = tools::crete_set_of_identities(number_of_users);
+
+        let index1 = 0;
+        let index2 = 1;
+        let user1 = users.get(index1).unwrap().clone();
+        let user2 = users.get(index2).unwrap().clone();
+
+        let ibbe = IBBEDel7::setup(number_of_users);
+        let sk_id1 = ibbe.extract(&user1).unwrap();
+        let sk_id2 = ibbe.extract(&user2).unwrap();
+
+        let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let root_key1 = tree.compute_key(ciphertexts[index1], sk_id1, &ibbe.pk.get_h());
+
+        let mut tree_copy = art_agent.recompute_tree(&users);
+        let root_key2 = tree_copy.compute_key(ciphertexts[index2], sk_id2, &ibbe.pk.get_h());
+
+        assert!(root_key1.key.eq(&root_key2.key));
+        // assert!(root_key1.lambda.eq(&root_key2.lambda));
+    }
+
+    #[test]
+    fn test_art_update_branch() {
+        let number_of_users = 15u32;
+        let users = tools::crete_set_of_identities(number_of_users);
+
+        let index1 = 0;
+        let index2 = 1;
+        let user1 = users.get(index1).unwrap().clone();
+        let user2 = users.get(index2).unwrap().clone();
+
+        let ibbe = IBBEDel7::setup(number_of_users);
+        let sk_id1 = ibbe.extract(&user1).unwrap();
+        let sk_id2 = ibbe.extract(&user2).unwrap();
+
+        let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let root_key = tree.compute_key(ciphertexts[index1], sk_id1, &ibbe.pk.get_h());
+
+        let mut tree_copy = art_agent.recompute_tree(&users);
+        tree_copy.set_root_key(root_key);
+        tree_copy.compute_key(ciphertexts[index2], sk_id2, &ibbe.pk.get_h());
+
+        let (key, changes) = tree.update_key().unwrap();
+        _ = tree_copy.update_branch(&changes);
+
+        assert!(
+            tree.root_key
+                .unwrap()
+                .key
+                .eq(&tree_copy.root_key.unwrap().key)
+        );
+        assert!(
+            tree.root_key
+                .unwrap()
+                .lambda
+                .ne(&tree_copy.root_key.unwrap().lambda)
+        );
+    }
+
+    #[test]
+    fn test_hibbe_encryption() {
+        let number_of_users = 15u32;
+        let users = tools::crete_set_of_identities(number_of_users);
+
+        let index1 = 0;
+        let index2 = 1;
+        let user1 = users.get(index1).unwrap().clone();
+        let user2 = users.get(index2).unwrap().clone();
+
+        let ibbe = IBBEDel7::setup(number_of_users);
+        let sk_id1 = ibbe.extract(&user1).unwrap();
+        let sk_id2 = ibbe.extract(&user2).unwrap();
+
+        let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+        let (mut tree1, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let root_key = tree1.compute_key(ciphertexts[index1], sk_id1, &ibbe.pk.get_h());
+
+        let mut tree2 = art_agent.recompute_tree(&users);
+        tree2.compute_key(ciphertexts[index2], sk_id2, &ibbe.pk.get_h());
+
+        let mut hibbe1 =
+            HybridEncryption::new(ibbe.clone(), tree1, users.clone(), user1.clone(), sk_id1);
+        let mut hibbe2 =
+            HybridEncryption::new(ibbe.clone(), tree2, users.clone(), user2.clone(), sk_id2);
+
+        let message = String::from(
+            "Some string for encryption to see if it is really working, because I have some doubts about it.",
+        );
+        let (ciphertext, changes) = hibbe1.encrypt(message.clone());
+
+        let decrypted_message = hibbe2.decrypt(ciphertext.clone(), &changes.clone());
+        assert!(message.cmp(&decrypted_message) == Ordering::Equal);
+        // println!("decrypted_message = {:?}", decrypted_message);
+        // let decrypted_message = hibbe2.decrypt(ciphertext.clone(), &changes.clone());
+        // println!("decrypted_message = {:?}", decrypted_message);
     }
 }

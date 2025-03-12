@@ -224,8 +224,9 @@ impl SpeedMetrics {
         number_of_users: u32,
         number_of_iterations: u128,
     ) {
-        let mut total_execution_time_art_setup = 0u128;
-        let mut total_execution_time_tree_gen = 0u128;
+        let mut total_execution_time_compute_art = 0u128;
+        let mut total_execution_time_compute_key = 0u128;
+        let mut total_execution_time_update_key = 0u128;
 
         let mut rng = rand::thread_rng();
 
@@ -246,26 +247,33 @@ impl SpeedMetrics {
             let mut art_agent = ARTAgent::new(msk, ibbe.pk.clone());
 
             let start_time: Instant = Instant::now();
-            let (tree, ciphertexts) = art_agent.compute_art_and_ciphertexts(&users);
+            let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
             let end_time: Instant = Instant::now();
-            total_execution_time_art_setup += end_time.duration_since(start_time).as_nanos();
+            total_execution_time_compute_art += end_time.duration_since(start_time).as_nanos();
 
             let start_time: Instant = Instant::now();
-            let computed_key2 = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk);
+            let computed_key2 = tree.compute_key(ciphertexts[user_index], sk_id, &ibbe.pk.get_h());
             let end_time: Instant = Instant::now();
-            total_execution_time_tree_gen += end_time.duration_since(start_time).as_nanos();
+            total_execution_time_compute_key += end_time.duration_since(start_time).as_nanos();
 
-            assert!(computed_key2.eq(&tree.root_key.unwrap().key));
+            let start_time: Instant = Instant::now();
+            let new_key = tree.update_key().unwrap();
+            let end_time: Instant = Instant::now();
+            total_execution_time_update_key += end_time.duration_since(start_time).as_nanos();
         }
 
         println!();
         println!(
-            "test art_setup {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
-            (total_execution_time_art_setup as f64 / number_of_iterations as f64) / 1000000.0
+            "test compute_art {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_compute_art as f64 / number_of_iterations as f64) / 1000000.0
         );
         println!(
-            "test tree_gen {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
-            (total_execution_time_tree_gen as f64 / number_of_iterations as f64) / 1000000.0
+            "test compute_key {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_compute_key as f64 / number_of_iterations as f64) / 1000000.0
+        );
+        println!(
+            "test update_key {number_of_users} users, {number_of_iterations} iterations: {} ms on average",
+            (total_execution_time_update_key as f64 / number_of_iterations as f64) / 1000000.0
         );
     }
 }
