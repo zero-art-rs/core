@@ -60,7 +60,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
         self.stk = tools::hkdf(&ikm, None, info);
     }
 
-    pub fn combine_keys(&self, ibbe_key: EncryptionKey, tk: ScalarField) -> Vec<u8> {
+    fn combine_keys(&self, ibbe_key: EncryptionKey, tk: ScalarField) -> Vec<u8> {
         let mut ikm = ibbe_key.key.to_string().as_bytes().to_vec();
         ikm.append(&mut tk.to_string().into_bytes());
         let info = "ibbe and tree keys combination".as_bytes();
@@ -74,9 +74,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
         ikm.append(&mut tree_key.to_string().into_bytes());
         let encryption_key = self.combine_keys(ibbe_key, tree_key);
 
-        // println!("Encryption Key: {:?}", encryption_key);
-
-        let ciphertext = tools::encrypt_aes(encryption_key, message);
+        let ciphertext = tools::encrypt_aes(encryption_key, message).unwrap();
 
         let (root_key, changes) = self.tree.update_key().unwrap();
         self.update_stage_key();
@@ -100,7 +98,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
         let tree_key = self.tree.root_key.unwrap().key.clone();
         let decryption_key = self.combine_keys(ibbe_key, tree_key);
 
-        let plaintext = tools::decrypt_aes(decryption_key, cipher.ciphertext);
+        let plaintext = tools::decrypt_aes(decryption_key, cipher.ciphertext).unwrap();
 
         _ = self.tree.update_branch(&changes);
 

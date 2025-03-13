@@ -40,7 +40,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
 
 #[derive(Debug)]
 pub struct PublicKey {
-    pub w: Projective<ark_bn254::g2::Config>,
+    pub w: G2,
     pub v: Fp12<Fq12Config>,
     pub powers_of_h: Vec<G1Projective<Config>>,
 }
@@ -66,19 +66,19 @@ impl PublicKey {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SecretKey {
-    pub sk: Projective<ark_bn254::g2::Config>,
+    pub sk: G2,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct MasterSecretKey {
-    pub g: G2Projective<Config>,
+    pub g: G2,
     pub gamma: ScalarField,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Header {
-    pub c1: Projective<ark_bn254::g2::Config>,
-    pub c2: Projective<ark_bn254::g1::Config>,
+    pub c1: G2,
+    pub c2: G1,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,7 +89,7 @@ pub struct EncryptionKey {
 #[derive(Debug, Clone, Copy)]
 pub struct Signature {
     pub hash: Fp256<MontBackend<FrConfig, 4>>,
-    pub s: Projective<ark_bn254::g2::Config>,
+    pub s: G2,
 }
 
 #[derive(Debug, Clone)]

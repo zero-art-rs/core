@@ -1,20 +1,17 @@
+use crate::ibbe_del7::UserIdentity;
+use aes_gcm::{
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+};
 use ark_bn254::{
     Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
     fr::Fr as ScalarField, fr::FrConfig,
 };
 use ark_ff::{Fp256, MontBackend};
 use ark_std::{One, UniformRand, Zero};
+use hkdf::Hkdf;
 use num::BigUint;
 use rand::Rng;
-use std::convert::identity;
-
-use crate::ibbe_del7::UserIdentity;
-use aes_gcm::{
-    Aes256Gcm, Key, Nonce,
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-};
-use hex_literal::hex;
-use hkdf::Hkdf;
 use sha2::{Digest, Sha256, Sha512};
 
 // return random ScalarField element, which isn't zero or one
@@ -80,7 +77,7 @@ pub fn hkdf(ikm: &Vec<u8>, salt: Option<&[u8]>, info: &[u8]) -> Vec<u8> {
     okm.to_vec()
 }
 
-pub fn encrypt_aes(key_bytes: Vec<u8>, plaintext: String) -> Vec<u8> {
+pub fn encrypt_aes(key_bytes: Vec<u8>, plaintext: String) -> Result<Vec<u8>, String> {
     let mut hasher = Sha256::new();
     hasher.update(key_bytes);
     let result = hasher.finalize();
@@ -88,16 +85,20 @@ pub fn encrypt_aes(key_bytes: Vec<u8>, plaintext: String) -> Vec<u8> {
     let key = Key::<Aes256Gcm>::from_slice(&result[..]);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let cipher = Aes256Gcm::new(key);
-    let ciphered_data = cipher
-        .encrypt(&nonce, plaintext.as_bytes())
-        .expect("failed to encrypt");
+    let ciphered_data = cipher.encrypt(&nonce, plaintext.as_bytes());
+
+    let ciphered_data = match ciphered_data {
+        Ok(ciphered_data) => ciphered_data,
+        Err(e) => return Err(String::from(format!("Failed to encrypt: {:?}", e))),
+    };
 
     let mut encrypted_data: Vec<u8> = nonce.to_vec();
     encrypted_data.extend_from_slice(&ciphered_data);
-    encrypted_data
+
+    Ok(encrypted_data)
 }
 
-pub fn decrypt_aes(key_bytes: Vec<u8>, encrypted_data: Vec<u8>) -> String {
+pub fn decrypt_aes(key_bytes: Vec<u8>, encrypted_data: Vec<u8>) -> Result<String, String> {
     let mut hasher = Sha256::new();
     hasher.update(key_bytes);
     let result = hasher.finalize();
@@ -106,8 +107,22 @@ pub fn decrypt_aes(key_bytes: Vec<u8>, encrypted_data: Vec<u8>) -> String {
     let (nonce_arr, ciphered_data) = encrypted_data.split_at(12);
     let nonce = Nonce::from_slice(nonce_arr);
     let cipher = Aes256Gcm::new(key);
-    let plaintext = cipher
-        .decrypt(nonce, ciphered_data)
-        .expect("failed to decrypt data");
-    String::from_utf8(plaintext).expect("failed to convert vector of bytes to string")
+    let plaintext = cipher.decrypt(nonce, ciphered_data);
+
+    let plaintext = match plaintext {
+        Ok(plaintext) => String::from_utf8(plaintext),
+        Err(e) => return Err(String::from(format!("Failed to decrypt: {:?}", e))),
+    };
+
+    let plaintext = match plaintext {
+        Ok(plaintext) => plaintext,
+        Err(e) => {
+            return Err(String::from(format!(
+                "Failed to convert to string: {:?}",
+                e
+            )));
+        }
+    };
+
+    Ok(plaintext)
 }

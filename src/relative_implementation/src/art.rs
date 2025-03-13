@@ -6,20 +6,33 @@ use ark_bn254::{
     Bn254, Config, Fq12Config, G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
     fr::FrConfig,
 };
-use ark_ec::bn::{Bn, G1Projective, G2Projective};
 use ark_ec::pairing::{Pairing, PairingOutput};
-use ark_ec::short_weierstrass::Projective;
 use ark_ff::{Field, Fp12, Fp12Config, Fp256, MontBackend, PrimeField, ToConstraintField};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_std::iterable::Iterable;
 use ark_std::{One, UniformRand, Zero};
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::ops::{Add, Mul};
-use std::path::Component::RootDir;
 
-#[derive(Debug, Clone)]
-pub struct ARTNode {
-    public_key: G1,
-    l: Option<Box<ARTNode>>,
-    r: Option<Box<ARTNode>>,
+// For serialisation
+fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut bytes = vec![];
+    a.serialize_with_mode(&mut bytes, Compress::Yes)
+        .map_err(serde::ser::Error::custom)?;
+    s.serialize_bytes(&bytes)
+}
+// For deserialization
+fn ark_de<'de, D, A: CanonicalDeserialize>(data: D) -> Result<A, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let s: Vec<u8> = serde::de::Deserialize::deserialize(data)?;
+    let a = A::deserialize_with_mode(s.as_slice(), Compress::Yes, Validate::Yes);
+    a.map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,14 +50,31 @@ pub struct ARTCiphertext {
 #[derive(Debug, Clone)]
 pub struct BranchChanges {
     pub public_keys: Vec<G1>,
-    pub directions: Vec<Direction>,
+    pub next: Vec<Direction>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
 pub struct ARTRootKey {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub key: ScalarField,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub lambda: Option<Fp12<Fq12Config>>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub generator: G1,
+}
+
+pub fn sdf() {
+    let valnum = G1::zero();
+    let (x, y, z) = (valnum.x, valnum.y, valnum.z);
+    let valueres = G1::new(x, y, z);
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ARTNode {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    public_key: G1,
+    l: Option<Box<ARTNode>>,
+    r: Option<Box<ARTNode>>,
 }
 
 impl ARTNode {
@@ -91,7 +121,8 @@ impl ARTNode {
     pub fn get_public_key(&self) -> G1 {
         self.public_key.clone()
     }
-    pub fn set_public_key(&mut self, public_key: G1Projective<Config>) {
+
+    pub fn set_public_key(&mut self, public_key: G1) {
         self.public_key = public_key;
     }
 
@@ -128,7 +159,7 @@ impl ARTNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ART {
     root: Box<ARTNode>,
     pub root_key: Option<ARTRootKey>,
@@ -138,6 +169,14 @@ impl ART {
     pub fn set_root_key(&mut self, root_key: ARTRootKey) {
         self.root_key = Some(root_key);
     }
+
+    pub fn remove_root_key(&mut self) -> ARTRootKey {
+        let root_key = self.root_key.unwrap().clone();
+        self.root_key = None;
+
+        root_key
+    }
+
     fn compute_next_layer(
         level_nodes: &mut Vec<ARTNode>,
         level_secrets: &mut Vec<ScalarField>,
@@ -178,12 +217,7 @@ impl ART {
         (upper_level_nodes, upper_level_secrets)
     }
 
-    pub fn from(json: String) {}
-
-    pub fn new_art_from_secrets(
-        secrets: &Vec<Fp12<Fq12Config>>,
-        generator: &G1Projective<Config>,
-    ) -> Self {
+    pub fn new_art_from_secrets(secrets: &Vec<Fp12<Fq12Config>>, generator: &G1) -> Self {
         let mut level_nodes = Vec::new();
         let mut level_secrets = Vec::new();
 
@@ -220,6 +254,7 @@ impl ART {
         ART {
             root: Box::new(root),
             root_key: Some(root_key),
+            // root_key: None, it is hard to remove
         }
     }
 
@@ -227,17 +262,14 @@ impl ART {
         &self.root
     }
 
-    pub fn get_co_path_values(
-        &self,
-        user_val: G1Projective<Config>,
-    ) -> Result<Vec<G1Projective<Config>>, String> {
-        let (path_nodes, next_node_directions) = self.get_path(user_val).unwrap();
+    pub fn get_co_path_values(&self, user_public_key: G1) -> Result<Vec<G1>, String> {
+        let (path_nodes, next_node) = self.get_path(user_public_key).unwrap();
 
         let mut co_path_values = Vec::new();
 
         for i in (0..path_nodes.len() - 1).rev() {
             let node = path_nodes.get(i).unwrap();
-            let direction = next_node_directions.get(i).unwrap();
+            let direction = next_node.get(i).unwrap();
 
             match direction {
                 Direction::Left => co_path_values.push(node.get_right().public_key),
@@ -249,32 +281,29 @@ impl ART {
         Ok(co_path_values)
     }
 
-    pub fn get_path(
-        &self,
-        user_val: G1Projective<Config>,
-    ) -> Result<(Vec<&ARTNode>, Vec<Direction>), String> {
+    pub fn get_path(&self, user_val: G1) -> Result<(Vec<&ARTNode>, Vec<Direction>), String> {
         let root = self.get_root();
 
         let mut path = vec![root.as_ref()];
-        let mut discovered_directions = vec![Direction::NoDirection];
+        let mut discovered = vec![Direction::NoDirection];
 
         while !path.is_empty() {
             let last_node = path.last().unwrap();
 
             if last_node.is_leaf() {
                 if last_node.public_key.eq(&user_val) {
-                    return Ok((path, discovered_directions));
+                    return Ok((path, discovered));
                 } else {
                     path.pop();
-                    discovered_directions.pop();
+                    discovered.pop();
                 }
             } else {
-                match discovered_directions.pop().unwrap() {
+                match discovered.pop().unwrap() {
                     Direction::Left => {
                         path.push(last_node.get_right().as_ref());
 
-                        discovered_directions.push(Direction::Right);
-                        discovered_directions.push(Direction::NoDirection);
+                        discovered.push(Direction::Right);
+                        discovered.push(Direction::NoDirection);
                     }
                     Direction::Right => {
                         path.pop();
@@ -282,8 +311,8 @@ impl ART {
                     Direction::NoDirection => {
                         path.push(last_node.get_left().as_ref());
 
-                        discovered_directions.push(Direction::Left);
-                        discovered_directions.push(Direction::NoDirection);
+                        discovered.push(Direction::Left);
+                        discovered.push(Direction::NoDirection);
                     }
                 }
             }
@@ -292,7 +321,7 @@ impl ART {
         Err("Can't find a path.".to_string())
     }
 
-    pub fn update_root_key(&mut self, lambda: Fp12<Fq12Config>, generator: &G1) -> ARTRootKey {
+    pub fn recover_root_key(&mut self, lambda: Fp12<Fq12Config>, generator: &G1) -> ARTRootKey {
         let mut secret_key =
             tools::sha512_from_byte_vec_to_scalar_field(&lambda.to_string().into_bytes());
 
@@ -319,7 +348,7 @@ impl ART {
         key
     }
 
-    pub fn compute_key(
+    pub fn compute_root_key(
         &mut self,
         ciphertext: ARTCiphertext,
         sk_id: SecretKey,
@@ -327,47 +356,47 @@ impl ART {
     ) -> ARTRootKey {
         let lambda = Bn254::pairing(ciphertext.c, sk_id.sk).0;
 
-        self.update_root_key(lambda, generator)
+        self.recover_root_key(lambda, generator)
     }
 
     pub fn change_lambda(
         &mut self,
         new_lambda: Fp12<Fq12Config>,
     ) -> Result<(ARTRootKey, BranchChanges), String> {
-        let mut public_keys = Vec::new();
-
         let generator = self.root_key.unwrap().generator;
+
         let old_lambda = self.root_key.unwrap().lambda.unwrap();
         let old_secret_key =
             tools::sha512_from_byte_vec_to_scalar_field(&old_lambda.to_string().into_bytes());
         let old_public_key = generator.mul(old_secret_key);
 
+        let (_, mut next) = self.get_path(old_public_key)?;
+
+        let mut changes = BranchChanges {
+            public_keys: Vec::new(),
+            next: next.clone(),
+        };
+
         let mut secret_key =
             tools::sha512_from_byte_vec_to_scalar_field(&new_lambda.to_string().into_bytes());
         let mut public_key = generator.mul(secret_key);
-        public_keys.push(public_key);
 
-        let (_, mut directions) = self.get_path(old_public_key)?;
-        let (_, directions_for_return) = self.get_path(old_public_key)?;
+        next.pop();
+        while !next.is_empty() {
+            let next_child = next.pop().unwrap();
 
-        directions.pop();
-        while !directions.is_empty() {
-            let last_direction = directions.pop().unwrap();
-
-            let mut current_parent = self.root.as_mut();
-            for direction in &directions {
-                current_parent = current_parent.get_mut_child(direction)?;
+            let mut parent = self.root.as_mut();
+            for direction in &next {
+                parent = parent.get_mut_child(direction)?;
             }
 
-            current_parent
-                .get_mut_child(&last_direction)?
+            parent
+                .get_mut_child(&next_child)?
                 .set_public_key(public_key);
-            public_keys.push(public_key);
 
-            let other_child_public_key = current_parent
-                .get_other_child(&last_direction)?
-                .public_key
-                .clone();
+            changes.public_keys.push(public_key);
+
+            let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
             let secret = other_child_public_key.mul(secret_key);
             secret_key =
                 tools::sha512_from_byte_vec_to_scalar_field(&secret.to_string().into_bytes());
@@ -375,6 +404,8 @@ impl ART {
         }
 
         self.root.set_public_key(public_key);
+        changes.public_keys.push(public_key);
+        changes.public_keys.reverse();
 
         let key = ARTRootKey {
             key: secret_key,
@@ -383,11 +414,6 @@ impl ART {
         };
 
         self.root_key = Some(key);
-        public_keys.reverse();
-        let changes = BranchChanges {
-            public_keys,
-            directions: directions_for_return,
-        };
 
         Ok((key, changes))
     }
@@ -403,15 +429,15 @@ impl ART {
 
     pub fn update_branch(&mut self, changes: &BranchChanges) -> Result<(), String> {
         let mut current_node = self.root.as_mut();
-        for i in (0..changes.directions.len() - 1) {
+        for i in (0..changes.next.len() - 1) {
             current_node.set_public_key(changes.public_keys[i].clone());
 
-            current_node = current_node.get_mut_child(changes.directions.get(i).unwrap())?;
+            current_node = current_node.get_mut_child(changes.next.get(i).unwrap())?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.directions.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.next.len() - 1].clone());
 
-        self.update_root_key(
+        self.recover_root_key(
             self.root_key.unwrap().lambda.unwrap(),
             &self.root_key.unwrap().generator,
         );
@@ -476,10 +502,7 @@ impl ARTAgent {
         (tree, ciphertexts, root_key)
     }
 
-    pub fn recompute_tree<T: Into<Vec<u8>> + Clone + PartialEq>(
-        &self,
-        users_id: &Vec<UserIdentity<T>>,
-    ) -> ART {
+    pub fn get_recomputed_art(&self) -> ART {
         let tree = ART::new_art_from_secrets(&self.secret_keys.clone().unwrap(), &self.pk.get_h());
 
         tree
