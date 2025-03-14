@@ -1,7 +1,7 @@
 pub mod art;
 pub mod hybrid_encryption;
 pub mod ibbe_del7;
-pub mod ibbe_del7_time_measurements;
+pub mod time_measurements;
 pub mod tools;
 
 #[cfg(test)]

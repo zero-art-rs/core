@@ -60,9 +60,10 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
         self.stk = tools::hkdf(&ikm, None, info);
     }
 
-    fn combine_keys(&self, ibbe_key: EncryptionKey, tk: ScalarField) -> Vec<u8> {
+    fn combine_keys(&self, ibbe_key: EncryptionKey, tree_key: ScalarField) -> Vec<u8> {
         let mut ikm = ibbe_key.key.to_string().as_bytes().to_vec();
-        ikm.append(&mut tk.to_string().into_bytes());
+        ikm.append(&mut tree_key.to_string().into_bytes());
+
         let info = "ibbe and tree keys combination".as_bytes();
         tools::hkdf(&ikm, None, info)
     }

@@ -25,6 +25,7 @@ where
         .map_err(serde::ser::Error::custom)?;
     s.serialize_bytes(&bytes)
 }
+
 // For deserialization
 fn ark_de<'de, D, A: CanonicalDeserialize>(data: D) -> Result<A, D::Error>
 where
@@ -61,12 +62,6 @@ pub struct ARTRootKey {
     pub lambda: Option<Fp12<Fq12Config>>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub generator: G1,
-}
-
-pub fn sdf() {
-    let valnum = G1::zero();
-    let (x, y, z) = (valnum.x, valnum.y, valnum.z);
-    let valueres = G1::new(x, y, z);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

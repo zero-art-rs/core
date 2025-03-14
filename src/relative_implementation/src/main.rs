@@ -6,7 +6,7 @@ use relative_implementation::{
     art::{ART, ARTAgent},
     hybrid_encryption::HybridEncryption,
     ibbe_del7::{IBBEDel7, UserIdentity},
-    ibbe_del7_time_measurements::SpeedMetrics,
+    time_measurements::SpeedMetrics,
     tools,
 };
 use std::{
