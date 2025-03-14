@@ -1,17 +1,18 @@
 pub mod art;
 pub mod hybrid_encryption;
 pub mod ibbe_del7;
+pub mod schnorr;
 pub mod time_measurements;
 pub mod tools;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hybrid_encryption::HybridEncryption;
     use crate::{
         art::ARTAgent,
-        ibbe_del7::{IBBEDel7, UserIdentity},
+        ibbe_del7::{IBBEDel7},
         tools,
+        hybrid_encryption::HybridEncryption,
     };
     use ark_ec::pairing::Pairing;
     use rand::{Rng, thread_rng};

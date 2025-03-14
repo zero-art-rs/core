@@ -3,21 +3,15 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
-use ark_bn254::{
-    Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
-    fr::Fr as ScalarField, fr::FrConfig,
-};
-use ark_ff::{Fp256, MontBackend};
+use ark_bn254::fr::Fr as ScalarField;
+use ark_ff::{PrimeField};
 use ark_std::{One, UniformRand, Zero};
 use hkdf::Hkdf;
-use num::BigUint;
 use rand::Rng;
 use sha2::{Digest, Sha256, Sha512};
 
 // return random ScalarField element, which isn't zero or one
-pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
-    rng: &mut R,
-) -> Fp256<MontBackend<FrConfig, 4>> {
+pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(rng: &mut R) -> ScalarField {
     let mut k = ScalarField::zero();
     while k.eq(&ScalarField::one()) || k.eq(&ScalarField::zero()) {
         k = ScalarField::rand(rng);
@@ -27,12 +21,11 @@ pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(
 }
 
 // compute hash, and convert to ScalarField
-pub fn sha512_from_byte_vec_to_scalar_field(bytes: &Vec<u8>) -> Fp256<MontBackend<FrConfig, 4>> {
+pub fn sha512_from_byte_vec_to_scalar_field(bytes: &Vec<u8>) -> ScalarField {
     let mut hasher = Sha512::new();
     hasher.update(bytes);
-    let hash = &hasher.finalize()[..];
-    let hash = BigUint::from_bytes_le(hash);
-    ScalarField::from(hash)
+    let bytes = &hasher.finalize()[..];
+    ScalarField::from_le_bytes_mod_order(bytes)
 }
 
 // Given a list of scalars (a0, a1, ..., an) compute coefficients of

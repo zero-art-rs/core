@@ -1,10 +1,10 @@
 use super::*;
-use crate::art::{ARTAgent, ART};
+use crate::art::{ART, ARTAgent};
+use crate::hybrid_encryption::HybridEncryption;
 use crate::ibbe_del7::{IBBEDel7, UserIdentity};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::collections::HashMap;
 use std::time::Instant;
-use crate::hybrid_encryption::HybridEncryption;
 
 pub struct SpeedMetrics {}
 
@@ -300,10 +300,7 @@ impl SpeedMetrics {
         }
     }
 
-    pub fn test_hibbe(
-        number_of_users: u32,
-        number_of_iterations: u128,
-    ) {
+    pub fn test_hibbe(number_of_users: u32, number_of_iterations: u128) {
         let mut total_execution_time = HashMap::new();
         total_execution_time.insert("encrypt", 0);
         total_execution_time.insert("decrypt", 0);
@@ -344,9 +341,8 @@ impl SpeedMetrics {
             let mut hibbe2 =
                 HybridEncryption::new(ibbe.clone(), tree2, users.clone(), user2.clone(), sk_id2);
 
-            let message = String::from(
-                "111111111122222222223333333333444444444455555555556666666666",
-            );
+            let message =
+                String::from("111111111122222222223333333333444444444455555555556666666666");
 
             let start_time: Instant = Instant::now();
             let (ciphertext, changes) = hibbe1.encrypt(message);
@@ -354,7 +350,6 @@ impl SpeedMetrics {
             total_execution_time
                 .entry("encrypt")
                 .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
-
 
             let start_time: Instant = Instant::now();
             let decrypted_message = hibbe2.decrypt(ciphertext.clone(), &changes.clone());

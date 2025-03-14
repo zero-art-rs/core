@@ -1,18 +1,21 @@
 extern crate relative_implementation;
 
+use ark_bn254::{
+    Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
+    fr::Fr as ScalarField, fr::FrConfig,
+};
+use ark_std::{One, UniformRand, Zero};
 use rand::{Rng, thread_rng};
 use relative_implementation::art::ARTRootKey;
 use relative_implementation::{
     art::{ART, ARTAgent},
     hybrid_encryption::HybridEncryption,
     ibbe_del7::{IBBEDel7, UserIdentity},
+    schnorr::SchnorrCryptoSystem,
     time_measurements::SpeedMetrics,
     tools,
 };
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-};
+use sha2::Sha512;
 
 fn example() {
     let number_of_users = 15u32;
@@ -111,9 +114,7 @@ fn hybrid_example() {
     let mut hibbe2 =
         HybridEncryption::new(ibbe.clone(), tree2, users.clone(), user2.clone(), sk_id2);
 
-    let message = String::from(
-        "Some string for encryption to see if it is really working, because I have some doubts about it.",
-    );
+    let message = String::from("fffcf6c73fc73cf73fc27f83fc");
     let (ciphertext, changes) = hibbe1.encrypt(message);
     let decrypted_message = hibbe2.decrypt(ciphertext.clone(), &changes.clone());
     println!("decrypted_message = {:?}", decrypted_message);
@@ -141,11 +142,51 @@ fn serialise_example() {
     println!("Deserialized: {:?}", deserialized);
 }
 
+fn schnorr_signature_example() {
+    let mut rng = thread_rng();
+    let system = SchnorrCryptoSystem::new(G1::rand(&mut rng));
+
+    let (sk, pk) = system.key_gen();
+    let mut message = "asdgsddsfasdvs".as_bytes().to_vec();
+    let signature = system.sign(&message, &sk);
+    println!(
+        "signature is valid: {}",
+        system.verify(&message, &signature, &pk)
+    );
+    message.append(&mut vec![5]);
+    println!(
+        "signature is invalid: {}",
+        !system.verify(&message, &signature, &pk)
+    )
+}
+
+fn schnorr_identification_example() {
+    let mut rng = thread_rng();
+    let system = SchnorrCryptoSystem::new(G1::rand(&mut rng));
+    let (sk, pk) = system.key_gen();
+
+    let message = "asdgsddsfasdvs".as_bytes().to_vec();
+    let (esk, epk) = system.initialize_interactive_identification_protocol();
+    let challenge = system.gen_challenge();
+    let mut identity_proof = system.gen_interactive_identity_proof(&challenge, &esk, &epk, &sk);
+    println!(
+        "identity proof is valid: {}",
+        system.verify_interactive_identity_proof(&identity_proof, &pk)
+    );
+    identity_proof.challenge += challenge;
+    println!(
+        "identity proof is invalid: {}",
+        !system.verify_interactive_identity_proof(&identity_proof, &pk)
+    );
+}
+
 fn main() {
     // example();
     // art_tree_example();
     // hybrid_example();
     // serialise_example();
+    schnorr_signature_example();
+    schnorr_identification_example();
 
-    measure_time(100);
+    // measure_time(100);
 }

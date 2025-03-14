@@ -1,16 +1,12 @@
 // Hybrid of IBBBEDel7 and Asymmetric Ratchet Tree
 
 use ark_bn254::{
-    Bn254, Config, Fq12Config, G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
-    fr::FrConfig,
+    G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
 };
-use ark_ec::bn::{Bn, G1Projective, G2Projective};
 
-use crate::art::{BranchChanges, Direction};
-use crate::ibbe_del7::{EncryptionKey, Header};
 use crate::{
-    art::{ART, ARTAgent},
-    ibbe_del7::{IBBEDel7, MasterSecretKey, PublicKey, SecretKey, UserIdentity},
+    art::{ART, BranchChanges},
+    ibbe_del7::{IBBEDel7, SecretKey, UserIdentity, EncryptionKey, Header},
     tools,
 };
 

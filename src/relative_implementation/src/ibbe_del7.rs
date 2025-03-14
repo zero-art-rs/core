@@ -3,16 +3,12 @@
 
 use crate::tools;
 use ark_bn254::{
-    Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
+    Bn254, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
     fr::Fr as ScalarField, fr::FrConfig,
 };
-use ark_ec::bn::{Bn, G1Projective, G2Projective};
 use ark_ec::pairing::{Pairing, PairingOutput};
-use ark_ec::short_weierstrass::Projective;
 use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
 use ark_std::{One, UniformRand, Zero};
-use num::BigUint;
-use num::bigint::Sign;
 use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
 
@@ -42,7 +38,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
 pub struct PublicKey {
     pub w: G2,
     pub v: Fp12<Fq12Config>,
-    pub powers_of_h: Vec<G1Projective<Config>>,
+    pub powers_of_h: Vec<G1>,
 }
 
 impl Clone for PublicKey {
@@ -58,7 +54,7 @@ impl Clone for PublicKey {
 }
 
 impl PublicKey {
-    pub fn get_h(&self) -> &G1Projective<Config> {
+    pub fn get_h(&self) -> &G1 {
         // for use instead of pk.powers_of_h[0]
         &self.powers_of_h[0]
     }
