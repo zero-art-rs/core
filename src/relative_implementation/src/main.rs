@@ -8,7 +8,7 @@ use ark_std::{One, UniformRand, Zero};
 use rand::{Rng, thread_rng};
 use relative_implementation::art::ARTRootKey;
 use relative_implementation::{
-    art::{ART, ARTAgent},
+    art::{ART, ARTTrustedAgent, ARTUserAgent},
     hybrid_encryption::HybridEncryption,
     ibbe_del7::{IBBEDel7, UserIdentity},
     schnorr::SchnorrCryptoSystem,
@@ -51,15 +51,15 @@ fn example() {
 }
 
 fn measure_time(number_of_iterations: u128) {
-    SpeedMetrics::test_complex::<String>(10, number_of_iterations);
-    SpeedMetrics::test_complex::<String>(100, number_of_iterations);
-    // SpeedMetrics::test_complex(1000, number_of_iterations);
+    SpeedMetrics::test_ibbe(10, number_of_iterations);
+    SpeedMetrics::test_ibbe(100, number_of_iterations);
+    // SpeedMetrics::test_ibbe(1000, number_of_iterations);
 
-    SpeedMetrics::test_signature_complex::<String>(100, number_of_iterations);
+    SpeedMetrics::test_signature_complex(100, number_of_iterations);
 
-    SpeedMetrics::test_art::<String>(10, number_of_iterations);
-    SpeedMetrics::test_art::<String>(100, number_of_iterations);
-    // SpeedMetrics::test_art_agent::<String>(1000, number_of_iterations);
+    SpeedMetrics::test_art(10, number_of_iterations);
+    SpeedMetrics::test_art(100, number_of_iterations);
+    // SpeedMetrics::test_art(1000, number_of_iterations);
 
     SpeedMetrics::test_hibbe(100, number_of_iterations);
 }
@@ -75,19 +75,12 @@ fn art_tree_example() {
     let user = users[user_index].clone();
     let sk_id = ibbe.extract(&user).unwrap();
 
-    let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+    let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
-    let root_key = tree.root_key.unwrap();
+    let mut user_agent =
+        ARTUserAgent::new(tree.serialise().unwrap(), ciphertexts[user_index], sk_id);
+    let root_key = user_agent.root_key;
     println!("computed_key = {:?}", root_key);
-
-    let computed_root_key2 =
-        tree.compute_root_key(ciphertexts[user_index], sk_id, &ibbe.pk.get_h());
-    println!("computed_root_key = {:?}", computed_root_key2);
-
-    println!(
-        "Keys are equal: {:?}",
-        computed_root_key2.key.eq(&root_key.key)
-    );
 }
 fn hybrid_example() {
     let number_of_users = 15u32;
@@ -102,17 +95,27 @@ fn hybrid_example() {
     let sk_id1 = ibbe.extract(&user1).unwrap();
     let sk_id2 = ibbe.extract(&user2).unwrap();
 
-    let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-    let (mut tree1, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
-    let root_key = tree1.compute_root_key(ciphertexts[index1], sk_id1, &ibbe.pk.get_h());
+    let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+    let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
 
-    let mut tree2 = art_agent.get_recomputed_art();
-    tree2.compute_root_key(ciphertexts[index2], sk_id2, &ibbe.pk.get_h());
+    let tree_json = tree.serialise().unwrap();
+    let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
+    let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
 
-    let mut hibbe1 =
-        HybridEncryption::new(ibbe.clone(), tree1, users.clone(), user1.clone(), sk_id1);
-    let mut hibbe2 =
-        HybridEncryption::new(ibbe.clone(), tree2, users.clone(), user2.clone(), sk_id2);
+    let mut hibbe1 = HybridEncryption::new(
+        ibbe.clone(),
+        user1_agent,
+        users.clone(),
+        user1.clone(),
+        sk_id1,
+    );
+    let mut hibbe2 = HybridEncryption::new(
+        ibbe.clone(),
+        user2_agent,
+        users.clone(),
+        user2.clone(),
+        sk_id2,
+    );
 
     let message = String::from("fffcf6c73fc73cf73fc27f83fc");
     let (ciphertext, changes) = hibbe1.encrypt(message);
@@ -129,16 +132,17 @@ fn serialise_example() {
     let ibbe = IBBEDel7::setup(number_of_users);
     let sk_id = ibbe.extract(&user).unwrap();
 
-    let mut art_agent = ARTAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+    let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
-    let root_key = tree.remove_root_key();
+
+    let user_agent = ARTUserAgent::new(tree.serialise().unwrap(), ciphertexts[user_index], sk_id);
 
     // Serialize the struct to a JSON string
-    let serialized = serde_json::to_string(&tree).unwrap();
+    let serialized = tree.serialise().unwrap();
     println!("Serialized: {}", serialized);
 
     // Deserialize the JSON string back to a struct
-    let deserialized: ART = serde_json::from_str(&serialized).unwrap();
+    let deserialized = ART::from_json(serialized).unwrap();
     println!("Deserialized: {:?}", deserialized);
 }
 
@@ -185,8 +189,8 @@ fn main() {
     // art_tree_example();
     // hybrid_example();
     // serialise_example();
-    schnorr_signature_example();
-    schnorr_identification_example();
+    // schnorr_signature_example();
+    // schnorr_identification_example();
 
-    // measure_time(100);
+    measure_time(100);
 }

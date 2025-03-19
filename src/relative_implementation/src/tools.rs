@@ -4,7 +4,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use ark_bn254::fr::Fr as ScalarField;
-use ark_ff::{PrimeField};
+use ark_ff::PrimeField;
 use ark_std::{One, UniformRand, Zero};
 use hkdf::Hkdf;
 use rand::Rng;

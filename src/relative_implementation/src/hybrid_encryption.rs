@@ -1,12 +1,11 @@
 // Hybrid of IBBBEDel7 and Asymmetric Ratchet Tree
 
-use ark_bn254::{
-    G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
-};
+use ark_bn254::{G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField};
 
+use crate::art::ARTUserAgent;
 use crate::{
     art::{ART, BranchChanges},
-    ibbe_del7::{IBBEDel7, SecretKey, UserIdentity, EncryptionKey, Header},
+    ibbe_del7::{EncryptionKey, Header, IBBEDel7, SecretKey, UserIdentity},
     tools,
 };
 
@@ -18,7 +17,7 @@ pub struct HybridCiphertext {
 
 #[derive(Debug)]
 pub struct HybridEncryption<T> {
-    tree: ART,
+    art_agent: ARTUserAgent,
     ibbe: IBBEDel7,
     users: Vec<UserIdentity<T>>,
     user_identity: UserIdentity<T>,
@@ -29,18 +28,18 @@ pub struct HybridEncryption<T> {
 impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
     pub fn new(
         ibbe: IBBEDel7,
-        tree: ART,
+        art_agent: ARTUserAgent,
         users: Vec<UserIdentity<T>>,
         user_identity: UserIdentity<T>,
         ibbe_sk: SecretKey,
     ) -> Self {
         let mut ikm = vec![0; 32];
-        ikm.append(&mut tree.root_key.unwrap().key.to_string().into_bytes());
+        ikm.append(&mut art_agent.get_root_key().key.to_string().into_bytes());
         let info = "compute stage key".as_bytes();
         let stk = tools::hkdf(&ikm, None, info);
 
         Self {
-            tree,
+            art_agent,
             ibbe,
             users,
             user_identity,
@@ -51,7 +50,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
 
     pub fn update_stage_key(&mut self) {
         let mut ikm = self.stk.clone();
-        ikm.append(&mut self.tree.root_key.unwrap().key.to_string().into_bytes());
+        ikm.append(&mut self.art_agent.get_root_key().key.to_string().into_bytes());
         let info = "update stage key".as_bytes();
         self.stk = tools::hkdf(&ikm, None, info);
     }
@@ -65,7 +64,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
     }
     pub fn encrypt(&mut self, message: String) -> (HybridCiphertext, BranchChanges) {
         let (hdr, ibbe_key) = self.ibbe.encrypt(&self.users);
-        let tree_key = self.tree.root_key.unwrap().key.clone();
+        let tree_key = self.art_agent.get_root_key().key.clone();
 
         let mut ikm = ibbe_key.key.to_string().as_bytes().to_vec();
         ikm.append(&mut tree_key.to_string().into_bytes());
@@ -73,7 +72,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
 
         let ciphertext = tools::encrypt_aes(encryption_key, message).unwrap();
 
-        let (root_key, changes) = self.tree.update_key().unwrap();
+        let (root_key, changes) = self.art_agent.update_key().unwrap();
         self.update_stage_key();
 
         (
@@ -92,12 +91,12 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
             &self.ibbe_sk,
             &cipher.ibbe_hdr,
         );
-        let tree_key = self.tree.root_key.unwrap().key.clone();
+        let tree_key = self.art_agent.get_root_key().key.clone();
         let decryption_key = self.combine_keys(ibbe_key, tree_key);
 
         let plaintext = tools::decrypt_aes(decryption_key, cipher.ciphertext).unwrap();
 
-        _ = self.tree.update_branch(&changes);
+        _ = self.art_agent.update_branch(&changes);
 
         plaintext
     }

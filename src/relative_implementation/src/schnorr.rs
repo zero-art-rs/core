@@ -87,7 +87,9 @@ impl SchnorrCryptoSystem {
         left_part == right_part
     }
 
-    pub fn initialize_interactive_identification_protocol(&self) -> (SchnorrSecretKey, SchnorrPublicKey) {
+    pub fn initialize_interactive_identification_protocol(
+        &self,
+    ) -> (SchnorrSecretKey, SchnorrPublicKey) {
         self.key_gen()
     }
 
