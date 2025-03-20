@@ -1,5 +1,6 @@
 // Asynchronous Ratchet Tree implementation
 
+use std::fmt::format;
 use crate::ibbe_del7::{MasterSecretKey, PublicKey, SecretKey, UserIdentity};
 use crate::tools;
 use ark_bn254::{
@@ -16,6 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::mem;
 use std::ops::{Add, DerefMut, Mul};
+use ark_ec::{CurveGroup, PrimeGroup};
+// use ark_ff::BigInteger;
+use ark_ff::BigInt;
 
 // For serialisation
 fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -38,7 +42,7 @@ where
     a.map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Direction {
     NoDirection,
     Left,
@@ -254,6 +258,14 @@ pub struct ART {
 }
 
 impl ART {
+    pub fn iota_function(point: &G1) -> ScalarField {
+        ScalarField::from(point.into_affine().x.into_bigint())
+    }
+
+    pub fn convert_lambda_to_scalar_field(element: &Fp12<Fq12Config>) -> ScalarField {
+        tools::sha512_from_byte_vec_to_scalar_field(&element.to_string().into_bytes())
+    }
+
     fn compute_next_layer_of_tree(
         level_nodes: &mut Vec<ARTNode>,
         level_secrets: &mut Vec<ScalarField>,
@@ -270,9 +282,7 @@ impl ART {
             level_secrets.remove(0); // skip the first secret
 
             let common_secret = left_node.public_key.mul(level_secrets.remove(0));
-            let secret_hash = tools::sha512_from_byte_vec_to_scalar_field(
-                &common_secret.to_string().into_bytes(),
-            );
+            let secret_hash = Self::iota_function(&common_secret);
 
             let node = ARTNode::new(
                 generator.mul(&secret_hash),
@@ -304,9 +314,7 @@ impl ART {
         // leaves of the tree
         for leaf_secret in secrets {
             // compute as hash to resolve type conflict
-            let secret = tools::sha512_from_byte_vec_to_scalar_field(
-                &leaf_secret.clone().to_string().into_bytes(),
-            );
+            let secret = Self::convert_lambda_to_scalar_field(leaf_secret);
 
             let node = ARTNode::new(generator.mul(secret), None, None);
 
@@ -405,8 +413,7 @@ impl ART {
     }
 
     pub fn recompute_root_key(&self, lambda: Fp12<Fq12Config>) -> ARTRootKey {
-        let mut secret_key =
-            tools::sha512_from_byte_vec_to_scalar_field(&lambda.to_string().into_bytes());
+        let mut secret_key = Self::convert_lambda_to_scalar_field(&lambda);
 
         let user_public_key = self.generator.mul(secret_key);
         let co_path_values = self.get_co_path_values(user_public_key).unwrap();
@@ -415,9 +422,7 @@ impl ART {
         let mut upper_level_public_key = G1::zero();
 
         for public_keys in co_path_values.iter() {
-            secret_key = tools::sha512_from_byte_vec_to_scalar_field(
-                &public_keys.mul(secret_key).to_string().into_bytes(),
-            );
+            secret_key = Self::iota_function(&public_keys.mul(secret_key));
             upper_level_public_key = self.generator.mul(secret_key);
         }
 
@@ -429,8 +434,7 @@ impl ART {
     }
 
     pub fn public_key_from_lambda(&self, lambda: Fp12<Fq12Config>) -> G1 {
-        let secret_key =
-            tools::sha512_from_byte_vec_to_scalar_field(&lambda.to_string().into_bytes());
+        let secret_key = Self::convert_lambda_to_scalar_field(&lambda);
         self.generator.mul(secret_key)
     }
 
@@ -453,8 +457,7 @@ impl ART {
             next: next.clone(),
         };
 
-        let mut secret_key =
-            tools::sha512_from_byte_vec_to_scalar_field(&lambda.to_string().into_bytes());
+        let mut secret_key = Self::convert_lambda_to_scalar_field(&lambda);
         let mut public_key = self.generator.mul(secret_key);
 
         while !next.is_empty() {
@@ -473,8 +476,7 @@ impl ART {
 
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
             let secret = other_child_public_key.mul(secret_key);
-            secret_key =
-                tools::sha512_from_byte_vec_to_scalar_field(&secret.to_string().into_bytes());
+            secret_key = Self::iota_function(&secret);
             public_key = self.generator.mul(&secret_key);
         }
 
@@ -499,13 +501,13 @@ impl ART {
         let (_, mut next) = self.get_path(self.public_key_from_lambda(old_lambda))?;
         let new_public_key = self.public_key_from_lambda(new_lambda);
 
-        let mut users_node = self.get_to_node(next)?;
-        users_node.set_public_key(new_public_key);
+        let mut user_node = self.get_to_node(next)?;
+        user_node.set_public_key(new_public_key);
 
         self.update_branch_public_keys(new_lambda)
     }
 
-    pub fn find_path_to_possible_node_for_insertion(&self) -> Result<Vec<Direction>, String> {
+    pub fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, String> {
         let root = self.get_root();
         let height = self.height();
 
@@ -516,7 +518,8 @@ impl ART {
             let last_node = path.last().unwrap();
 
             if last_node.is_leaf() {
-                if next.len() < height || last_node.is_temporal {
+                // there is <=, because next contains additional NoDirection
+                if next.len() <= height || last_node.is_temporal {
                     return Ok(next);
                 } else {
                     path.pop();
@@ -543,7 +546,7 @@ impl ART {
             }
         }
 
-        Err("Can't find a path.".to_string())
+        Err("Can't find a place for insertion.".into())
     }
 
     pub fn is_full_binary_tree(&self) -> bool {
@@ -556,7 +559,7 @@ impl ART {
                 self.root.extend(node);
             }
             false => {
-                let mut next = self.find_path_to_possible_node_for_insertion()?;
+                let mut next = self.find_path_to_possible_leaf_for_insertion()?;
 
                 let mut node_for_extension = self.root.as_mut();
                 for direction in &next {
@@ -580,8 +583,7 @@ impl ART {
         &mut self,
         lambda: Fp12<Fq12Config>,
     ) -> Result<(ARTRootKey, BranchChanges), String> {
-        let secret_key =
-            tools::sha512_from_byte_vec_to_scalar_field(&lambda.to_string().into_bytes());
+        let secret_key = Self::convert_lambda_to_scalar_field(&lambda);
         let new_public_key = self.generator.mul(secret_key);
 
         let new_node = ARTNode::new(new_public_key, None, None);
@@ -603,8 +605,7 @@ impl ART {
         public_key: G1,
         temporal_lambda: Fp12<Fq12Config>,
     ) -> Result<(ARTRootKey, BranchChanges), String> {
-        let temporal_secret_key =
-            tools::sha512_from_byte_vec_to_scalar_field(&temporal_lambda.to_string().into_bytes());
+        let temporal_secret_key = Self::convert_lambda_to_scalar_field(&temporal_lambda);
         let new_public_key = self.generator.mul(temporal_secret_key);
 
         let (_, mut next) = self.get_path(public_key)?;
@@ -621,14 +622,17 @@ impl ART {
         }
     }
 
-    pub fn update_branch_public_keys_using_changes(&mut self, changes: &BranchChanges) -> Result<(), String> {
+    pub fn update_branch_public_keys_using_changes(
+        &mut self,
+        changes: &BranchChanges,
+    ) -> Result<(), String> {
         let mut current_node = self.root.as_mut();
-        for i in (0..changes.next.len() - 1) {
+        for i in (0..changes.public_keys.len() - 1) {
             current_node.set_public_key(changes.public_keys[i].clone());
             current_node = current_node.get_mut_child(changes.next.get(i).unwrap())?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.next.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1].clone());
 
         Ok(())
     }
@@ -646,32 +650,23 @@ impl ART {
         let users_public_key = self.public_key_from_lambda(lambda);
 
         if users_public_key == public_key {
-            return false
+            return false;
         }
 
-        let (_,  mut path_to_other) = self.get_path(public_key).unwrap();
-        let (_,  mut path_to_self) = self.get_path(users_public_key).unwrap();
+        let (_, mut path_to_other) = self.get_path(public_key).unwrap();
+        let (_, mut path_to_self) = self.get_path(users_public_key).unwrap();
 
-        for i in 0..2 {
-            path_to_other.pop();
-            path_to_self.pop();
+        if path_to_other.len() != path_to_self.len() {
+            return false;
         }
 
-        let other_grand_parent = self.get_to_node(path_to_other).unwrap().public_key;
-        let self_grand_parent = self.get_to_node(path_to_self).unwrap().public_key;
+        for i in 0..(path_to_self.len() - 2) {
+            if path_to_self[i] != path_to_self[i] {}
+        }
 
-        other_grand_parent.eq(&other_grand_parent)
+        true
     }
-
-    pub fn remove_node(
-        &mut self,
-        lambda: Fp12<Fq12Config>,
-        neighbour_public_key: G1,
-    ) -> Result<(ARTRootKey, BranchChanges), String> {
-        if !self.can_remove(lambda, neighbour_public_key) {
-            return Err("Can't remove a node".into());
-        }
-
+    pub fn remove_node_from_tree(&mut self, neighbour_public_key: G1) -> Result<(), String> {
         let (_, mut next) = self.get_path(neighbour_public_key)?;
         let for_deletion = next.pop().unwrap();
         let parent = self.get_to_node(next)?;
@@ -679,7 +674,28 @@ impl ART {
         parent.shrink_to_other(for_deletion)?;
         self.size -= 1;
 
-        self.update_branch_public_keys(lambda)
+        Ok(())
+    }
+
+    pub fn remove_node(
+        &mut self,
+        lambda: Fp12<Fq12Config>,
+        public_key: G1,
+    ) -> Result<(ARTRootKey, BranchChanges), String> {
+        if !self.can_remove(lambda, public_key) {
+            return Err("Can't remove a node".into());
+        }
+
+        self.remove_node_from_tree(public_key)?;
+
+        match self.update_branch_public_keys(lambda) {
+            Ok((root_key, mut changes)) => {
+                changes.change_type = BranchChangesType::RemoveNode(public_key);
+
+                Ok((root_key, changes))
+            }
+            Err(msg) => Err(msg),
+        }
     }
 
     pub fn update_branch(&mut self, changes: &BranchChanges) -> Result<(), String> {
@@ -696,12 +712,7 @@ impl ART {
                 }
             }
             BranchChangesType::RemoveNode(public_key) => {
-                let (_, mut next) = self.get_path(public_key.clone())?;
-
-                let user = next.pop().unwrap();
-                let parent = self.get_to_node(next)?;
-
-                parent.shrink_to(user)?;
+                self.remove_node_from_tree(public_key.clone())?;
 
                 self.update_branch_public_keys_using_changes(changes)
             }
@@ -838,8 +849,6 @@ impl ARTUserAgent {
         match self.tree.change_lambda(self.lambda, new_lambda) {
             Ok((root_key, changes)) => {
                 self.lambda = new_lambda;
-                self.root_key = root_key;
-
                 self.root_key = root_key.clone();
                 Ok((root_key, changes))
             }

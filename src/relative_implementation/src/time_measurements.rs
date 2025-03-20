@@ -4,7 +4,10 @@ use crate::hybrid_encryption::HybridEncryption;
 use crate::ibbe_del7::{IBBEDel7, UserIdentity};
 use rand::{Rng, thread_rng};
 use std::collections::HashMap;
+use std::ops::Mul;
 use std::time::Instant;
+use ark_bn254::Bn254;
+use ark_ec::pairing::Pairing;
 
 pub struct SpeedMetrics {}
 
@@ -112,7 +115,13 @@ impl SpeedMetrics {
         total_execution_time.insert("deserialization", 0);
         total_execution_time.insert("compute_root_key", 0);
         total_execution_time.insert("update_key", 0);
-        total_execution_time.insert("update_branch", 0);
+        total_execution_time.insert("update_branch_key_rotation", 0);
+        total_execution_time.insert("update_branch_append_node", 0);
+        total_execution_time.insert("update_branch_remove_node", 0);
+        total_execution_time.insert("update_branch_make_temporal", 0);
+        total_execution_time.insert("append_node", 0);
+        total_execution_time.insert("remove_node", 0);
+        total_execution_time.insert("make_temporal", 0);
 
         let mut rng = rand::thread_rng();
 
@@ -120,12 +129,26 @@ impl SpeedMetrics {
             let ibbe = IBBEDel7::setup(number_of_users);
             let mut users = tools::crete_set_of_identities(number_of_users);
 
-            let user_index = rand::thread_rng().gen_range(0..number_of_users) as usize;
-            let user = users[user_index].clone();
-            let sk_id = ibbe.extract(&user).unwrap();
+            let index_for_removal = 2;
+            let mut index1 = 0; // can remove nodes 1, 2 and 3
+            let mut index2 = index_for_removal;
+            while index2 == index_for_removal || index2 == index1 {
+                index2 = thread_rng().gen_range(0..number_of_users as usize);
+            }
 
-            let msk = ibbe.msk.clone().expect("Secret key must be set up.");
-            let mut art_agent = ARTTrustedAgent::new(msk, ibbe.pk.clone());
+            let user_for_removal = users.get(index_for_removal).unwrap().clone();
+            let user1 = users.get(index1).unwrap().clone();
+            let user2 = users.get(index2).unwrap().clone();
+
+            let sk_idr = ibbe.extract(&user_for_removal).unwrap();
+            let sk_id1 = ibbe.extract(&user1).unwrap();
+            let sk_id2 = ibbe.extract(&user2).unwrap();
+
+
+            let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
+            let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+
+            let tree_json = tree.serialise().unwrap();
 
             let start_time: Instant = Instant::now();
             let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
@@ -150,12 +173,13 @@ impl SpeedMetrics {
 
             let tree_json = tree.serialise().unwrap();
             let start_time: Instant = Instant::now();
-            let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[user_index], sk_id);
+            let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[index1], sk_id1);
             let computed_root_key = user_agent.root_key;
             let end_time: Instant = Instant::now();
             total_execution_time
                 .entry("compute_root_key by user")
                 .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
 
             let start_time: Instant = Instant::now();
             let (new_key, changes) = user_agent.update_key().unwrap();
@@ -164,13 +188,63 @@ impl SpeedMetrics {
                 .entry("update_key")
                 .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
 
+            let mut user2_agent = ARTUserAgent::new(tree.serialise().unwrap(), ciphertexts[index2], sk_id2);
+
             let start_time: Instant = Instant::now();
-            _ = user_agent.update_branch(&changes);
+            _ = user2_agent.update_branch(&changes);
             let end_time: Instant = Instant::now();
             total_execution_time
-                .entry("update_branch")
+                .entry("update_branch_key_rotation")
                 .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let lambda = Bn254::pairing(ciphertexts[index_for_removal].c, sk_idr.sk).0;
+            let secret_key = ART::convert_lambda_to_scalar_field(&lambda);
+            let public_key =  ibbe.pk.get_h().mul(secret_key);
+
+            let start_time: Instant = Instant::now();
+            _ = user_agent.remove_node(public_key);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("remove_node")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let start_time: Instant = Instant::now();
+            _ = user2_agent.update_branch(&changes);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("update_branch_remove_node")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let start_time: Instant = Instant::now();
+            _ = user_agent.append_node(lambda);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("append_node")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let start_time: Instant = Instant::now();
+            _ = user2_agent.update_branch(&changes);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("update_branch_append_node")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let start_time: Instant = Instant::now();
+            _ = user_agent.make_temporal(public_key);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("make_temporal")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
+            let start_time: Instant = Instant::now();
+            _ = user2_agent.update_branch(&changes);
+            let end_time: Instant = Instant::now();
+            total_execution_time
+                .entry("update_branch_make_temporal")
+                .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
+
         }
+
 
         println!();
         for (key, val) in total_execution_time {

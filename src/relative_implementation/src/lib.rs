@@ -58,9 +58,7 @@ mod tests {
         let tree_json = tree.serialise().unwrap();
         let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[alice_id], sk_id);
 
-        let computed_root_key = user_agent.root_key;
-
-        assert_eq!(computed_root_key.key, root_key.key);
+        assert_eq!(user_agent.root_key.key, root_key.key);
     }
 
     #[test]
@@ -158,10 +156,7 @@ mod tests {
         let tree_json = tree.serialise().unwrap();
 
         let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let computed_root_key = user1_agent.root_key;
-
         let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-        let computed_root_key = user2_agent.root_key;
 
         assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
         assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
@@ -259,38 +254,36 @@ mod tests {
 
     #[test]
     fn test_art_remove_node() {
-        let number_of_users = 20;
+        let number_of_users = 8;
         let users = tools::crete_set_of_identities(number_of_users);
 
-        let index1 = 2; // working for 1, and should work for 2 and 3
-        let mut index2 = 0;
-        let mut index3 = index1;
-        while index3 == index1 || index3 == index2 {
-            index3 = thread_rng().gen_range(0..number_of_users as usize);
+        let index_for_removal = 2;
+        let mut index1 = 0; // can remove nodes 1, 2 and 3
+        let mut index2 = index_for_removal;
+        while index2 == index_for_removal || index2 == index1 {
+            index2 = thread_rng().gen_range(0..number_of_users as usize);
         }
 
+        let user_for_removal = users.get(index_for_removal).unwrap().clone();
         let user1 = users.get(index1).unwrap().clone();
         let user2 = users.get(index2).unwrap().clone();
-        let user3 = users.get(index3).unwrap().clone();
 
         let ibbe = IBBEDel7::setup(number_of_users);
+        let sk_idr = ibbe.extract(&user_for_removal).unwrap();
         let sk_id1 = ibbe.extract(&user1).unwrap();
         let sk_id2 = ibbe.extract(&user2).unwrap();
-        let sk_id3 = ibbe.extract(&user3).unwrap();
 
         let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
         let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
 
         let tree_json = tree.serialise().unwrap();
 
-        // Numeration is shifted for convenience, because user3_agent and user1_agent are
-        // neighbours, so they can remove the node appropriately
-        let mut user3_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index2], sk_id2);
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index3], sk_id3);
+        let mut user_agent_for_removal = ARTUserAgent::new(tree_json.clone(), ciphertexts[index_for_removal], sk_idr);
+        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
+        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
 
-        assert!(user1_agent.can_remove(user3_agent.public_key()));
-        let (root_key, changes) = user1_agent.remove_node(user3_agent.public_key()).unwrap();
+        assert!(user1_agent.can_remove(user_agent_for_removal.public_key()));
+        let (root_key, changes) = user1_agent.remove_node(user_agent_for_removal.public_key()).unwrap();
 
         assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
         assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
@@ -300,7 +293,7 @@ mod tests {
         assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
         assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
 
-        let (root_key, changes) = user1_agent.append_node(user3_agent.lambda).unwrap();
+        let (root_key, changes) = user1_agent.append_node(user_agent_for_removal.lambda).unwrap();
 
         assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
         assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
