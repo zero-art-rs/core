@@ -51,17 +51,18 @@ fn example() {
 }
 
 fn measure_time(number_of_iterations: u128) {
-    SpeedMetrics::test_ibbe(10, number_of_iterations);
-    SpeedMetrics::test_ibbe(100, number_of_iterations);
-    // SpeedMetrics::test_ibbe(1000, number_of_iterations);
-
-    SpeedMetrics::test_signature_complex(100, number_of_iterations);
-
-    SpeedMetrics::test_art(10, number_of_iterations);
-    SpeedMetrics::test_art(100, number_of_iterations);
-    // SpeedMetrics::test_art(1000, number_of_iterations);
+    // SpeedMetrics::test_ibbe(10, number_of_iterations);
+    // SpeedMetrics::test_ibbe(100, number_of_iterations);
+    // // SpeedMetrics::test_ibbe(1000, number_of_iterations);
+    //
+    // SpeedMetrics::test_signature_complex(100, number_of_iterations);
+    //
+    // SpeedMetrics::test_art(10, number_of_iterations);
+    // SpeedMetrics::test_art(100, number_of_iterations);
+    // // SpeedMetrics::test_art(1000, number_of_iterations);
 
     SpeedMetrics::test_hibbe(100, number_of_iterations);
+    SpeedMetrics::test_hibbe(1000, number_of_iterations);
 }
 
 fn art_tree_example() {

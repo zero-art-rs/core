@@ -1,13 +1,13 @@
 // Asynchronous Ratchet Tree implementation
 
-use std::fmt::format;
-use crate::ibbe_del7::{MasterSecretKey, PublicKey, SecretKey, UserIdentity};
+use crate::ibbe_del7::{IBBEDel7, MasterSecretKey, PublicKey, SecretKey, UserIdentity};
 use crate::tools;
 use ark_bn254::{
     Bn254, Config, Fq, Fq12Config, G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
     fr::FrConfig,
 };
 use ark_ec::pairing::{Pairing, PairingOutput};
+use ark_ec::{CurveGroup, PrimeGroup};
 use ark_ff::{Field, Fp12, Fp12Config, Fp256, MontBackend, PrimeField, ToConstraintField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_std::iterable::Iterable;
@@ -15,11 +15,10 @@ use ark_std::{One, UniformRand, Zero};
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::cmp::max;
+use std::fmt::format;
 use std::mem;
 use std::ops::{Add, DerefMut, Mul};
-use ark_ec::{CurveGroup, PrimeGroup};
-// use ark_ff::BigInteger;
-use ark_ff::BigInt;
 
 // For serialisation
 fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -348,6 +347,10 @@ impl ART {
         &self.root
     }
 
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
     pub fn replace_root(&mut self, new_root: Box<ARTNode>) -> Box<ARTNode> {
         mem::replace(&mut self.root, new_root)
     }
@@ -611,6 +614,7 @@ impl ART {
         let (_, mut next) = self.get_path(public_key)?;
 
         self.get_to_node(next)?.make_temporal(new_public_key);
+        self.size -= 1;
 
         match self.update_branch_public_keys(temporal_lambda) {
             Ok((root_key, mut changes)) => {
@@ -656,16 +660,19 @@ impl ART {
         let (_, mut path_to_other) = self.get_path(public_key).unwrap();
         let (_, mut path_to_self) = self.get_path(users_public_key).unwrap();
 
-        if path_to_other.len() != path_to_self.len() {
+        if path_to_other.len().abs_diff(path_to_self.len()) > 1 {
             return false;
         }
 
-        for i in 0..(path_to_self.len() - 2) {
-            if path_to_self[i] != path_to_self[i] {}
+        for i in 0..(max(path_to_self.len(), path_to_other.len()) - 2) {
+            if path_to_self[i] != path_to_other[i] {
+                return false;
+            }
         }
 
         true
     }
+
     pub fn remove_node_from_tree(&mut self, neighbour_public_key: G1) -> Result<(), String> {
         let (_, mut next) = self.get_path(neighbour_public_key)?;
         let for_deletion = next.pop().unwrap();
@@ -683,7 +690,7 @@ impl ART {
         public_key: G1,
     ) -> Result<(ARTRootKey, BranchChanges), String> {
         if !self.can_remove(lambda, public_key) {
-            return Err("Can't remove a node".into());
+            return Err("Can't remove a node, because the given node isn't close enough".into());
         }
 
         self.remove_node_from_tree(public_key)?;
@@ -747,6 +754,14 @@ impl ARTTrustedAgent {
         ARTTrustedAgent {
             msk,
             pk,
+            secret_keys: None,
+        }
+    }
+
+    pub fn from(ibbe: &IBBEDel7) -> Self {
+        ARTTrustedAgent {
+            msk: ibbe.msk.clone().unwrap(),
+            pk: ibbe.pk.clone(),
             secret_keys: None,
         }
     }

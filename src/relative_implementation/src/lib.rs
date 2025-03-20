@@ -12,13 +12,17 @@ mod tests {
     use crate::{
         art::ARTTrustedAgent, hybrid_encryption::HybridEncryption, ibbe_del7::IBBEDel7, tools,
     };
+    use ark_bn254::{
+        Bn254, Fq12Config, G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
+    };
     use ark_ec::pairing::Pairing;
+    use ark_ff::Fp12;
+    use ark_std::UniformRand;
     use rand::{Rng, thread_rng};
-    use std::ops::{Add, Mul};
 
     #[test]
     fn test_ibbedel7_with_random_values() {
-        let number_of_users = 15u32;
+        let number_of_users = 100;
         let ibbe = IBBEDel7::setup(number_of_users);
 
         let users = tools::crete_set_of_identities(number_of_users);
@@ -41,267 +45,198 @@ mod tests {
     }
 
     #[test]
-    fn test_art_tree_key_computation_with_random_values() {
-        let number_of_users = 15u32;
+    fn test_art_tree_key_update() {
+        let number_of_users = 100;
         let ibbe = IBBEDel7::setup(number_of_users);
 
         let mut users = tools::crete_set_of_identities(number_of_users);
 
-        let alice_id = thread_rng().gen_range(0..number_of_users as usize);
-        let user = users[alice_id].clone();
-        let sk_id = ibbe.extract(&user).unwrap();
+        let main_user_id = thread_rng().gen_range(0..number_of_users as usize);
 
-        let msk = ibbe.msk.clone().expect("Secret key must be set up.");
-        let mut art_agent = ARTTrustedAgent::new(msk, ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let mut trusted_agent = ARTTrustedAgent::from(&ibbe);
+        let (mut tree, ciphertexts, trusted_root_key) =
+            trusted_agent.compute_art_and_ciphertexts(&users);
 
         let tree_json = tree.serialise().unwrap();
-        let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[alice_id], sk_id);
 
-        assert_eq!(user_agent.root_key.key, root_key.key);
+        let mut users_agents = Vec::new();
+        for i in 0..number_of_users {
+            let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
+            users_agents.push(ARTUserAgent::new(
+                tree_json.clone(),
+                ciphertexts[i as usize],
+                sk_id,
+            ));
+        }
+
+        for user_agent in &users_agents {
+            // Assert trusted party and users computed the same tree key. Skip lambda because trusted party cant compute it
+            assert_eq!(user_agent.root_key.key, trusted_root_key.key);
+        }
+
+        let mut main_user_agent = users_agents.remove(main_user_id);
+
+        // save old lambda to roll back
+        let old_lambda = main_user_agent.lambda;
+        let (new_key, changes) = main_user_agent.update_key().unwrap();
+
+        for user_agent in &users_agents {
+            assert_ne!(trusted_root_key.key, new_key.key);
+            assert_ne!(trusted_root_key.lambda, new_key.lambda);
+        }
+
+        for user_agent in &mut users_agents {
+            _ = user_agent.update_branch(&changes);
+            assert_eq!(user_agent.root_key.key, new_key.key);
+        }
+
+        let (old_key, changes) = main_user_agent.change_lambda(old_lambda).unwrap();
+
+        assert_eq!(trusted_root_key.key, old_key.key);
+
+        for user_agent in &mut users_agents {
+            _ = user_agent.update_branch(&changes);
+            assert_eq!(user_agent.root_key.key, old_key.key);
+        }
     }
 
     #[test]
-    fn test_art_tree_update() {
-        let number_of_users = 15u32;
+    fn test_art_making_temporal() {
+        let number_of_users = 100;
+        let users = tools::crete_set_of_identities(number_of_users);
+
+        let main_user_id = thread_rng().gen_range(0..(number_of_users - 2) as usize);
+        let mut temporal_user_id = thread_rng().gen_range(0..(number_of_users - 3) as usize);
+        while temporal_user_id >= main_user_id && temporal_user_id <= main_user_id + 2 {
+            temporal_user_id = thread_rng().gen_range(0..(number_of_users - 3) as usize);
+        }
+
         let ibbe = IBBEDel7::setup(number_of_users);
 
-        let mut users = tools::crete_set_of_identities(number_of_users);
-
-        let user_id = thread_rng().gen_range(0..number_of_users as usize);
-        let user = users[user_id].clone();
-        let sk_id = ibbe.extract(&user).unwrap();
-
-        let msk = ibbe.msk.clone().expect("Secret key must be set up.");
-        let mut art_agent = ARTTrustedAgent::new(msk, ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let mut trusted_agent = ARTTrustedAgent::from(&ibbe);
+        let (mut tree, ciphertexts, trusted_root_key) =
+            trusted_agent.compute_art_and_ciphertexts(&users);
 
         let tree_json = tree.serialise().unwrap();
-        let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[user_id], sk_id);
 
-        let computed_root_key = user_agent.root_key;
+        let mut users_agents = Vec::new();
+        for i in 0..number_of_users {
+            let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
+            users_agents.push(ARTUserAgent::new(
+                tree_json.clone(),
+                ciphertexts[i as usize],
+                sk_id,
+            ));
+        }
 
-        // Assert trusted party and users computed the same tree key. Skip lambda because trusted party cant compute it
-        assert_eq!(computed_root_key.key, root_key.key);
+        for user_agent in &users_agents {
+            // Assert trusted party and users computed the same tree key. Skip lambda because trusted party cant compute it
+            assert_eq!(user_agent.root_key.key, trusted_root_key.key);
+        }
 
-        let (new_key, _) = user_agent.update_key().unwrap();
+        let mut main_user_agent = users_agents.remove(main_user_id);
+        let mut temporal_user_agent = users_agents.remove(temporal_user_id);
 
-        // Assert tree.update_key() changes key and lambda
-        assert_ne!(computed_root_key.key, new_key.key);
-        assert_ne!(computed_root_key.lambda, new_key.lambda);
-
-        let (old_updated_key, _) = user_agent
-            .change_lambda(computed_root_key.lambda.unwrap())
+        let (root_key, changes) = main_user_agent
+            .make_temporal(temporal_user_agent.public_key())
             .unwrap();
 
-        // Assert, that change of lambdas: lambda1 -> lambda2 -> lambda1, gives the same values
-        assert_eq!(computed_root_key.lambda, old_updated_key.lambda);
-        assert_eq!(computed_root_key.key, old_updated_key.key);
+        for user_agent in &mut users_agents {
+            assert_ne!(user_agent.root_key.key, main_user_agent.root_key.key);
+            assert_ne!(user_agent.root_key.lambda, main_user_agent.root_key.lambda);
+
+            _ = user_agent.update_branch(&changes);
+
+            assert_eq!(user_agent.root_key.key, main_user_agent.root_key.key);
+            assert_ne!(user_agent.root_key.lambda, main_user_agent.root_key.lambda);
+            assert_eq!(user_agent.tree.size(), (number_of_users - 1) as usize);
+        }
+
+        let mut rng = thread_rng();
+        let new_lambda = Fp12::<Fq12Config>::rand(&mut rng);
+
+        let (root_key, changes) = main_user_agent.append_node(new_lambda).unwrap();
+
+        for user_agent in &mut users_agents {
+            _ = user_agent.update_branch(&changes);
+
+            assert_eq!(user_agent.root_key.key, main_user_agent.root_key.key);
+            assert_ne!(user_agent.root_key.lambda, main_user_agent.root_key.lambda);
+            assert_eq!(user_agent.tree.size(), number_of_users as usize);
+        }
     }
 
     #[test]
-    fn test_art_update_from_two_users() {
-        let number_of_users = 20u32;
+    fn test_art_node_removal() {
+        let number_of_users = 100;
         let users = tools::crete_set_of_identities(number_of_users);
 
-        let index1 = thread_rng().gen_range(0..number_of_users as usize);
-        let mut index2 = index1;
-        while index2 == index1 {
-            index2 = thread_rng().gen_range(0..number_of_users as usize);
-        }
-
-        let user1 = users.get(index1).unwrap().clone();
-        let user2 = users.get(index2).unwrap().clone();
+        let temporal_user_id = thread_rng().gen_range(3..number_of_users as usize);
 
         let ibbe = IBBEDel7::setup(number_of_users);
-        let sk_id1 = ibbe.extract(&user1).unwrap();
-        let sk_id2 = ibbe.extract(&user2).unwrap();
 
-        let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        let mut trusted_agent = ARTTrustedAgent::from(&ibbe);
+        let (mut tree, ciphertexts, trusted_root_key) =
+            trusted_agent.compute_art_and_ciphertexts(&users);
 
         let tree_json = tree.serialise().unwrap();
 
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let computed_root_key = user1_agent.root_key;
-
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-        let computed_root_key = user2_agent.root_key;
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-    }
-
-    #[test]
-    fn test_art_update_branch() {
-        let number_of_users = 20;
-        let users = tools::crete_set_of_identities(number_of_users);
-
-        let index1 = thread_rng().gen_range(0..number_of_users as usize);
-        let mut index2 = index1;
-        while index2 == index1 {
-            index2 = thread_rng().gen_range(0..number_of_users as usize);
+        let mut users_agents = Vec::new();
+        for i in 0..number_of_users {
+            let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
+            users_agents.push(ARTUserAgent::new(
+                tree_json.clone(),
+                ciphertexts[i as usize],
+                sk_id,
+            ));
         }
 
-        let user1 = users.get(index1).unwrap().clone();
-        let user2 = users.get(index2).unwrap().clone();
-
-        let ibbe = IBBEDel7::setup(number_of_users);
-        let sk_id1 = ibbe.extract(&user1).unwrap();
-        let sk_id2 = ibbe.extract(&user2).unwrap();
-
-        let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
-
-        let tree_json = tree.serialise().unwrap();
-
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        let (key, changes) = user1_agent.update_key().unwrap();
-
-        assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
-
-        _ = user2_agent.update_branch(&changes);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-    }
-
-    #[test]
-    fn test_art_append_node() {
-        let number_of_users = 20;
-        let users = tools::crete_set_of_identities(number_of_users);
-
-        let index1 = thread_rng().gen_range(0..number_of_users as usize);
-        let mut index2 = index1;
-        while index2 == index1 {
-            index2 = thread_rng().gen_range(0..number_of_users as usize);
+        for user_agent in &users_agents {
+            // Assert trusted party and users computed the same tree key. Skip lambda because trusted party cant compute it
+            assert_eq!(user_agent.root_key.key, trusted_root_key.key);
         }
 
-        let user1 = users.get(index1).unwrap().clone();
-        let user2 = users.get(index2).unwrap().clone();
+        let mut main_user_agent = users_agents.remove(0);
+        let mut main_user_neighbour = users_agents.remove(0);
+        for i in 0..2 {
+            let mut for_removal = users_agents.remove(0);
 
-        let ibbe = IBBEDel7::setup(number_of_users);
-        let sk_id1 = ibbe.extract(&user1).unwrap();
-        let sk_id2 = ibbe.extract(&user2).unwrap();
+            let (root_key, changes) = main_user_agent
+                .remove_node(for_removal.public_key())
+                .unwrap();
 
-        let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+            for user_agent in &mut users_agents {
+                assert_ne!(user_agent.root_key.key, main_user_agent.root_key.key);
 
-        let tree_json = tree.serialise().unwrap();
+                _ = user_agent.update_branch(&changes);
 
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-
-        let lambda = user1_agent.lambda.add(user1_agent.lambda);
-        let (root_key, changes) = user1_agent.append_node(lambda).unwrap();
-
-        _ = user2_agent.update_branch(&changes);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        let (key, changes) = user1_agent.update_key().unwrap();
-    }
-
-    #[test]
-    fn test_art_make_temporal() {
-        let number_of_users = 20;
-        let users = tools::crete_set_of_identities(number_of_users);
-
-        let index1 = thread_rng().gen_range(0..number_of_users as usize);
-        let mut index2 = index1;
-        while index2 == index1 {
-            index2 = thread_rng().gen_range(0..number_of_users as usize);
-        }
-        let mut index3 = index1;
-        while index3 == index1 || index3 == index2 {
-            index3 = thread_rng().gen_range(0..number_of_users as usize);
+                assert_eq!(user_agent.root_key.key, main_user_agent.root_key.key);
+                assert_eq!(user_agent.tree.size(), (number_of_users - 1 - i) as usize);
+            }
         }
 
-        let user1 = users.get(index1).unwrap().clone();
-        let user2 = users.get(index2).unwrap().clone();
-        let user3 = users.get(index3).unwrap().clone();
+        assert!(!main_user_agent.can_remove(users_agents[0].public_key()));
 
-        let ibbe = IBBEDel7::setup(number_of_users);
-        let sk_id1 = ibbe.extract(&user1).unwrap();
-        let sk_id2 = ibbe.extract(&user2).unwrap();
-        let sk_id3 = ibbe.extract(&user3).unwrap();
+        let (root_key, changes) = main_user_agent
+            .remove_node(main_user_neighbour.public_key())
+            .unwrap();
 
-        let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+        for user_agent in &mut users_agents {
+            assert_ne!(user_agent.root_key.key, main_user_agent.root_key.key);
 
-        let tree_json = tree.serialise().unwrap();
+            _ = user_agent.update_branch(&changes);
 
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let mut user2_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index2], sk_id2);
-        let mut user3_agent = ARTUserAgent::new(tree_json, ciphertexts[index3], sk_id3);
-
-        let (root_key, changes) = user1_agent.make_temporal(user3_agent.public_key()).unwrap();
-
-        assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        _ = user2_agent.update_branch(&changes);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-    }
-
-    #[test]
-    fn test_art_remove_node() {
-        let number_of_users = 8;
-        let users = tools::crete_set_of_identities(number_of_users);
-
-        let index_for_removal = 2;
-        let mut index1 = 0; // can remove nodes 1, 2 and 3
-        let mut index2 = index_for_removal;
-        while index2 == index_for_removal || index2 == index1 {
-            index2 = thread_rng().gen_range(0..number_of_users as usize);
+            assert_eq!(user_agent.root_key.key, main_user_agent.root_key.key);
         }
 
-        let user_for_removal = users.get(index_for_removal).unwrap().clone();
-        let user1 = users.get(index1).unwrap().clone();
-        let user2 = users.get(index2).unwrap().clone();
+        let (root_key, changes) = main_user_agent.append_node(main_user_neighbour.lambda).unwrap();
 
-        let ibbe = IBBEDel7::setup(number_of_users);
-        let sk_idr = ibbe.extract(&user_for_removal).unwrap();
-        let sk_id1 = ibbe.extract(&user1).unwrap();
-        let sk_id2 = ibbe.extract(&user2).unwrap();
+        for user_agent in &mut users_agents {
+            _ = user_agent.update_branch(&changes);
 
-        let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-        let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+            assert_eq!(user_agent.root_key.key, main_user_agent.root_key.key);
+        }
 
-        let tree_json = tree.serialise().unwrap();
-
-        let mut user_agent_for_removal = ARTUserAgent::new(tree_json.clone(), ciphertexts[index_for_removal], sk_idr);
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-
-        assert!(user1_agent.can_remove(user_agent_for_removal.public_key()));
-        let (root_key, changes) = user1_agent.remove_node(user_agent_for_removal.public_key()).unwrap();
-
-        assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        _ = user2_agent.update_branch(&changes);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        let (root_key, changes) = user1_agent.append_node(user_agent_for_removal.lambda).unwrap();
-
-        assert_ne!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
-
-        _ = user2_agent.update_branch(&changes);
-
-        assert_eq!(user1_agent.root_key.key, user2_agent.root_key.key);
-        assert_ne!(user1_agent.root_key.lambda, user2_agent.root_key.lambda);
     }
 
     #[test]
