@@ -2,6 +2,7 @@
 
 use crate::ibbe_del7::{IBBEDel7, MasterSecretKey, PublicKey, SecretKey, UserIdentity};
 use crate::tools;
+use crate::tools::{ark_se, ark_de};
 use ark_bn254::{
     Bn254, Config, Fq, Fq12Config, G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField,
     fr::FrConfig,
@@ -20,50 +21,36 @@ use std::fmt::format;
 use std::mem;
 use std::ops::{Add, DerefMut, Mul};
 
-// For serialisation
-fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let mut bytes = vec![];
-    a.serialize_with_mode(&mut bytes, Compress::Yes)
-        .map_err(serde::ser::Error::custom)?;
-    s.serialize_bytes(&bytes)
-}
-
-// For deserialization
-fn ark_de<'de, D, A: CanonicalDeserialize>(data: D) -> Result<A, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    let s: Vec<u8> = serde::de::Deserialize::deserialize(data)?;
-    let a = A::deserialize_with_mode(s.as_slice(), Compress::Yes, Validate::Yes);
-    a.map_err(serde::de::Error::custom)
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
 pub enum Direction {
     NoDirection,
     Left,
     Right,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct ARTCiphertext {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub c: G1,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum BranchChangesType {
-    MakeTemporal(G1, Fp12<Fq12Config>),
+    MakeTemporal(
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        G1,
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        Fp12<Fq12Config>),
     AppendNode(ARTNode),
     UpdateKeys,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     RemoveNode(G1),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BranchChanges {
     pub change_type: BranchChangesType,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_keys: Vec<G1>,
     pub next: Vec<Direction>,
 }

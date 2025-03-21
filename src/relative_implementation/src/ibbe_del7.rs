@@ -1,7 +1,7 @@
 // IBBE protocol by Cecile Delerablee (2007)
 // Signature by Paulo S.L.M. Barreto et.al (2005)
 
-use crate::tools;
+use crate::tools::{self, ark_se, ark_de};
 use ark_bn254::{
     Bn254, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
     fr::Fr as ScalarField, fr::FrConfig,
@@ -11,13 +11,17 @@ use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
 use ark_std::{One, UniformRand, Zero};
 use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
+use serde::{Deserialize, Serialize};
 
-#[derive(Hash, Debug, Clone, Copy)]
+#[derive(Hash, Debug, Clone)]
 pub struct UserIdentity<T> {
     pub identity: T,
 }
 
 impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
+    pub fn new(identity: T) -> Self {
+        Self { identity }
+    }
     pub fn hash_to_scalar_field(&self) -> Fp256<MontBackend<FrConfig, 4>> {
         let byte_repr = self.identity.clone().into();
         tools::sha512_from_byte_vec_to_scalar_field(&byte_repr)
@@ -71,9 +75,11 @@ pub struct MasterSecretKey {
     pub gamma: ScalarField,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Header {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub c1: G2,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub c2: G1,
 }
 

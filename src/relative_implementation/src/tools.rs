@@ -5,6 +5,7 @@ use aes_gcm::{
 };
 use ark_bn254::fr::Fr as ScalarField;
 use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_std::{One, UniformRand, Zero};
 use hkdf::Hkdf;
 use rand::Rng;
@@ -118,4 +119,25 @@ pub fn decrypt_aes(key_bytes: Vec<u8>, encrypted_data: Vec<u8>) -> Result<String
     };
 
     Ok(plaintext)
+}
+
+// For serialisation
+pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut bytes = vec![];
+    a.serialize_with_mode(&mut bytes, Compress::Yes)
+        .map_err(serde::ser::Error::custom)?;
+    s.serialize_bytes(&bytes)
+}
+
+// For deserialization
+pub fn ark_de<'de, D, A: CanonicalDeserialize>(data: D) -> Result<A, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let s: Vec<u8> = serde::de::Deserialize::deserialize(data)?;
+    let a = A::deserialize_with_mode(s.as_slice(), Compress::Yes, Validate::Yes);
+    a.map_err(serde::de::Error::custom)
 }

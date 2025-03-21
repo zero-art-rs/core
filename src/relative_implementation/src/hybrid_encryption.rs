@@ -1,15 +1,15 @@
 // Hybrid of IBBBEDel7 and Asymmetric Ratchet Tree
 
 use ark_bn254::{G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField};
-
+use serde::{Deserialize, Serialize};
 use crate::art::ARTUserAgent;
 use crate::{
     art::{ART, BranchChanges},
     ibbe_del7::{EncryptionKey, Header, IBBEDel7, SecretKey, UserIdentity},
-    tools,
+    tools::{self, ark_de, ark_se},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridCiphertext {
     ibbe_hdr: Header,
     ciphertext: Vec<u8>,

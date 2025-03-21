@@ -78,6 +78,7 @@ fn art_tree_example() {
 
     let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+    into_vec_check(&tree.serialise().unwrap());
     let mut user_agent =
         ARTUserAgent::new(tree.serialise().unwrap(), ciphertexts[user_index], sk_id);
     let root_key = user_agent.root_key;
@@ -85,19 +86,19 @@ fn art_tree_example() {
 }
 fn hybrid_example() {
     let number_of_users = 15u32;
-    let users = tools::crete_set_of_identities(number_of_users);
+    let members = tools::crete_set_of_identities(number_of_users);
 
     let index1 = 0;
     let index2 = 1;
-    let user1 = users.get(index1).unwrap().clone();
-    let user2 = users.get(index2).unwrap().clone();
+    let user1 = members.get(index1).unwrap().clone();
+    let user2 = members.get(index2).unwrap().clone();
 
     let ibbe = IBBEDel7::setup(number_of_users);
     let sk_id1 = ibbe.extract(&user1).unwrap();
     let sk_id2 = ibbe.extract(&user2).unwrap();
 
     let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
-    let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
+    let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&members);
 
     let tree_json = tree.serialise().unwrap();
     let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
@@ -106,14 +107,14 @@ fn hybrid_example() {
     let mut hibbe1 = HybridEncryption::new(
         ibbe.clone(),
         user1_agent,
-        users.clone(),
+        members.clone(),
         user1.clone(),
         sk_id1,
     );
     let mut hibbe2 = HybridEncryption::new(
         ibbe.clone(),
         user2_agent,
-        users.clone(),
+        members.clone(),
         user2.clone(),
         sk_id2,
     );
