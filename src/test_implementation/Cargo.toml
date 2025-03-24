@@ -5,6 +5,7 @@
 members = [
     "hibbe",
     "chat_node_rust",
+    "zk"
 ]
 resolver = "2"
 
