@@ -2,6 +2,8 @@
 
 
 
+## Previous network tests
+
 |           | latency   | ping requests delivered |
 |-----------|-----------|-------------------------|
 | 25 nodes  | 36.08 ms  | 25 messages             |

@@ -1,8 +1,7 @@
 mod behavior;
-mod chat_member;
 mod message;
 mod test_helper;
-mod trusted_party;
+mod user_agent;
 
 use futures::stream::StreamExt;
 use libp2p::{
@@ -20,8 +19,8 @@ use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 
 use crate::behavior::{message_id_fn, ChatBehaviour, ChatBehaviourEvent};
-use crate::chat_member::UserInterface;
 use crate::test_helper::TestHelper;
+use crate::user_agent::UserInterface;
 
 fn new_swarm() -> Result<Swarm<ChatBehaviour>, Box<dyn Error>> {
     let swarm = libp2p::SwarmBuilder::with_new_identity()
@@ -68,11 +67,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut swarm = new_swarm()?;
 
-    let test_net_topic = gossipsub::IdentTopic::new("test-net");
-    swarm.behaviour_mut().gossipsub.subscribe(&test_net_topic)?;
+    let general_topic = gossipsub::IdentTopic::new("general");
+    swarm.behaviour_mut().gossipsub.subscribe(&general_topic)?;
 
-    let chat_topic = gossipsub::IdentTopic::new("test-chat");
-    swarm.behaviour_mut().gossipsub.subscribe(&chat_topic)?;
+    // let chat_topic = gossipsub::IdentTopic::new("test-chat");
+    // swarm.behaviour_mut().gossipsub.subscribe(&chat_topic)?;
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -85,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         swarm.local_peer_id().to_string()
     );
 
-    let mut user_agent = UserInterface::new(swarm.local_peer_id());
+    let mut user_agent = UserInterface::new(swarm);
 
     // Kick it off
     loop {
@@ -93,21 +92,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(Some(line)) = stdin.next_line() => {
                 user_agent.process_sending_message(
                     &line.to_string(),
-                    &mut swarm,
-                    &test_net_topic,
+                    &general_topic,
                 );
             }
-            event = swarm.select_next_some() => match event {
+            event = user_agent.select_next_some() => match event {
                 SwarmEvent::Behaviour(ChatBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, _multiaddr) in list {
                         println!("mDNS discovered a new peer: {peer_id}");
-                        swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                        user_agent.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     }
                 },
                 SwarmEvent::Behaviour(ChatBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                     for (peer_id, _multiaddr) in list {
                         println!("mDNS discover peer has expired: {peer_id}");
-                        swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                        user_agent.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     }
                 },
                 SwarmEvent::Behaviour(ChatBehaviourEvent::Gossipsub(gossipsub::Event::Message {
@@ -117,8 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 })) => {
                     user_agent.process_receiving_message(
                         &message,
-                        &mut swarm,
-                        &test_net_topic,
+                        &general_topic,
                         &peer_id,
                         &id,
                     )

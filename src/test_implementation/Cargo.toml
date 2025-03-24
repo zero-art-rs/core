@@ -1,0 +1,11 @@
+[workspace]
+#name = "test_implementation"
+#version = "0.1.0"
+#edition = "2024"
+members = [
+    "hibbe",
+    "chat_node_rust",
+]
+resolver = "2"
+
+[workspace.dependencies]

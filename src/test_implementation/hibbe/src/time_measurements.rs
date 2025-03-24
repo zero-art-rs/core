@@ -172,7 +172,7 @@ impl SpeedMetrics {
 
             let tree_json = tree.serialise().unwrap();
             let start_time: Instant = Instant::now();
-            let mut user_agent = ARTUserAgent::new(tree_json, ciphertexts[index1], sk_id1);
+            let mut user_agent = ARTUserAgent::new(ART::from_json(&tree_json).unwrap(), ciphertexts[index1], sk_id1);
             let end_time: Instant = Instant::now();
             total_execution_time
                 .entry("createe user agent")
@@ -186,7 +186,7 @@ impl SpeedMetrics {
                 .and_modify(|k| *k += end_time.duration_since(start_time).as_nanos());
 
             let mut user2_agent =
-                ARTUserAgent::new(tree.serialise().unwrap(), ciphertexts[index2], sk_id2);
+                ARTUserAgent::new(ART::from_json(&tree.serialise().unwrap()).unwrap(), ciphertexts[index2], sk_id2);
 
             let start_time: Instant = Instant::now();
             _ = user2_agent.update_branch(&changes);
@@ -280,8 +280,8 @@ impl SpeedMetrics {
             let (tree, ciphertexts, _) = art_agent.compute_art_and_ciphertexts(&users);
 
             let tree_json = tree.serialise().unwrap();
-            let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-            let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
+            let mut user1_agent = ARTUserAgent::new(ART::from_json(&tree_json.clone()).unwrap(), ciphertexts[index1], sk_id1);
+            let mut user2_agent = ARTUserAgent::new(ART::from_json(&tree_json).unwrap(), ciphertexts[index2], sk_id2);
 
             let mut hibbe1 = HybridEncryption::new(
                 ibbe.clone(),

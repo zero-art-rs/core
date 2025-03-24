@@ -13,7 +13,7 @@ use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
 use serde::{Deserialize, Serialize};
 
-#[derive(Hash, Debug, Clone)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct UserIdentity<T> {
     pub identity: T,
 }
@@ -38,24 +38,27 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PublicKey {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub w: G2,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub v: Fp12<Fq12Config>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub powers_of_h: Vec<G1>,
 }
 
-impl Clone for PublicKey {
-    fn clone(&self) -> Self {
-        let powers_of_h_copy = self.powers_of_h.clone();
-
-        PublicKey {
-            w: self.w,
-            v: self.v,
-            powers_of_h: powers_of_h_copy,
-        }
-    }
-}
+// impl Clone for PublicKey {
+//     fn clone(&self) -> Self {
+//         let powers_of_h_copy = self.powers_of_h.clone();
+//
+//         PublicKey {
+//             w: self.w,
+//             v: self.v,
+//             powers_of_h: powers_of_h_copy,
+//         }
+//     }
+// }
 
 impl PublicKey {
     pub fn get_h(&self) -> &G1 {
@@ -64,8 +67,9 @@ impl PublicKey {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SecretKey {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub sk: G2,
 }
 
@@ -88,9 +92,11 @@ pub struct EncryptionKey {
     pub key: Fp12<Fq12Config>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Signature {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub hash: Fp256<MontBackend<FrConfig, 4>>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub s: G2,
 }
 

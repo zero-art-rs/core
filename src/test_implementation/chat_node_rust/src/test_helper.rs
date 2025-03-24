@@ -10,7 +10,7 @@ pub struct TestHelper {
     pub time_table: Vec<HashMap<String, u128>>,
     pub ping_size_records: Vec<u32>,
     pub average_time_records: Vec<f64>,
-    pub ping_counter: u64,
+    pub ping_counter: u32,
 }
 
 impl TestHelper {

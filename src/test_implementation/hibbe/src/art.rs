@@ -720,8 +720,8 @@ impl ART {
         }
     }
 
-    pub fn from_json(canonical_json: String) -> Result<Self, String> {
-        let tree: Self = match serde_json::from_str(&canonical_json) {
+    pub fn from_json(canonical_json: &String) -> Result<Self, String> {
+        let tree: Self = match serde_json::from_str(canonical_json) {
             Ok(tree) => tree,
             Err(e) => return Err(format!("Failed to deserialize: {:?}", e)),
         };
@@ -809,9 +809,7 @@ pub struct ARTUserAgent {
 }
 
 impl ARTUserAgent {
-    pub fn new(tree_json: String, ciphertext: ARTCiphertext, sk_id: SecretKey) -> Self {
-        let mut tree = ART::from_json(tree_json).unwrap();
-
+    pub fn new(tree: ART, ciphertext: ARTCiphertext, sk_id: SecretKey) -> Self {
         let lambda = Bn254::pairing(ciphertext.c, sk_id.sk).0;
         let root_key = tree.recompute_root_key(lambda);
 

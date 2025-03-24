@@ -8,7 +8,7 @@ pub mod tools;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::art::ARTUserAgent;
+    use crate::art::{ARTUserAgent, ART};
     use crate::{
         art::ARTTrustedAgent, hybrid_encryption::HybridEncryption, ibbe_del7::IBBEDel7, tools,
     };
@@ -63,7 +63,7 @@ mod tests {
         for i in 0..number_of_users {
             let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
             users_agents.push(ARTUserAgent::new(
-                tree_json.clone(),
+                ART::from_json(&tree_json.clone()).unwrap(),
                 ciphertexts[i as usize],
                 sk_id,
             ));
@@ -123,7 +123,7 @@ mod tests {
         for i in 0..number_of_users {
             let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
             users_agents.push(ARTUserAgent::new(
-                tree_json.clone(),
+                ART::from_json(&tree_json.clone()).unwrap(),
                 ciphertexts[i as usize],
                 sk_id,
             ));
@@ -185,7 +185,7 @@ mod tests {
         for i in 0..number_of_users {
             let sk_id = ibbe.extract(users.get(i as usize).unwrap()).unwrap();
             users_agents.push(ARTUserAgent::new(
-                tree_json.clone(),
+                ART::from_json(&tree_json.clone()).unwrap(),
                 ciphertexts[i as usize],
                 sk_id,
             ));
@@ -262,11 +262,9 @@ mod tests {
 
         let tree_json = tree.serialise().unwrap();
 
-        let mut user1_agent = ARTUserAgent::new(tree_json.clone(), ciphertexts[index1], sk_id1);
-        let computed_root_key = user1_agent.root_key;
+        let mut user1_agent = ARTUserAgent::new(ART::from_json(&tree_json.clone()).unwrap(), ciphertexts[index1], sk_id1);
 
-        let mut user2_agent = ARTUserAgent::new(tree_json, ciphertexts[index2], sk_id2);
-        let computed_root_key = user2_agent.root_key;
+        let mut user2_agent = ARTUserAgent::new(ART::from_json(&tree_json).unwrap(), ciphertexts[index2], sk_id2);
 
         let mut hibbe1 = HybridEncryption::new(
             ibbe.clone(),

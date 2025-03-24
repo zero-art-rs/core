@@ -6,8 +6,9 @@
 
 # Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
 
+#ARG RUST_VERSION=1.87.0-nightly
 ARG RUST_VERSION=1.84.1
-ARG APP_NAME=project-m-network-rust
+ARG APP_NAME=network-example
 
 ################################################################################
 # Create a stage for building the application.
@@ -15,6 +16,10 @@ ARG APP_NAME=project-m-network-rust
 FROM rust:${RUST_VERSION}-alpine AS build
 ARG APP_NAME
 WORKDIR /app
+
+# Copy files
+COPY /hibbe /app/hibbe
+COPY /chat_node_rust /app/chat_node_rust
 
 # Install host build dependencies.
 RUN apk add --no-cache clang lld musl-dev git
@@ -27,7 +32,7 @@ RUN apk add --no-cache clang lld musl-dev git
 # Leverage a bind mount to the src directory to avoid having to copy the
 # source code into the container. Once built, copy the executable to an
 # output directory before the cache mounted /app/target is unmounted.
-RUN --mount=type=bind,source=src,target=src \
+RUN --mount=type=bind,source=chat_node_rust/src,target=chat_node_rust/src \
     --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
     --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
     --mount=type=cache,target=/app/target/ \
@@ -65,7 +70,7 @@ USER appuser
 COPY --from=build /bin/server /bin/
 
 # Expose the port that the application listens on.
-EXPOSE 80
+EXPOSE 8000
 
 # What the container should run when it is started.
 CMD ["/bin/server"]
