@@ -8,7 +8,7 @@ The main goal of project is to develope decentralized web3 e2e messenger.
 
 First approach was to adopt [AgEncID]((https://arxiv.org/pdf/2309.16282)) scheme for e2e id broadcast encryption. **Setup** and **KeyGen** phases should be maintained by trusted **authorization party** but this scheme appears broken due to symmetric pairing on cyclic subgroups of Elliptic Curves which [degenerates](https://www.sagemath.org/files/thesis/hansen-thesis-2009.pdf#chapter.3).
 
-The second approach is to adopt [Broadcast IBBE by Cecile Delerablee](https://www.iacr.org/archive/asiacrypt2007/48330198/48330198.pdf) (`Del7`) which security is based on GDDHE assumption. This approach will likely be included in the final proto as main broadcast encryption primitive. Reference sage implementation with BN381 curve could be found in `src/mvp`.
+The second approach is to adopt [Broadcast IBBE by Cecile Delerablee](https://www.iacr.org/archive/asiacrypt2007/48330198/48330198.pdf) (`Del7`) which security is based on GDDHE assumption. This approach will likely be included in the final proto as main broadcast encryption primitive. Reference sage implementation with BN381 curve could be found in `misc`.
 
 The system contains of a set of distributed nodes. Each node represents specific user identity or several identities represented by IDs. Each user identity may be contained in several groups.
 

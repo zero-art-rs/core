@@ -1,10 +1,9 @@
 [workspace]
-#name = "test_implementation"
-#version = "0.1.0"
-#edition = "2024"
+name = "project_m"
+
 members = [
     "hibbe",
-    "chat_node_rust",
+    "chat_node",
     "zk"
 ]
 resolver = "2"
