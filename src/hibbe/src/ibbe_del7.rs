@@ -1,17 +1,17 @@
 // IBBE protocol by Cecile Delerablee (2007)
 // Signature by Paulo S.L.M. Barreto et.al (2005)
 
-use crate::tools::{self, ark_se, ark_de};
+use crate::tools::{self, ark_de, ark_se};
 use ark_bn254::{
-    Bn254, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
-    fr::Fr as ScalarField, fr::FrConfig,
+    fq::Fq, fq2::Fq2, fr::Fr as ScalarField, fr::FrConfig, Bn254, Fq12, Fq12Config,
+    G1Projective as G1, G2Projective as G2,
 };
 use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_ff::{BigInt, Field, Fp, Fp12, Fp256, MontBackend, PrimeField};
 use ark_std::{One, UniformRand, Zero};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use std::ops::{Add, Mul, Neg};
-use serde::{Deserialize, Serialize};
 
 #[derive(Hash, Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct UserIdentity<T> {
@@ -24,7 +24,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> UserIdentity<T> {
     }
     pub fn hash_to_scalar_field(&self) -> Fp256<MontBackend<FrConfig, 4>> {
         let byte_repr = self.identity.clone().into();
-        tools::sha512_from_byte_vec_to_scalar_field(&byte_repr)
+        ScalarField::from_le_bytes_mod_order(tools::sha512_from_bytes(&byte_repr).as_slice())
     }
 
     #[inline]
@@ -47,18 +47,6 @@ pub struct PublicKey {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub powers_of_h: Vec<G1>,
 }
-
-// impl Clone for PublicKey {
-//     fn clone(&self) -> Self {
-//         let powers_of_h_copy = self.powers_of_h.clone();
-//
-//         PublicKey {
-//             w: self.w,
-//             v: self.v,
-//             powers_of_h: powers_of_h_copy,
-//         }
-//     }
-// }
 
 impl PublicKey {
     pub fn get_h(&self) -> &G1 {
@@ -229,7 +217,9 @@ impl IBBEDel7 {
 
         let mut message_as_bytes = message.as_bytes().to_vec();
         message_as_bytes.append(&mut r.to_string().into_bytes());
-        let hash = tools::sha512_from_byte_vec_to_scalar_field(&message_as_bytes);
+        let hash = ScalarField::from_le_bytes_mod_order(
+            tools::sha512_from_bytes(&message_as_bytes).as_slice(),
+        );
 
         let s = sk_id.sk.mul(x + hash);
 
@@ -256,8 +246,8 @@ impl IBBEDel7 {
         let mut message_as_bytes = message.as_bytes().to_vec();
         message_as_bytes.append(&mut right_part.to_string().into_bytes());
 
-        sigma.hash.eq(&tools::sha512_from_byte_vec_to_scalar_field(
-            &message_as_bytes,
+        sigma.hash.eq(&ScalarField::from_le_bytes_mod_order(
+            tools::sha512_from_bytes(&message_as_bytes).as_slice(),
         ))
     }
 }

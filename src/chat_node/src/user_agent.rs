@@ -6,13 +6,13 @@ use crate::{message, TestHelper};
 use futures::stream::{FusedStream, SelectNextSome};
 use futures::StreamExt;
 
+use hibbe::{
+    art::{ARTCiphertext, ARTTrustedAgent, ARTUserAgent, BranchChanges, ART},
+    hybrid_encryption::{HybridCiphertext, HybridEncryption},
+    ibbe_del7::{self, IBBEDel7, UserIdentity},
+};
 use libp2p::gossipsub::{Message, MessageId};
 use libp2p::{gossipsub, PeerId, Swarm};
-use relative_implementation::art::{
-    ARTCiphertext, ARTTrustedAgent, ARTUserAgent, BranchChanges, ART,
-};
-use relative_implementation::hybrid_encryption::{HybridCiphertext, HybridEncryption};
-use relative_implementation::ibbe_del7::{self, IBBEDel7, UserIdentity};
 
 pub struct UserInterface {
     test_helper: TestHelper,
@@ -71,7 +71,7 @@ impl UserInterface {
                     println!("/init_chat - create public key for chat (trusted setup),");
                     println!("/finalise_chat - create tree and a set of ciphertexts for available users, to start hibbe encryption,");
                     println!();
-                },
+                }
                 "/ping" => {
                     self.test_helper.have_send_ping = true;
                     self.ping_action(topic)
@@ -80,18 +80,14 @@ impl UserInterface {
                     println!("/show..");
                     self.test_helper.show_test_results();
                 }
-                "/send_clear" => {
-                    match line.strip_prefix("/send_clear ") {
-                        Some(msg) => {self.send_clear_message(topic, msg)},
-                        None => println!("No message provided"),
-                    }
-                }
-                "/send_enc" => {
-                    match line.strip_prefix("/send_enc ") {
-                        Some(msg) => {self.send_encrypted_message(topic, msg)},
-                        None => println!("No message provided"),
-                    }
-                }
+                "/send_clear" => match line.strip_prefix("/send_clear ") {
+                    Some(msg) => self.send_clear_message(topic, msg),
+                    None => println!("No message provided"),
+                },
+                "/send_enc" => match line.strip_prefix("/send_enc ") {
+                    Some(msg) => self.send_encrypted_message(topic, msg),
+                    None => println!("No message provided"),
+                },
                 "/exit" => {
                     std::process::exit(0);
                 }
@@ -116,7 +112,7 @@ impl UserInterface {
                 "/init_chat" => {
                     let msg = &self.init_chat();
                     self.send_message(topic, &msg);
-                },
+                }
                 "/finalise_chat" => {
                     let fin_msg = self.finalise_chat();
 
@@ -289,21 +285,18 @@ impl UserInterface {
     pub fn send_encrypted_message(&mut self, topic: &gossipsub::IdentTopic, line: &str) {
         let line_encryption = self.encrypt(line);
         match line_encryption {
-            Ok((ciphertext, changes)) =>
-                self.send_message(topic, &CustomMessage::HibbeTextMessage(ciphertext, changes)),
+            Ok((ciphertext, changes)) => {
+                self.send_message(topic, &CustomMessage::HibbeTextMessage(ciphertext, changes))
+            }
             Err(e) => println!("Failed to encrypt message: {}", e),
         }
-
     }
 
     pub fn send_clear_message(&mut self, topic: &gossipsub::IdentTopic, line: &str) {
         self.send_message(topic, &CustomMessage::TextMessage(String::from(line)));
     }
 
-    pub fn encrypt(
-        &mut self,
-        line: &str,
-    ) -> Result<(HybridCiphertext, BranchChanges), String> {
+    pub fn encrypt(&mut self, line: &str) -> Result<(HybridCiphertext, BranchChanges), String> {
         match &mut self.hibbe {
             Some(hibbe) => Ok(hibbe.encrypt(String::from(line))),
             None => Err("No hibbe instance created".to_string()),

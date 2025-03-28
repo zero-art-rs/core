@@ -1,14 +1,18 @@
-use crate::ibbe_del7::UserIdentity;
+use crate::ibbe_del7::{IBBEDel7, SecretKey, UserIdentity};
+use crate::tools;
 use aes_gcm::{
-    Aes256Gcm, Key, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
 };
 use ark_bn254::fr::Fr as ScalarField;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+use ark_std::iterable::Iterable;
 use ark_std::{One, UniformRand, Zero};
 use hkdf::Hkdf;
-use rand::Rng;
+use rand::distributions::Alphanumeric;
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
 use sha2::{Digest, Sha256, Sha512};
 
 // return random ScalarField element, which isn't zero or one
@@ -22,11 +26,10 @@ pub fn random_non_neutral_scalar_field_element<R: Rng + ?Sized>(rng: &mut R) -> 
 }
 
 // compute hash, and convert to ScalarField
-pub fn sha512_from_byte_vec_to_scalar_field(bytes: &Vec<u8>) -> ScalarField {
+pub fn sha512_from_bytes(bytes: &Vec<u8>) -> Vec<u8> {
     let mut hasher = Sha512::new();
     hasher.update(bytes);
-    let bytes = &hasher.finalize()[..];
-    ScalarField::from_le_bytes_mod_order(bytes)
+    hasher.finalize()[..].to_vec()
 }
 
 // Given a list of scalars (a0, a1, ..., an) compute coefficients of
@@ -127,7 +130,7 @@ where
     S: serde::Serializer,
 {
     let mut bytes = vec![];
-    a.serialize_with_mode(&mut bytes, Compress::Yes)
+    a.serialize_with_mode(&mut bytes, Compress::No)
         .map_err(serde::ser::Error::custom)?;
     s.serialize_bytes(&bytes)
 }
@@ -138,6 +141,71 @@ where
     D: serde::de::Deserializer<'de>,
 {
     let s: Vec<u8> = serde::de::Deserialize::deserialize(data)?;
-    let a = A::deserialize_with_mode(s.as_slice(), Compress::Yes, Validate::Yes);
+    let a = A::deserialize_with_mode(s.as_slice(), Compress::No, Validate::Yes);
     a.map_err(serde::de::Error::custom)
+}
+
+pub fn gen_ibbe_tool_box(group_size: u32) -> (IBBEDel7, Vec<UserIdentity<String>>) {
+    let ibbe = IBBEDel7::setup(group_size);
+    let members = crete_set_of_identities(group_size);
+
+    (ibbe, members)
+}
+
+pub struct UserSample<T> {
+    pub index: usize,
+    pub identity: UserIdentity<T>,
+    pub sk_id: SecretKey,
+}
+pub fn get_subset_of_user_identities<T: Into<Vec<u8>> + Clone + PartialEq>(
+    number_of_users: usize,
+    ibbe: &IBBEDel7,
+    members: &Vec<UserIdentity<T>>,
+) -> Result<Vec<UserSample<T>>, String> {
+    if number_of_users > members.len() {
+        return Err(format!(
+            "Not enough elements in a given set: try to get {} users from {}-user set",
+            number_of_users,
+            members.len()
+        ));
+    }
+
+    let mut users_set = Vec::new();
+
+    let mut numbers: Vec<usize> = (0..members.len()).into_iter().collect();
+    numbers.shuffle(&mut rand::thread_rng());
+    let usable_numbers = numbers[0..number_of_users].to_vec();
+
+    for index in usable_numbers {
+        let identity = members[index].clone();
+        let sk_id = ibbe.extract(&identity)?;
+
+        users_set.push(UserSample {
+            index,
+            identity,
+            sk_id,
+        });
+    }
+
+    Ok(users_set)
+}
+
+pub fn sample_user_identity<T: Into<Vec<u8>> + Clone + PartialEq>(
+    ibbe: &IBBEDel7,
+    members: &Vec<UserIdentity<T>>,
+) -> (usize, UserIdentity<T>, SecretKey) {
+    let sample = get_subset_of_user_identities(1, ibbe, members)
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    (sample.index, sample.identity.clone(), sample.sk_id)
+}
+
+pub fn gen_random_string(message_size: usize) -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(message_size)
+        .map(char::from)
+        .collect()
 }

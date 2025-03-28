@@ -1,16 +1,22 @@
 [package]
-name = "relative_implementation"
+name = "hibbe"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
 path = "src/lib.rs"
-doctest = false
 
 [[bin]]
-name = "hibbe-example"
-path = "src/main.rs"
-test = false
+name = "hibbe"
+path = "src/bin/main.rs"
+
+[[bench]]
+name = "ibbe_benches"
+harness = false
+
+[[bench]]
+name = "art_benches"
+harness = false
 
 [dependencies]
 ark-bn254 = "0.5.0"
@@ -25,3 +31,5 @@ aes-gcm = "0.10.3"
 serde = { version = "1.0.219", features = ["derive", "rc"] }
 serde_json = "1.0.140"
 ark-serialize = { version = "0.5.0", features = ["derive"] }
+criterion = "0.5.1"
+zk = {path = "../zk"}

@@ -1,21 +1,19 @@
-extern crate relative_implementation;
+extern crate hibbe;
 
 use ark_bn254::{
-    Bn254, Config, Fq12, Fq12Config, G1Projective as G1, G2Projective as G2, fq::Fq, fq2::Fq2,
-    fr::Fr as ScalarField, fr::FrConfig,
+    fq::Fq, fq2::Fq2, fr::Fr as ScalarField, fr::FrConfig, Bn254, Config, Fq12, Fq12Config,
+    G1Projective as G1, G2Projective as G2,
 };
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{One, UniformRand, Zero};
-use rand::{Rng, thread_rng};
-use relative_implementation::art::ARTRootKey;
-use relative_implementation::{
-    art::{ART, ARTTrustedAgent, ARTUserAgent},
+use hibbe::{
+    art::{ARTTrustedAgent, ARTUserAgent, ART},
     hybrid_encryption::HybridEncryption,
     ibbe_del7::{IBBEDel7, UserIdentity},
     schnorr::SchnorrCryptoSystem,
-    time_measurements::SpeedMetrics,
     tools,
 };
-use sha2::Sha512;
+use rand::{thread_rng, Rng};
 
 fn example() {
     let number_of_users = 15u32;
@@ -50,21 +48,6 @@ fn example() {
     );
 }
 
-fn measure_time(number_of_iterations: u128) {
-    SpeedMetrics::test_ibbe(10, number_of_iterations);
-    // SpeedMetrics::test_ibbe(100, number_of_iterations);
-    // SpeedMetrics::test_ibbe(1000, number_of_iterations);
-
-    SpeedMetrics::test_signature_complex(100, number_of_iterations);
-
-    SpeedMetrics::test_art(10, number_of_iterations);
-    // SpeedMetrics::test_art(100, number_of_iterations);
-    // SpeedMetrics::test_art(1000, number_of_iterations);
-
-    SpeedMetrics::test_hibbe(100, number_of_iterations);
-    // SpeedMetrics::test_hibbe(1000, number_of_iterations);
-}
-
 fn art_tree_example() {
     let number_of_users = 15u32;
 
@@ -78,8 +61,11 @@ fn art_tree_example() {
 
     let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
-    let mut user_agent =
-        ARTUserAgent::new(ART::from_json(&tree.serialise().unwrap()).unwrap(), ciphertexts[user_index], sk_id);
+    let mut user_agent = ARTUserAgent::new(
+        ART::from_json(&tree.serialise().unwrap()).unwrap(),
+        ciphertexts[user_index],
+        sk_id,
+    );
     let root_key = user_agent.root_key;
     println!("computed_key = {:?}", root_key);
 }
@@ -100,8 +86,16 @@ fn hybrid_example() {
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&members);
 
     let tree_json = tree.serialise().unwrap();
-    let mut user1_agent = ARTUserAgent::new(ART::from_json(&tree_json).unwrap(), ciphertexts[index1], sk_id1);
-    let mut user2_agent = ARTUserAgent::new(ART::from_json(&tree_json).unwrap(), ciphertexts[index2], sk_id2);
+    let mut user1_agent = ARTUserAgent::new(
+        ART::from_json(&tree_json).unwrap(),
+        ciphertexts[index1],
+        sk_id1,
+    );
+    let mut user2_agent = ARTUserAgent::new(
+        ART::from_json(&tree_json).unwrap(),
+        ciphertexts[index2],
+        sk_id2,
+    );
 
     let mut hibbe1 = HybridEncryption::new(
         ibbe.clone(),
@@ -125,24 +119,21 @@ fn hybrid_example() {
 }
 
 fn serialise_example() {
-    let number_of_users = 2060;
+    let number_of_users = 100;
     let users = tools::crete_set_of_identities(number_of_users);
-    let user_index = thread_rng().gen_range(0..number_of_users) as usize;
-    let user = users[user_index].clone();
 
     let ibbe = IBBEDel7::setup(number_of_users);
-    let sk_id = ibbe.extract(&user).unwrap();
 
     let mut art_agent = ARTTrustedAgent::new(ibbe.msk.clone().unwrap(), ibbe.pk.clone());
     let (mut tree, ciphertexts, root_key) = art_agent.compute_art_and_ciphertexts(&users);
 
-    let user_agent = ARTUserAgent::new(ART::from_json(&tree.serialise().unwrap()).unwrap(), ciphertexts[user_index], sk_id);
-
     // Serialize the struct to a JSON string
+    println!("Begin serialisation");
     let serialized = tree.serialise().unwrap();
     println!("Serialized: {}", serialized);
 
     // Deserialize the JSON string back to a struct
+    println!("Begin deserialization");
     let deserialized = ART::from_json(&serialized).unwrap();
     println!("Deserialized: {:?}", deserialized);
 }
@@ -185,6 +176,27 @@ fn schnorr_identification_example() {
     );
 }
 
+use zk::curve::g2::G2Projective as TestGroup;
+// use ark_bn254::G2Projective as TestGroup;
+use std::io::Cursor;
+fn field_serialize_example() {
+    println!("Choosing random value...");
+    let e = TestGroup::rand(&mut thread_rng());
+    // let e = TestGroup::zero();
+
+    println!("Random value e = {:?}", e);
+
+    println!("Begin serialisation...");
+    let mut serialized_data = Vec::new();
+    e.serialize_compressed(&mut serialized_data).unwrap();
+    println!("Serialized: {:?}", serialized_data);
+
+    println!("Begin deserialization...");
+    let deserialized =
+        TestGroup::deserialize_compressed(&mut Cursor::new(&serialized_data)).unwrap();
+    println!("Deserialized: {:?}", deserialized);
+}
+
 fn main() {
     // example();
     // art_tree_example();
@@ -192,6 +204,5 @@ fn main() {
     // serialise_example();
     // schnorr_signature_example();
     // schnorr_identification_example();
-
-    measure_time(100);
+    field_serialize_example();
 }

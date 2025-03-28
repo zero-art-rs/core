@@ -1,13 +1,16 @@
 // Hybrid of IBBBEDel7 and Asymmetric Ratchet Tree
 
-use ark_bn254::{G1Projective as G1, G2Projective as G2, fr::Fr as ScalarField};
-use serde::{Deserialize, Serialize};
 use crate::art::ARTUserAgent;
 use crate::{
-    art::{ART, BranchChanges},
+    art::{BranchChanges, ART},
     ibbe_del7::{EncryptionKey, Header, IBBEDel7, SecretKey, UserIdentity},
     tools::{self, ark_de, ark_se},
 };
+use ark_bn254::{fr::Fr as ScalarField, G1Projective as G1, G2Projective as G2};
+use serde::{Deserialize, Serialize};
+
+use zk::curve::g2::Fr as ARTScalarField;
+// use ark_bn254::fr::Fr as ARTScalarField;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridCiphertext {
@@ -55,7 +58,7 @@ impl<T: Into<Vec<u8>> + Clone + PartialEq> HybridEncryption<T> {
         self.stk = tools::hkdf(&ikm, None, info);
     }
 
-    fn combine_keys(&self, ibbe_key: EncryptionKey, tree_key: ScalarField) -> Vec<u8> {
+    fn combine_keys(&self, ibbe_key: EncryptionKey, tree_key: ARTScalarField) -> Vec<u8> {
         let mut ikm = ibbe_key.key.to_string().as_bytes().to_vec();
         ikm.append(&mut tree_key.to_string().into_bytes());
 
