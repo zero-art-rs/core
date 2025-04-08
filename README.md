@@ -1,6 +1,15 @@
 # Project M
 
-> Distributed web3 e2e messenger
+> Disclaimer: this README file is a bit obsolated, it will be updated as soon as research process converges
+
+Project structure:
+- `notes` - various notes about research process
+- `misc` - various prototypes (IBBE with sage, gossipsub with go)
+- `papers` - research papers, note that the most actual version of messenger whitepaper is [here](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849)
+- `src` - rust implementation of messenger primitives:
+  - `hibbe` - hybrid IBBE with ART implementation
+  - `zk` - ART zk proofs implementation
+  - `chat_node` - experimantal libp2p messenger node
 
 ## Main idea
 
