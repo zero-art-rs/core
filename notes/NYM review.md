@@ -25,7 +25,7 @@ NYM це мережевий протокол, що дозволяє прихов
 
 
 
-[Як NYM бореться з AI-моделями аналізом трафіку](https://www.reddit.com/r/nym/comments/1ipt1gu/aiaugmented_traffic_analysis_resistance_in_nyms/)
+[Концепція того, як NYM може боротися з AI-моделями аналізом трафіку](https://www.reddit.com/r/nym/comments/1ipt1gu/aiaugmented_traffic_analysis_resistance_in_nyms/)
 
 
 
