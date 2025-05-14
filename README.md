@@ -33,8 +33,8 @@ each group operation so that every member can assure integrity and validity of a
 
 Let $\langle P \rangle = \mathbb{G}$ - cyclic (abstract) group written additively of order $q$. $S$ - a set of group members, $\epsilon \in S$ - blank group member.
 
-A group is represented as an Asynchronous Ratcheting Tree (can be seen as a binary tree) where each node containts public key $Q^e_{j} = [\lambda_{j}]P, j \in S^*$, especially each leaf node is occupied by some group member $i \in S$ with public key $Q^e_i$.
-Let $\iota: \mathbb{G} \to \mathbb{Z}_q$ - hash function. $ Secret key $\lambda_{ij}$ corresponding to public key $Q_{ij}$ of parent of nodes $i$ and $j$ is obtained as $\lambda_{ij} = \iota([\lambda_{i}]Q_{j}) = \iota([\lambda_{j}]Q_{i})$ and could be seen as a result of Diffie-Hellman secret sharing between $i$ and $j$.
+A group is represented as an Asynchronous Ratcheting Tree (can be seen as a binary tree) where each node containts public key $Q^e_{j} = [\lambda_{j}]P, j \in S^{*}$, especially each leaf node is occupied by some group member $i \in S$ with public key $Q^e_i$.
+Let $\iota: \mathbb{G} \to \mathbb{Z}_q$ - hash function. Secret key $\lambda_{ij}$ corresponding to public key $Q_{ij}$ of parent of nodes $i$ and $j$ is obtained as $\lambda_{ij} = \iota([\lambda_{i}]Q_{j}) = \iota([\lambda_{j}]Q_{i})$ and could be seen as a result of Diffie-Hellman secret sharing between $i$ and $j$.
 A secret key in a root of the tree $\lambda_{S}$ is considered as shared group secret from which stage key $sk$ is derived. $sk$ is then used to derive message encryption and decryption symmetric keys. Symmetric keys is than rotated according to [symmetric ratchet] protocol.
 An ART should be updated regularly to provide forward and post-compromise secrecy. Each ART update (obviously including all tree structure changing operations: `InitGroup, AddMember, RemoveMember` and regular key rotation) is supplemented with *update correctness proof*.
 
@@ -102,3 +102,5 @@ Several modes of preserving identity is [proposed] for every user:
 [whitepaper]: https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849
 [Signal]: https://signal.org/docs/
 [ART]: https://eprint.iacr.org/2017/666.pdf
+[Kafka]: https://kafka.apache.org/
+[symmetric ratchet]: https://signal.org/docs/specifications/doubleratchet/#symmetric-key-ratchet
