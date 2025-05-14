@@ -43,11 +43,11 @@ An ART should be updated regularly to provide forward and post-compromise secrec
 ![nostr](notes/schemes/art.png)
 
 For $j$-th($j \neq 0$) level of ART a group member $i \in S$ shall prove the following relation:
-$$\mathcal{R}^{(j)}_{\mathcal{ART}}=\{ (Q'_{\mathcal{A}},Q_\mathcal{B},Q'_{\mathcal{AB}}; \lambda'_{\mathcal{AB}},\lambda'_{\mathcal{A}}) | Q'_{\mathcal{A}}=[\lambda'_{\mathcal{A}}]P, \lambda'_{\mathcal{AB}}=\iota([\lambda'_{\mathcal{A}}]Q_{\mathcal{B}}), Q'_{\mathcal{AB}}=[\lambda'_{\mathcal{AB}}]P\}$$
-Where $\lambda_{\mathcal{A}}$ - current level secret, $\lambda'_{\mathcal{A}}$ - new current level secret, $Q_{\mathcal{B}}$ - reciprocal node's public key, $\lambda'_{\mathcal{AB}}$ - new next level secret, $Q'_{\mathcal{AB}}$ - new next level public key.
+$$\mathcal{R}^{(j)}_{\mathcal{ART}}=\{ (Q^{\prime}_{\mathcal{A}},Q_\mathcal{B},Q^{\prime}_{\mathcal{AB}}; \lambda^{\prime}_{\mathcal{AB}},\lambda^{\prime}_{\mathcal{A}}) | Q^{\prime}_{\mathcal{A}}=[\lambda^{\prime}_{\mathcal{A}}]P, \lambda^{\prime}_{\mathcal{AB}}=\iota([\lambda^{\prime}_{\mathcal{A}}]Q_{\mathcal{B}}), Q^{\prime}_{\mathcal{AB}}=[\lambda^{\prime}_{\mathcal{AB}}]P\}$$
+Where $\lambda_{\mathcal{A}}$ - current level secret, $\lambda^\prime_{\mathcal{A}}$ - new current level secret, $Q_{\mathcal{B}}$ - reciprocal node's public key, $\lambda^{\prime}_{\mathcal{AB}}$ - new next level secret, $Q^{\prime}_{\mathcal{AB}}$ - new next level public key.
 
 Special case when $j=0$:
-$$\mathcal{R}^{(0)}_{\mathcal{ART}}=\{ (Q'_{\mathcal{A}},Q_\mathcal{B},Q'_{\mathcal{AB}}; \lambda'_{\mathcal{AB}},\lambda'_{\mathcal{A}}) | Q^{c}_i=[k_{c,i}]P, Q_{\mathcal{A}}=[\lambda_{\mathcal{A}}]P, Q'_{\mathcal{A}}=[\lambda'_{\mathcal{A}}]P, \lambda'_{\mathcal{AB}}=\iota([\lambda'_{\mathcal{A}}]Q_{\mathcal{B}}), Q'_{\mathcal{AB}}=[\lambda'_{\mathcal{AB}}]P\}$$
+$$\mathcal{R}^{(0)}_{\mathcal{ART}}=\{ (Q^{\prime}_{\mathcal{A}},Q_\mathcal{B},Q^{\prime}_{\mathcal{AB}}; \lambda^{\prime}_{\mathcal{AB}},\lambda^{\prime}_{\mathcal{A}}) | Q^{c}_i=[k_{c,i}]P, Q_{\mathcal{A}}=[\lambda_{\mathcal{A}}]P, Q^{\prime}_{\mathcal{A}}=[\lambda^{\prime}_{\mathcal{A}}]P, \lambda^{\prime}_{\mathcal{AB}}=\iota([\lambda^{\prime}_{\mathcal{A}}]Q_{\mathcal{B}}), Q^{\prime}_{\mathcal{AB}}=[\lambda^{\prime}_{\mathcal{AB}}]P\}$$
 
 A proof of update correctness is composed by chaining $\mathcal{R}^{(j)}_{\mathcal{ART}}$ proofs with the same transcript for $j=0..\ell$ where $\ell$ is three depth.
 
