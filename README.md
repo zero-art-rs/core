@@ -1,11 +1,11 @@
 # Project M
 
-> Disclaimer: this README file is a bit obsolated, it will be updated as soon as research process converges
+> Disclaimer: this README file is updated often so it might change according to research process
 
 Project structure:
 - `notes` - various notes about research process
 - `misc` - various prototypes (IBBE with sage, gossipsub with go)
-- `papers` - research papers, note that the most actual version of messenger whitepaper is [here](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849)
+- `papers` - research papers, that the most actual version of messenger [whitepaper]
 - `src` - rust implementation of messenger primitives:
   - `hibbe` - hybrid IBBE with ART implementation
   - `zk` - ART zk proofs implementation
@@ -13,67 +13,92 @@ Project structure:
 
 ## Main idea
 
-The main goal of project is to develope decentralized web3 e2e messenger. 
+The main goal of the project is developing of distributed/federated messanger with features:
 
-First approach was to adopt [AgEncID]((https://arxiv.org/pdf/2309.16282)) scheme for e2e id broadcast encryption. **Setup** and **KeyGen** phases should be maintained by trusted **authorization party** but this scheme appears broken due to symmetric pairing on cyclic subgroups of Elliptic Curves which [degenerates](https://www.sagemath.org/files/thesis/hansen-thesis-2009.pdf#chapter.3).
-
-The second approach is to adopt [Broadcast IBBE by Cecile Delerablee](https://www.iacr.org/archive/asiacrypt2007/48330198/48330198.pdf) (`Del7`) which security is based on GDDHE assumption. This approach will likely be included in the final proto as main broadcast encryption primitive. Reference sage implementation with BN381 curve could be found in `misc`.
-
-The system contains of a set of distributed nodes. Each node represents specific user identity or several identities represented by IDs. Each user identity may be contained in several groups.
-
-## Identity
-
-Each user of a arbitrary group has an unique ID (some string identifying user, e.g. name, email, tel. number) and sk (secret key) corresponding to this ID.
-Several modes of preserving identity is [proposed](https://github.com/distributed-lab/papers/blob/main/in-da-club/In_Da_Club.pdf) for every user:
-- anonymous capybara - no trace, no id, just zk-proof that user is member of the group
-- traceble elephant - tracing is possible, no id however, zk-proof that user is member of group and has some shadow id
-- public alligator - user proves he posseses id and sk, e.g. just simple schnorr signature or simple zk-proof of knowledge of sk.
-- variable chameleon - user proves he has some ID at the time of messege creation but after some time it remains unclear who sent messege.
+- support of p2p chats (with Signal protocol)
+- support of large groups (> 1000 members) with custom [ART]-based protocol
+- advanced identity management (with different identity modes)
+- service provider intentionally does not know user identities (however, optional directory service does)
+- mostly all user operations is provable so that service providers are mostly trustless entities that simply route users' messages
+- e2e encryption by default in p2p and group modes
 
 ## Encryption
 
-The main algorithm for assymetric encryption is IBBE `PM25.Encrypt` function. A user generates header and symmetric encryption key with the mentioned function for group of receivers. A symmetric key is used after for `AES256-GCM` authenticated encryption of messege. After receiving messege user calls `PM25.Decrypt` function on messege header to decapsulate key and decrypt encrypted messege. The main construction is not [forward](https://yaogroup.cs.vt.edu/papers/fs-hibe-full.pdf) nor backword secure yet. Recently we managed to provide a *forward secure* construction which is described in our [paper](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849) (`PM25`) currently under developement.
+For p2p chats we propose to use [Signal] protocol, for p2g(*peer-to-group*) we use custom [PM25] proto which is heavily based on [ART]. Key feature of our proto is provability of
+each group operation so that every member can assure integrity and validity of a current group state.
 
-## Group management
+### ART
 
-In this section we briefly describe some desirable properties of `Project M` group system.
+> Here we briefly describe our protocol. Full description can be found at [PM25]
 
-Every group is an abstract tuple $G = <S, M, attrs, mk, pp>$ where $S = {ID_1, ID_2, ..., ID_m}$ - set of user identifiers in group (possibly encrypted from unauthorized users), $M \subseteq S$ - subset of group managers who can endure the entrance ceremony, `attrs` - group attributes (name, creation date, etc., possibly encrypted), `mk` - group master key, `pp` - public parameters. Every member of a group gets a piece of group secret along with other public data during entrance ceremony.
+Let $\langle P \rangle = \mathbb{G}$ - cyclic (abstract) group written additively of order $q$. $S$ - a set of group members, $\epsilon \in S$ - blank group member.
 
-### Creation of a group
+A group is represented as an Asynchronous Ratcheting Tree (can be seen as a binary tree) where each node containts public key $Q^e_{j} = [\lambda_{j}]P, j \in S^*$, especially each leaf node is occupied by some group member $i \in S$ with public key $Q^e_i$.
+Let $\iota: \mathbb{G} \to \mathbb{Z}_q$ - hash function. $ Secret key $\lambda_{ij}$ corresponding to public key $Q_{ij}$ of parent of nodes $i$ and $j$ is obtained as $\lambda_{ij} = \iota([\lambda_{i}]Q_{j}) = \iota([\lambda_{j}]Q_{i})$ and could be seen as a result of Diffie-Hellman secret sharing between $i$ and $j$.
+A secret key in a root of the tree $\lambda_{S}$ is considered as shared group secret from which stage key $sk$ is derived. $sk$ is then used to derive message encryption and decryption symmetric keys. Symmetric keys is than rotated according to [symmetric ratchet] protocol.
+An ART should be updated regularly to provide forward and post-compromise secrecy. Each ART update (obviously including all tree structure changing operations: `InitGroup, AddMember, RemoveMember` and regular key rotation) is supplemented with *update correctness proof*.
 
-1. The author of a group creates group `G` along with initialization of master key and public params with `PM25.Setup` procedure
-2. The author invites other group members, gives them permissions and possibly shares master key pieces with them
+### Update correctness proof
+`TODO`
 
-### Entrance ceremony
+### Permission system
+`TODO`
 
-When a new user with some $ID$ wants to join the group set of group managers could reach consensus and include new user into group performing additional `PM25.AddMember` procedure. After reaching consensus last group manager performs `PM25.Extract` obtaining $presk_{ID}$, creates ephemeral Diffie-Hellman keys with the new member, derives encryption key and send encrypted $presk_{ID}$ to the new member. After that user endures `PM25.KeyGen` procedure which produces a secret key $sk_{ID}$ and updates public aggregated value `pp.R`.
+### Group operations
 
-### Key Update ceremony
+#### InitGroup
+`TODO`
 
-Every user could update his $sk_{ID}$ using `P25.KeyUpdate` procedure at the arbitrary moment of time deriving new key and updating group parameter `pp.R` using zk-proof of corectness, ideally after every messege sent achieving perfect forward secrecy.
+#### AddMember
+`TODO`
 
-### Revocation ceremony
+#### RemoveMember
+`TODO`
 
-When managers decide to revoke user they begin revocation ceremony, one approach is to rebuild `pp.R` using only valid at the time members of group excluding revoked member even though it's not perfectly efficient. Improvements are yet to be done.
+## Network architecture
 
-## Infrastructure
+The project supports two major types of network architecture: *federated* and *full distributed*
 
-Technically, each member of project M is represented by some node with messenger application which synchonizes state using other online nodes.
+### Federated
 
-### Spam protection
+Federated architectures is supposed to be run in conventional *web2* setting. 
 
-Optionally some users could be equipped with an additonal role of rate-limiting penguin so that sending more than k messages during some period of time would disclose a user identity (ID or sk).
+Main actors: 
+- Service provider (SP):
+  - Set of operational nodes
+  - Message broker (for MVP [kafka] is proposed)
+  - Optional directory service containing set of user and group identities
+- User that connects to service provider via PC/mobile client
 
-## Links
+It's important to say that service provider barely delivers messages accross system and does not interfere with user identities nor any encrypted traffic.
 
-1. [AgEncID by indian guys, 2023](https://arxiv.org/pdf/2309.16282)
-2. [IDBE concept by Dan Boneh, 2001](https://crypto.stanford.edu/~dabo/papers/bfibe.pdf)
-3. [Key-aggregate for data sharing by chinese guys, 2014](https://ink.library.smu.edu.sg/cgi/viewcontent.cgi?article=2937&context=sis_research)
-4. [Collusion resistant IDBE with short ciphertext by Dan Boneh et al., 2005](https://eprint.iacr.org/2005/018.pdf)
-5. [Project M research paper by Illia and Serhii, 2024](papers/Messenger.pdf)
-6. [Broadcast IDBE with constant-size ciphertexts by Cecile Delerablee](https://www.iacr.org/archive/asiacrypt2007/48330198/48330198.pdf)
-7. [Wonderful thesis describing Weil pairings and BLS](https://www.sagemath.org/files/thesis/hansen-thesis-2009.pdf)
-8. [In Da Club](https://github.com/distributed-lab/papers/blob/main/in-da-club/In_Da_Club.pdf)
-9. [Forward Secrecy on BE](https://yaogroup.cs.vt.edu/papers/fs-hibe-full.pdf)
-10.[Current Project M Paper, referred as PM25](https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849)
+#### Group management 
+
+Each group has unique identifier `GID` known to SP. This GID identifies topic on messege broker containing all encrypted group events, messages and metadata. Authorized users are granted with read/write permissions to that topic.
+
+#### Authorization
+
+Each user connecting to SP shall authorize his access providing valid zk-proof of possesion to a list of groups, SP validates the proof and issues authorization token granting access to specific topics on message broker.
+
+### Full decentralized
+
+Fully decentralized architecture for future *web3* setting or modern IOT mesh networks(over some radio physical layer):
+
+The system is consist of *operational nodes* connected with each other, each node handle shared state and DHT
+
+## Identity
+
+Each user of the system $i \in S$ is represented with his identity secret key $d_{i}$ along with a public key $Q^{id}_i = [d_i]P$ and auxiliary metadata $u_i$. Optinally $Q^{id}_i$ could be given to directory service that issues user's public key and metadata to X.509 certificate that could be obtained by the others.
+
+Several modes of preserving identity is [proposed] for every user:
+- anonymous capybara - user only computes valid $MAC$ tag to every group message so that other members can verify that he knows $sk$ but do not know any identity attributes.
+- traceble elephant - user proves that he posseses only his leaf key $\lambda_i$
+- public alligator - user proves he posseses his identity key $d_i$
+- variable chameleon - user proves he has some ID at the time of messege creation but after some time it remains unclear who sent messege.
+
+[Project M research paper by Illia and Serhii, 2024]: papers/Messenger.pdf
+[proposed]: https://github.com/distributed-lab/papers/blob/main/in-da-club/In_Da_Club.pdf
+[PM25]: https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849
+[whitepaper]: https://www.overleaf.com/project/679b4c7dcc8fd2d1052f5849
+[Signal]: https://signal.org/docs/
+[ART]: https://eprint.iacr.org/2017/666.pdf
