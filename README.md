@@ -81,9 +81,32 @@ c_0 = 2, \forall i \in \{ 1, \dots, n-2 \}: c_{i}=c_{i-1} +1, c_{n-1}=-\frac{n^2
 ```
 5. Let $G \in \mathbb{G}$, Define sequence $`\{\Delta_i\}_{i=0}^{n-1}`$ as $`\Delta_i = [k_i]([2^i]Q_{\mathcal{B}})+[c_i]G`$ so that each $\Delta_i$ takes value $`\Delta_i^{(0)} = [c_i]G`$ or $`\Delta_i^{(1)} = [2^i]Q_{\mathcal{B}} + [c_i]G`$. 
 6. Denote partial sum $`P_j=\sum_{i=0}^{j} \Delta_i`$ so that $`P_{i+1} = P_i + \Delta_i`$ and $`P_{n-1}=\sum_{i=0}^{n-1} \Delta_i=[\lambda_{\mathcal{A}}]Q_{\mathcal{B}}`$.
-7. Add low level variable $x_0 \gets a_0 \cdot (x_{\Delta_0^{(1)}} - x_{\Delta_0^{(0)}}) + x_{\Delta_0^{(0)}}$ and add linear constraint $x_0 = x_{P_0}$
+7. Constraint starting point $P_0$:
+    - add low level variables
+    ```math
+    x_0 \gets a_0 \cdot (x_{\Delta_0^{(1)}} - x_{\Delta_0^{(0)}}) + x_{\Delta_0^{(0)}}, y_0 \gets a_0 \cdot (y_{\Delta_0^{(1)}} - y_{\Delta_0^{(0)}}) + y_{\Delta_0^{(0)}}
+    ```
+    - Add linear constraints $x_0 = x_{P_0}, y_0 = y_{P_0}$
 8. For each $i=1..n-1$:
-    - add low-level variables $x_i \gets $
+    - add low-level variables with linear constraints:
+    ```math 
+    x_i \gets k_i \cdot (x_{\Delta_i^{(1)}} - x_{\Delta_i^{(0)}}) + x_{\Delta_i^{(0)}}, y_i \gets k_i \cdot (y_{\Delta_i^{(1)}} - y_{\Delta_i^{(0)}}) + y_{\Delta_i^{(0)}},
+    ```
+    - add low-level variables with 3 quadratic constraints:
+    ```math 
+    x_i^2 \gets x_i \cdot x_i, x_i^3 \gets x_i^2 \cdot x_i, y_i^2 \gets y_i \cdot y_i
+    ```
+    - check $`P_i \in E(\mathbb{F}_q)`$ via linear constraint: $`y_i^3 = x_i^3 + ax_i +b`$
+    - check that $`P_i = P_{i-1} + \Delta_i`$ so that points $`-P_i,P_{i-1},\Delta_i`$ are co-linear by adding constraints(2 quadratic and 1 linear):
+    ```math
+    t_1 \gets (y_{i-1}+y_i) \cdot (x_{\Delta_i} - x_i), t_2 \gets (y_{\Delta_i}+y_i) \cdot (x_{i-1} - x_i) \\
+    t_1 = t_2
+    ```
+9. Add final linear constraints 
+    ```math
+    x_{n-1} = x_{P_{n-1}}, y_{n-1} = y_{P_{n-1}}
+    ```
+  
 
 ### Permission system
 
