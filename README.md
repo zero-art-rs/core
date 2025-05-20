@@ -34,7 +34,7 @@ each group operation so that every member can assure integrity and validity of a
 Let $`\langle P \rangle = \mathbb{G}`$ - cyclic (abstract) group written additively of order $q$. $`S`$ - a set of group members, $`\epsilon \in S`$ - blank group member.
 
 A group is represented as an Asynchronous Ratcheting Tree (can be seen as a binary tree) where each node containts public key $`Q^e_{j} = [\lambda_{j}]P, j \in S^{*}`$, especially each leaf node is occupied by some group member $`i \in S`$ with public key $`Q^e_i`$.
-Let $\iota: \mathbb{G} \to \mathbb{Z}_{q}$ - hash function. Secret key $\lambda_{ij}$ corresponding to public key $`Q_{ij}`$ of parent of nodes $i$ and $j$ is obtained as $`\lambda_{ij} = \iota([\lambda_{i}]Q_{j}) = \iota([\lambda_{j}]Q_{i})`$ and could be seen as a result of Diffie-Hellman secret sharing between $i$ and $j$.
+Let $`\iota: \mathbb{G} \to \mathbb{Z}_{q}`$ - hash function. Secret key $`\lambda_{ij}`$ corresponding to public key $`Q_{ij}`$ of parent of nodes $i$ and $j$ is obtained as $`\lambda_{ij} = \iota([\lambda_{i}]Q_{j}) = \iota([\lambda_{j}]Q_{i})`$ and could be seen as a result of Diffie-Hellman secret sharing between $i$ and $j$.
 A secret key in a root of the tree $`\lambda_{S}`$ is considered as shared group secret from which stage key $sk$ is derived. $sk$ is then used to derive message encryption and decryption symmetric keys. Symmetric keys is than rotated according to [symmetric ratchet] protocol.
 An ART should be updated regularly to provide forward and post-compromise secrecy. Each ART update (obviously including all tree structure changing operations: `InitGroup, AddMember, RemoveMember` and regular key rotation) is supplemented with *update correctness proof*.
 
@@ -55,7 +55,35 @@ Special case when $j=0$:
 
 A proof of update correctness is composed by chaining $`\mathcal{R}^{(j)}_{\mathcal{ART}}`$ proofs with the same transcript for $`j=0..\ell`$ where $\ell$ is three depth.
 
-We have presented a [argument system] for the relation using [bulletproofs], reference implementation for $`\mathcal{R}_{\iota}`$ part can be found in `src/zk`.
+#### Proving $`R_{\iota}`$
+
+Let define the subrelation $`R_{\iota}`$:
+```math 
+R_{\iota} = \{ (Com({\lambda_{\mathcal{B}}}), Com({\lambda_{\mathcal{AB}}}); \lambda_{\mathcal{A}}, \lambda_{\mathcal{AB}}) | \lambda_{\mathcal{AB}}=\iota([\lambda_{\mathcal{A}}]Q_{\mathcal{B}})\}
+```
+Where $`Q_{\mathcal{B}} \in \mathbb{G}, Com(k) = [k]P + [r]H \in \mathbb{G}_2`$ - binding Pedersen commitment for $k$.
+We have presented a [argument system] for the relation $`\mathcal{R}_{\iota}`$ where $`\iota(P)=x(P)`$ - affine $x$-coordinate of $P$ using [bulletproofs], reference implementation for $`\mathcal{R}_{\iota}`$ part can be found in `src/zk`.
+> It is important to stress that commonly $\mathbb{G}$ is an elliptic curve group $E(\mathbb{F}_q)$ where $q=|\mathbb{G}_2|$
+
+One might ask how to prove $`R_{\iota}`$ efficiently. Usage of classic Schnorr $\Sigma$ proofs is not efficient because $\iota$ is a non-linear function. Instead we propose to use [bulletproofs] because it allows us to prove relations abouts commited witnesses.
+For proving scalar multiplication result we use optimized technique without usage of expensive point addition and multiplication.
+
+0. Define high-level witness variables $k \gets \lambda_{\mathcal{A}}, s \gets \lambda_{\mathcal{AB}}$
+1. Define low-level witness variables $`a_i, b_i`$ from bit-decomposition of 
+```math
+\lambda_{\mathcal{A}} = \sum_{i=0}^{n-1} k_i2^i, a_i \gets k_i, b_i \gets (1 - k_i)
+```
+2. For each bit $i$ add quadratic constraint $a_i \cdot b_i = 0$ and linear constraint: $b_i = 1 - a_i$
+3. Add linear constraint $\sum_{i=0}^{n-1} a_i 2^i = \lambda_{\mathcal{A}}$
+4. Define sequence $\{c_i\}_{i=0}^{n-1} \subset \mathbb{N}^n$ such that $\sum_{i=0}^{n-1} c_i = 0$, for example 
+```math
+c_0 = 2, \forall i \in \{ 1, \dots, n-2 \}: c_{i}=c_{i-1} +1, c_{n-1}=-\frac{n^2 + n - 2}{2}
+```
+5. Let $G \in \mathbb{G}$, Define sequence $`\{\Delta_i\}_{i=0}^{n-1}`$ as $`\Delta_i = [k_i]([2^i]Q_{\mathcal{B}})+[c_i]G`$ so that each $\Delta_i$ takes value $`\Delta_i^{(0)} = [c_i]G`$ or $`\Delta_i^{(1)} = [2^i]Q_{\mathcal{B}} + [c_i]G`$. 
+6. Denote partial sum $`P_j=\sum_{i=0}^{j} \Delta_i`$ so that $`P_{i+1} = P_i + \Delta_i`$ and $`P_{n-1}=\sum_{i=0}^{n-1} \Delta_i=[\lambda_{\mathcal{A}}]Q_{\mathcal{B}}`$.
+7. Add low level variable $x_0 \gets a_0 \cdot (x_{\Delta_0^{(1)}} - x_{\Delta_0^{(0)}}) + x_{\Delta_0^{(0)}}$ and add linear constraint $x_0 = x_{P_0}$
+8. For each $i=1..n-1$:
+    - add low-level variables $x_i \gets $
 
 ### Permission system
 
