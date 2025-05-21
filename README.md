@@ -63,7 +63,7 @@ R_{\iota} = \{ (Com({\lambda_{\mathcal{B}}}), Com({\lambda_{\mathcal{AB}}}); \la
 ```
 Where $`Q_{\mathcal{B}} \in \mathbb{G}, Com(k) = [k]P + [r]H \in \mathbb{G}_2`$ - binding Pedersen commitment for $k$.
 We have presented a [argument system] for the relation $`\mathcal{R}_{\iota}`$ where $`\iota(P)=x(P)`$ - affine $x$-coordinate of $P$ using [bulletproofs], reference implementation for $`\mathcal{R}_{\iota}`$ part can be found in `src/zk`.
-> It is important to stress that commonly $\mathbb{G}$ is an elliptic curve group $E(\mathbb{F}_q)$ where $q=|\mathbb{G}_2|$
+> It is important to stress that commonly $\mathbb{G}$ is an elliptic curve's $`E/\mathbb{F}_q: y^2 = x^3 + ax + b`$ $`\mathbb{F}_q`$-rational points group $E(\mathbb{F}_q)$ where $q=|\mathbb{G}_2|$
 
 One might ask how to prove $`R_{\iota}`$ efficiently. Usage of classic Schnorr $\Sigma$ proofs is not efficient because $\iota$ is a non-linear function. Instead we propose to use [bulletproofs] because it allows us to prove relations abouts commited witnesses.
 For proving scalar multiplication result we use optimized technique without usage of expensive point addition and multiplication.
@@ -93,7 +93,7 @@ c_0 = 2, \forall i \in \{ 1, \dots, n-2 \}: c_{i}=c_{i-1} +1, c_{n-1}=-\frac{n^2
     - add low-level variables with 3 quadratic constraints:
     
       $`\mathbf{x}_i^2 \gets \mathbf{x}_i \cdot \mathbf{x}_i, \mathbf{x}_i^3 \gets \mathbf{x}_i^2 \cdot \mathbf{x}_i, \mathbf{y}_i^2 \gets \mathbf{y}_i \cdot \mathbf{y}_i`$
-    - check $`P_i \in E(\mathbb{F}_q)`$ via linear constraint: $`\mathbf{y}_i^3 = \mathbf{x}_i^3 + a\mathbf{x}_i +b`$
+    - check $`P_i \in E(\mathbb{F}_q)`$ via linear constraint: $`\mathbf{y}_i^2 = \mathbf{x}_i^3 + a\mathbf{x}_i +b`$
     - check that $`P_i = P_{i-1} + \Delta_i`$ so that points $`-P_i,P_{i-1},\Delta_i`$ are co-linear by adding constraints(2 quadratic and 1 linear):
       
       $`\mathbf{t}_1 \gets (\mathbf{y}_{i-1}+\mathbf{y}_i) \cdot (x_{\Delta_i} - \mathbf{x}_i), \mathbf{t}_2 \gets (y_{\Delta_i}+\mathbf{y}_i) \cdot (\mathbf{x}_{i-1} - \mathbf{x}_i), \quad \mathbf{t}_1 = \mathbf{t}_2`$
