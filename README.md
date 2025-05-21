@@ -80,23 +80,25 @@ For proving scalar multiplication result we use optimized technique without usag
 c_0 = 2, \forall i \in \{ 1, \dots, n-2 \}: c_{i}=c_{i-1} +1, c_{n-1}=-\frac{n^2 + n - 2}{2}
 ```
 5. Let $G \in \mathbb{G}$, Define sequence $`\{\Delta_i\}_{i=0}^{n-1}`$ as $`\Delta_i = [k_i]([2^i]Q_{\mathcal{B}})+[c_i]G`$ so that each $\Delta_i$ takes value $`\Delta_i^{(0)} = [c_i]G`$ or $`\Delta_i^{(1)} = [2^i]Q_{\mathcal{B}} + [c_i]G`$. 
-6. Denote partial sum $`P_j=\sum_{i=0}^{j} \Delta_i`$ so that $`P_{i+1} = P_i + \Delta_i`$ and $`P_{n-1}=\sum_{i=0}^{n-1} \Delta_i=[\lambda_{\mathcal{A}}]Q_{\mathcal{B}}`$.
-7. Constraint starting point $P_0$:
-    - add low level variables:
-       
-       $`\mathbf{x}_0 \gets \mathbf{a}_0 \cdot (x_{\Delta_0^{(1)}} - x_{\Delta_0^{(0)}}) + x_{\Delta_0^{(0)}}, \mathbf{y}_0 \gets \mathbf{a}_0 \cdot (y_{\Delta_0^{(1)}} - y_{\Delta_0^{(0)}}) + y_{\Delta_0^{(0)}}`$
-    - add linear constraints $`x_0 = x_{P_0}, y_0 = y_{P_0}`$
+6. Denote partial sum $`P_j=\sum_{i=0}^{j} \Delta_i`$ so that $`P_{i} = P_{i-1} + \Delta_{i}`$ and $`P_{n-1}=\sum_{i=0}^{n-1} \Delta_i=[\lambda_{\mathcal{A}}]Q_{\mathcal{B}}`$.
+7. Add low-level variables for $P_0$:
+  
+    $`\mathbf{x}_0 \gets \mathbf{a}_0 \cdot (x_{\Delta_0^{(1)}} - x_{\Delta_0^{(0)}}) + x_{\Delta_0^{(0)}}, \mathbf{y}_0 \gets \mathbf{a}_0 \cdot (y_{\Delta_0^{(1)}} - y_{\Delta_0^{(0)}}) + y_{\Delta_0^{(0)}}`$
+
 8. For each $i=1..n-1$:
-    - add low-level variables with linear constraints:
+    - add low-level variables for $P_i$ with following assigments:
       
-      $`\mathbf{x}_i \gets k_i \cdot (x_{\Delta_i^{(1)}} - x_{\Delta_i^{(0)}}) + x_{\Delta_i^{(0)}}, \mathbf{y}_i \gets k_i \cdot (y_{\Delta_i^{(1)}} - y_{\Delta_i^{(0)}}) + y_{\Delta_i^{(0)}}`$
+      $`\mathbf{x}_i \gets x_{P_{i-1}+ \Delta_i}, \mathbf{y} \gets y_{P_{i-1} + \Delta_i}`$
     - add low-level variables with 3 quadratic constraints:
     
       $`\mathbf{x}_i^2 \gets \mathbf{x}_i \cdot \mathbf{x}_i, \mathbf{x}_i^3 \gets \mathbf{x}_i^2 \cdot \mathbf{x}_i, \mathbf{y}_i^2 \gets \mathbf{y}_i \cdot \mathbf{y}_i`$
     - check $`P_i \in E(\mathbb{F}_q)`$ via linear constraint: $`\mathbf{y}_i^2 = \mathbf{x}_i^3 + a\mathbf{x}_i +b`$
+    - define $`\mathbf{x}_{\Delta_i},\mathbf{y}_{\Delta_i}`$ as linear combinations of $`\mathbf{a}_i`$:
+
+      $`\mathbf{x}_{\Delta_i} \gets \mathbf{a}_i \cdot (x_{\Delta_i^{(1)}} - x_{\Delta_i^{(0)}}) + x_{\Delta_i^{(0)}}, \mathbf{y}_{\Delta_i} \gets \mathbf{a}_i \cdot (y_{\Delta_i^{(1)}} - y_{\Delta_i^{(0)}}) + y_{\Delta_i^{(0)}}`$
     - check that $`P_i = P_{i-1} + \Delta_i`$ so that points $`-P_i,P_{i-1},\Delta_i`$ are co-linear by adding constraints(2 quadratic and 1 linear):
       
-      $`\mathbf{t}_1 \gets (\mathbf{y}_{i-1}+\mathbf{y}_i) \cdot (x_{\Delta_i} - \mathbf{x}_i), \mathbf{t}_2 \gets (y_{\Delta_i}+\mathbf{y}_i) \cdot (\mathbf{x}_{i-1} - \mathbf{x}_i), \quad \mathbf{t}_1 = \mathbf{t}_2`$
+      $`\mathbf{t}_1 \gets (\mathbf{y}_{i-1}+\mathbf{y}_i) \cdot (\mathbf{x}_{\Delta_i} - \mathbf{x}_i), \mathbf{t}_2 \gets (\mathbf{y}_{\Delta_i}+\mathbf{y}_i) \cdot (\mathbf{x}_{i-1} - \mathbf{x}_i), \quad \mathbf{t}_1 = \mathbf{t}_2`$
 9. Add final linear constraint: $`\mathbf{x}_{n-1} = \mathbf{s}`$
 
 ### Permission system
