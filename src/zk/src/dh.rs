@@ -13,7 +13,7 @@ use rand::{thread_rng, Rng};
 use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
-use crate::curve::g2::{self as G2, ToScalar};
+use crate::curve::g2::{self as G2, Parameters, ToScalar};
 use hex::FromHex;
 
 
@@ -85,7 +85,7 @@ fn bin_equality_gadget<CS: ConstraintSystem>(
 // sketch2: Com((λ_a, r), (P1, H1)) ∈ G1, check if DL equal across Com, Q_a; Q_b, Q_ab ∈ G2: compute λ_ab=x([λ_a]Q_B) => check Q_ab==[λ_ab]P2
 // we use https://eprint.iacr.org/2022/1593.pdf to prove that λ_a is equal across G1, G2 (generalization of Chaum-Pedersen proto (G1=G2))
 
-// proof of x(Q_ab) = x([λ_a]Q_b), idea from https://eprint.iacr.org/2024/397.pdf
+// proof of x(Q_ab) = x([λ_a]Q_b), idea from https://eprint.iacr.org/archive/2024/397/20240622:224417
 pub fn dh_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: Option<Scalar>,
@@ -148,7 +148,90 @@ pub fn dh_gadget<CS: ConstraintSystem>(
     }
     info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
     // final check of x coordinate
-    //cs.constrain(var_ab - P_vars.last().unwrap().0 );
+    cs.constrain(var_ab - P_vars.last().unwrap().0 );
+    
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Witness {
+    pub P_i: G2::G2Affine,
+    pub Δ_i: G2::G2Affine,
+    pub P_i_1: G2::G2Affine,
+    pub s_i: Scalar,
+}
+
+// proof based on https://eprint.iacr.org/archive/2024/397/20250504:183956
+pub fn dh_gadget2<CS: ConstraintSystem>(
+    cs: &mut CS,
+    λ_a: Option<Scalar>,
+    Q_b: G2::G2Affine,
+    var_a: Variable,
+    var_ab: Variable,
+) -> Result<(), R1CSError> {
+    let (w_a, w_b) = ( G2::Parameters::COEFF_A.into_scalar(), G2::Parameters::COEFF_B.into_scalar());
+    let l = (MODULUS_BIT_SIZE) as i32;
+    let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
+        (G2::Parameters::GENERATOR*G2::Fr::from(-(l*l + l - 2)/2)).into_affine()
+    } else {
+        (G2::Parameters::GENERATOR*G2::Fr::from(i+2)).into_affine()
+    }).collect();
+
+    let mut δ = vec![Q_b];
+    for _ in 1..l as usize {
+        δ.push(((*δ.last().unwrap())*G2::Fr::from(2)).into_affine());
+    }
+    let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
+    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a)?;
+    
+    // P_0 = Δ_0
+    let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
+    let (_, _, y0) = cs.multiply(Variable::One() * Δ1[0].y().unwrap().into_scalar() + k_vars[0] * (Δ2[0].y().unwrap() - Δ1[0].y().unwrap()).into_scalar(), Variable::One().into()); // y0 = k[0]*(y-y')+y'
+    let mut P_vars = vec![(x0, y0)];
+
+    let mut P  = λ_a.map(|λ_a| vec![ (Q_b * G2::Fr::from(λ_a.get_bit(0) as u64) + Δ1[0] ).into_affine() ] );
+    
+    for i in 1..l as usize {
+        // calculate witness P_i = P_i_1 + Δ_i
+        let w = λ_a.map(|λ_a| {
+            let P_i_1 = *(P.as_ref().unwrap().last().unwrap());
+            let P_i = (P_i_1 + match λ_a.get_bit(i) {
+                true => Δ2[i],
+                false => Δ1[i]
+            }).into_affine();
+            let Δ_i = if λ_a.get_bit(i) {
+                Δ2[i]
+            } else {
+                Δ1[i]
+            };
+            P.as_mut().unwrap().push( P_i );
+            let s_i = (P_i_1.y().unwrap().into_scalar() - Δ_i.y().unwrap().into_scalar()) * (P_i_1.x().unwrap().into_scalar() - Δ_i.x().unwrap().into_scalar()).invert();
+
+            Witness {P_i_1, P_i, Δ_i, s_i}
+        });
+
+        let (Δ_i_x, Δ_i_y) = (
+            Variable::One() * Δ1[i].x().unwrap().into_scalar() + k_vars[i] * (Δ2[i].x().unwrap() - Δ1[i].x().unwrap()).into_scalar(), 
+            Variable::One() * Δ1[i].y().unwrap().into_scalar() + k_vars[i] * (Δ2[i].y().unwrap() - Δ1[i].y().unwrap()).into_scalar()
+        );
+
+        let (_, s_i, s_i_2) = cs.allocate_multiplier(w.as_ref().map(|w| (w.s_i, w.s_i)))?;
+        let x_P = cs.allocate(w.as_ref().map(|w| w.P_i.x().unwrap().into_scalar()))?;
+        let y_P = cs.allocate(w.as_ref().map(|w| w.P_i.y().unwrap().into_scalar()))?;
+        let (P_i_1_x, P_i_1_y) = *P_vars.last().unwrap();
+        P_vars.push((x_P, y_P));
+        
+        cs.constrain(s_i_2 - x_P - P_i_1_x - Δ_i_x.clone());
+
+        // check that Δ_i, -P_i, P_i_1 is on the same line
+        let (_, _, t1) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - Δ_i_x);
+        cs.constrain(t1 - (P_i_1_y - Δ_i_y));
+        let (_, _, t2) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - x_P);
+        cs.constrain(t2 - (P_i_1_y + y_P));
+    }
+    info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    // final check of x coordinate
+    cs.constrain(var_ab - P_vars.last().unwrap().0 );
     
     Ok(())
 }
@@ -172,7 +255,7 @@ pub fn dh_gadget_proof(
     let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
     let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
 
-    dh_gadget(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?;
+    dh_gadget2(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?;
     let circuit_len = prover.metrics();
 
     let proof = prover.prove(bp_gens)?;
@@ -196,7 +279,7 @@ pub fn dh_gadget_verify(
     let var_a = verifier.commit(a_commitment);
     let var_ab = verifier.commit(ab_commitment);
 
-    dh_gadget(&mut verifier, None, Q_b, var_a, var_ab)?;
+    dh_gadget2(&mut verifier, None, Q_b, var_a, var_ab)?;
 
     verifier
         .verify(&proof, &pc_gens, &bp_gens)
