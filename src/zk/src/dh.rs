@@ -1,7 +1,9 @@
 #![allow(non_snake_case)]
 use std::ops::{Add, Mul};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Instant;
 
-use rand_core::OsRng;
+use rand_core::{le, OsRng};
 use ark_serialize::Valid;
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
@@ -13,6 +15,7 @@ use rand::{thread_rng, Rng};
 use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
+use tracing_subscriber::field::debug;
 use crate::curve::g2::{self as G2, Parameters, ToScalar};
 use hex::FromHex;
 
@@ -86,7 +89,7 @@ fn bin_equality_gadget<CS: ConstraintSystem>(
 // we use https://eprint.iacr.org/2022/1593.pdf to prove that λ_a is equal across G1, G2 (generalization of Chaum-Pedersen proto (G1=G2))
 
 // proof of x(Q_ab) = x([λ_a]Q_b), idea from https://eprint.iacr.org/archive/2024/397/20240622:224417
-pub fn dh_gadget<CS: ConstraintSystem>(
+pub fn dh_gadget_v1<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: Option<Scalar>,
     Q_b: G2::G2Affine,
@@ -162,14 +165,13 @@ pub struct Witness {
 }
 
 // proof based on https://eprint.iacr.org/archive/2024/397/20250504:183956
-pub fn dh_gadget2<CS: ConstraintSystem>(
+pub fn dh_gadget_v2<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: Option<Scalar>,
     Q_b: G2::G2Affine,
     var_a: Variable,
     var_ab: Variable,
 ) -> Result<(), R1CSError> {
-    let (w_a, w_b) = ( G2::Parameters::COEFF_A.into_scalar(), G2::Parameters::COEFF_B.into_scalar());
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
         (G2::Parameters::GENERATOR*G2::Fr::from(-(l*l + l - 2)/2)).into_affine()
@@ -229,7 +231,7 @@ pub fn dh_gadget2<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - x_P);
         cs.constrain(t2 - (P_i_1_y + y_P));
     }
-    info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
     // final check of x coordinate
     cs.constrain(var_ab - P_vars.last().unwrap().0 );
     
@@ -238,6 +240,7 @@ pub fn dh_gadget2<CS: ConstraintSystem>(
 
 #[instrument(skip(pc_gens, bp_gens, Q_b, λ_a, λ_ab))]
 pub fn dh_gadget_proof(
+    ver: u8,
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     Q_b: G2::G2Affine,
@@ -247,25 +250,30 @@ pub fn dh_gadget_proof(
 ) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
     let mut blinding_rng = thread_rng();
 
-    let mut transcript = Transcript::new(b"ARTGadget");
+    let mut transcript = Transcript::new(b"DHGadget");
 
     // 1. Create a prover
     let mut prover = Prover::new(pc_gens, &mut transcript);
     // 2. Commit high-level variables
     let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
     let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
-
-    dh_gadget2(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?;
-    let circuit_len = prover.metrics();
-
+    let mut start = Instant::now();
+    match ver {
+        1 => dh_gadget_v1(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?,
+        2 => dh_gadget_v2(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?,
+        _ => return Err(R1CSError::VerificationError),
+    }
+    debug!("DHGadget prover synthetize time: {:?}, metrics: {:?}", start.elapsed(), prover.metrics());
+    start = Instant::now();
     let proof = prover.prove(bp_gens)?;
-    info!("ARTGadget proved: circuit_size = {:?}, proof_size = {:?}", circuit_len, proof.to_bytes().len() );
+    debug!("DHGadget proving time: {:?}, proof_size = {:?}", start.elapsed(), proof.to_bytes().len() );
 
     Ok((proof, (a_commitment, ab_commitment)))
 }
 
 #[instrument(skip(pc_gens, bp_gens, proof, a_commitment, ab_commitment))]
 pub fn dh_gadget_verify(
+    ver: u8,
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     proof: R1CSProof,
@@ -274,32 +282,168 @@ pub fn dh_gadget_verify(
     a_commitment: CompressedRistretto,
     ab_commitment: CompressedRistretto,
 ) -> Result<(), R1CSError> {
-    let mut transcript = Transcript::new(b"ARTGadget");
+    let mut transcript = Transcript::new(b"DHGadget");
     let mut verifier = Verifier::new(&mut transcript);
     let var_a = verifier.commit(a_commitment);
     let var_ab = verifier.commit(ab_commitment);
-
-    dh_gadget2(&mut verifier, None, Q_b, var_a, var_ab)?;
-
-    verifier
+    let mut start = Instant::now();
+    match ver {
+        1 => dh_gadget_v1(&mut verifier, None, Q_b, var_a, var_ab)?,
+        2 => dh_gadget_v2(&mut verifier, None, Q_b, var_a, var_ab)?,
+        _ => return Err(R1CSError::VerificationError),
+    }
+    debug!("DHGadget verifier synthetize time: {:?}", start.elapsed());
+    start = Instant::now();
+    let r = verifier
         .verify(&proof, &pc_gens, &bp_gens)
-        .map_err(|_| R1CSError::VerificationError)
+        .map_err(|_| R1CSError::VerificationError);
+    debug!("DHGadget verification time: {:?}", start.elapsed());
+    r
 }
 
-pub fn dh_gadget_roundtrip() -> Result<(), R1CSError> {
+pub fn dh_gadget_roundtrip(ver: u8) -> Result<(), R1CSError> {
     let mut blinding_rng = rand::thread_rng();
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(2048, 1);
 
     let r: G2::Fr = blinding_rng.r#gen();
     let Q_b = (G2::G2Affine::generator() * r).into_affine();
-
-    let λ_a = BigInt::new([(1u64<<59) + 5, 1, 1, (1u64<<59) + 5]);
+    let λ_a: G2::Fr = blinding_rng.r#gen();
     
-    let R = (Q_b * G2::Fr::from(λ_a)).into_affine();
-    info!("R_real={:?}", R);
+    let R = (Q_b * λ_a).into_affine();
+    debug!("R_real={:?}", R);
     
-    let (proof, (var_a, var_b)) = dh_gadget_proof(&pc_gens, &bp_gens, Q_b, Scalar::from_bytes_mod_order( (&λ_a.to_bytes_le()[..]).try_into().unwrap() ), R.x().unwrap().into_scalar() )?;
+    let (proof, (var_a, var_b)) = dh_gadget_proof(
+        ver, 
+        &pc_gens, 
+        &bp_gens, Q_b, 
+        Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
+        R.x().unwrap().into_scalar() 
+    )?;
 
-    dh_gadget_verify(&pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
+    dh_gadget_verify(ver, &pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
+}
+
+pub fn art_prove(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    Q_b: Vec<G2::G2Affine>, // k
+    λ_a: Vec<Scalar>, // k+1
+) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
+    let start = Instant::now();
+    let k = Q_b.len();
+    assert!(k == λ_a.len() - 1, "length mismatch");
+    let mut commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k+1]));
+    let mut proofs = Arc::new(Mutex::new(vec![None; k]));
+    let mut blinding_rng = rand::thread_rng();
+    let mut transcript = Transcript::new(b"ARTGadget");
+    let blindings: Vec<_> = (0..λ_a.len()+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
+        
+    /*for i in 0..Q_b.len() {
+        let mut prover = Prover::new(pc_gens, &mut transcript);
+        let (a_commitment, var_a) = prover.commit(λ_a[i], blindings[i]);
+        let (ab_commitment, var_ab) = prover.commit(λ_a[i+1], blindings[i+1]);
+        commitments.push(a_commitment);
+        if i == Q_b.len() - 1 {
+            commitments.push(ab_commitment);
+        }
+        dh_gadget_v2(&mut prover, Some(λ_a[i]), Q_b[i], var_a, var_ab)?;
+        proofs.push(prover.prove(bp_gens)?);
+    }*/
+
+    let mut handles = Vec::new();
+    for i in 0..k {
+        let proofs = proofs.clone();
+        let commitments = commitments.clone();
+        let pc_gens = pc_gens.clone();
+        let bp_gens = bp_gens.clone();
+        let Q_b_i = Q_b[i].clone();
+        let λ_a_i = λ_a[i];
+        let λ_a_next = λ_a[i+1];
+        let blindings_i = (blindings[i], blindings[i+1]);
+        
+        handles.push(std::thread::spawn(move || {
+            let mut transcript = Transcript::new(b"ARTGadget");
+            let mut prover = Prover::new(&pc_gens, &mut transcript);
+            let (a_commitment, var_a) = prover.commit(λ_a_i, blindings_i.0);
+            let (ab_commitment, var_ab) = prover.commit(λ_a_next, blindings_i.1);
+            {
+                let mut commitments = commitments.lock().unwrap();
+                commitments[i] = a_commitment;
+                if i == k - 1 {
+                    commitments[i+1] = ab_commitment;
+                }
+            }
+
+            dh_gadget_v2(&mut prover, Some(λ_a_i), Q_b_i, var_a, var_ab).unwrap();
+
+            let proof = prover.prove(&bp_gens).unwrap();
+            {
+                let mut proofs = proofs.lock().unwrap();
+                proofs[i] = Some(proof);
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+        
+    debug!("ARTGadget for depth {k} proving time: {:?}", start.elapsed());
+    Ok((proofs.lock().unwrap().iter().map(|x| x.as_ref().unwrap().clone()).collect(), commitments.lock().unwrap().clone()))
+}
+
+pub fn art_verify(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    proofs: Vec<R1CSProof>,
+    Q_b: Vec<G2::G2Affine>, // k
+    commitments: Vec<CompressedRistretto>, // k+1
+) -> Result<(), R1CSError> {
+    let start = Instant::now();
+    assert!(Q_b.len() == commitments.len() - 1, "length mismatch");
+   
+    for i in 0..Q_b.len() {
+        let mut transcript = Transcript::new(b"ARTGadget");
+        let mut verifier = Verifier::new(&mut transcript);
+        let var_a = verifier.commit(commitments[i]);
+        let var_ab = verifier.commit(commitments[i+1]);
+        dh_gadget_v2(&mut verifier, None, Q_b[i], var_a, var_ab)?;
+        verifier.verify(&proofs[i], &pc_gens, &bp_gens)?;
+    }
+    debug!("ARTGadget for depth {} verification time: {:?}", Q_b.len(), start.elapsed());
+
+    Ok(())
+}
+
+pub fn random_witness_gen(k: u32) -> (Vec<G2::G2Affine>, Vec<Scalar>) {
+    let mut blinding_rng = rand::thread_rng();
+    let mut λ = Vec::new();
+    let mut Q = Vec::new();
+    let r: G2::Fr = blinding_rng.r#gen();
+    let mut λ_a = Scalar::from_bytes_mod_order((&r.into_bigint().to_bytes_le()[..]).try_into().unwrap());
+    λ.push(λ_a);
+    for i in 0..k {
+        let r: G2::Fr = blinding_rng.r#gen();
+        let Q_b = (G2::G2Affine::generator() * r).into_affine();
+        Q.push(Q_b);
+        let R = (Q_b * G2::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
+        λ_a = R.x().unwrap().into_scalar();
+        λ.push(λ_a);
+    }
+    
+    (Q, λ)
+}
+
+pub fn art_roundtrip(k: u32) -> Result<(), R1CSError> {
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(2048, 1);
+    let (Q, λ) = random_witness_gen(k);
+    let (proofs, commitments) = art_prove(
+        &pc_gens, 
+        &bp_gens, 
+        Q.clone(), 
+        λ
+    )?;
+
+    art_verify(&pc_gens, &bp_gens, proofs, Q, commitments)
 }

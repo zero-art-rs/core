@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
-use zk::dh::dh_gadget_roundtrip;
+use zk::{art_roundtrip, dh::dh_gadget_roundtrip};
+use std::thread;
 
 
 fn main() {
@@ -10,5 +11,14 @@ fn main() {
          .with_target(false)
          .init();
 
-    dh_gadget_roundtrip().unwrap();
+    /*let mut handles = Vec::new();
+    for _ in 0..8 {
+        handles.push(thread::spawn(|| {
+            dh_gadget_roundtrip(2).unwrap();
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }*/
+    art_roundtrip(10).unwrap();
 }
