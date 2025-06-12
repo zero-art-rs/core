@@ -17,3 +17,9 @@ rand = "0.8.5"
 rand_core = "0.6.4"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
+zkp = { version = "0.9.1", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
+
+[features]
+multi_thread_prover = []
+multi_thread_verifier = []
+default = ["multi_thread_prover", "multi_thread_verifier"]

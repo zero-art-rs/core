@@ -333,8 +333,8 @@ pub fn art_prove(
     let start = Instant::now();
     let k = Q_b.len();
     assert!(k == λ_a.len() - 1, "length mismatch");
-    let mut commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k+1]));
-    let mut proofs = Arc::new(Mutex::new(vec![None; k]));
+    let commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k+1]));
+    let proofs = Arc::new(Mutex::new(vec![None; k]));
     let mut blinding_rng = rand::thread_rng();
     let mut transcript = Transcript::new(b"ARTGadget");
     let blindings: Vec<_> = (0..λ_a.len()+1).map(|_| Scalar::random(&mut blinding_rng)).collect();

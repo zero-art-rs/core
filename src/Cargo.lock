@@ -129,6 +129,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-curve25519"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d934c527bc397a2591e85dfabd3a705eaa5eed71be763c7e4b802d62ec41ae3"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
+]
+
+[[package]]
 name = "ark-ec"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -147,6 +158,18 @@ dependencies = [
  "num-integer",
  "num-traits",
  "zeroize",
+]
+
+[[package]]
+name = "ark-ed25519"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f7bef34b937f049401e156e80efaefce8d30a896cd927b06f9b01cdb8d5de53"
+dependencies = [
+ "ark-curve25519",
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
 ]
 
 [[package]]
@@ -208,6 +231,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-secp256k1"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8bd211c48debd3037b48873a7aa22c3aba034e83388aa4124795c9f220b88c7"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
+]
+
+[[package]]
+name = "ark-secq256k1"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcc501d24c6d6a73128769231312f00cd73fd99bf550e10edecb875963f4f198"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-secp256k1",
+ "ark-std",
+]
+
+[[package]]
 name = "ark-serialize"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,6 +285,17 @@ checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
+]
+
+[[package]]
+name = "ark-test-curves"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cc137bb3271671a597ae79157030f88affe9fa7975207c3b781a01cb9ed0372"
+dependencies = [
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
 ]
 
 [[package]]
@@ -4379,6 +4436,32 @@ dependencies = [
  "merlin",
  "rand 0.8.5",
  "rand_core 0.6.4",
+ "tracing",
+ "tracing-subscriber",
+ "zkp",
+]
+
+[[package]]
+name = "zkp"
+version = "0.9.1"
+source = "git+https://github.com/juja256/zkp#84db39990b9c6d76c88a0f7ab2d7dd80e7733dcb"
+dependencies = [
+ "ark-ec",
+ "ark-ed25519",
+ "ark-ff",
+ "ark-secq256k1",
+ "ark-serialize",
+ "ark-std",
+ "ark-test-curves",
+ "bulletproofs",
+ "curve25519-dalek",
+ "group",
+ "merlin",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_derive",
+ "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
 ]
