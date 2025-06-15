@@ -8,7 +8,7 @@ pub struct FqConfig;
 pub type Fq = Fp256<MontBackend<FqConfig, 4>>;
 
 pub trait FromScalar {
-    fn from(scalar: Scalar) -> Self;
+    fn from_scalar(scalar: Scalar) -> Self;
 }
 
 pub trait ToScalar {
@@ -16,7 +16,7 @@ pub trait ToScalar {
 }
 
 impl FromScalar for Fq {
-    fn from(scalar: Scalar) -> Self {
+    fn from_scalar(scalar: Scalar) -> Self {
         let bytes: [u8; 32] = scalar.to_bytes();
 
         Fq::from_le_bytes_mod_order(&bytes)

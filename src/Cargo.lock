@@ -4427,6 +4427,7 @@ version = "0.1.0"
 dependencies = [
  "ark-algebra-test-templates",
  "ark-ec",
+ "ark-ed25519",
  "ark-ff",
  "ark-serialize",
  "ark-std",
@@ -4443,8 +4444,8 @@ dependencies = [
 
 [[package]]
 name = "zkp"
-version = "0.9.1"
-source = "git+https://github.com/juja256/zkp#84db39990b9c6d76c88a0f7ab2d7dd80e7733dcb"
+version = "0.9.2"
+source = "git+https://github.com/juja256/zkp#c9144ac268a885290a548083a5bda52bd7319654"
 dependencies = [
  "ark-ec",
  "ark-ed25519",

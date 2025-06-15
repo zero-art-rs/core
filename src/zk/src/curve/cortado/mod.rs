@@ -1,9 +1,9 @@
 pub mod fq;
 pub mod fr;
-pub mod g2;
+pub mod cortado;
 pub use fq::*;
 pub use fr::*;
-pub use g2::*;
+pub use cortado::*;
 
 #[cfg(test)]
 mod tests;
