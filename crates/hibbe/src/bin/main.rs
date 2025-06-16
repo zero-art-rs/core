@@ -176,7 +176,7 @@ fn schnorr_identification_example() {
     );
 }
 
-use zk::curve::g2::G2Projective as TestGroup;
+use zk::curve::cortado::CortadoProjective as TestGroup;
 // use ark_bn254::G2Projective as TestGroup;
 use std::io::Cursor;
 fn field_serialize_example() {

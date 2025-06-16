@@ -17,8 +17,8 @@ use serde_json;
 use std::cmp::max;
 use std::mem;
 use std::ops::{Add, DerefMut, Mul};
-use zk::curve::g2::Fr as ARTScalarField;
-use zk::curve::g2::G2Projective as ART_G;
+use zk::curve::cortado::Fr as ARTScalarField;
+use zk::curve::cortado::CortadoProjective as ART_G;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
 pub enum Direction {

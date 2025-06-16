@@ -6,7 +6,7 @@ Project structure:
 - `notes` - various notes about research process
 - `misc` - various prototypes (IBBE with sage, gossipsub with go)
 - `papers` - research papers, that the most actual version of messenger [whitepaper]
-- `src` - rust implementation of messenger primitives:
+- `crates` - rust implementation of messenger primitives:
   - `hibbe` - hybrid IBBE with ART implementation
   - `zk` - ART zk proofs implementation
   - `chat_node` - experimantal libp2p messenger node
@@ -62,7 +62,7 @@ Let define the subrelation $`R_{\iota}`$:
 R_{\iota} = \{ (Com({\lambda_{\mathcal{B}}}), Com({\lambda_{\mathcal{AB}}}); \lambda_{\mathcal{A}}, \lambda_{\mathcal{AB}}) | \lambda_{\mathcal{AB}}=\iota([\lambda_{\mathcal{A}}]Q_{\mathcal{B}})\}
 ```
 Where $`Q_{\mathcal{B}} \in \mathbb{G}, Com(k) = [k]P + [r]H \in \mathbb{G}_2`$ - binding Pedersen commitment for $k$.
-We have presented a [argument system] for the relation $`\mathcal{R}_{\iota}`$ where $`\iota(P)=x(P)`$ - affine $x$-coordinate of $P$ using [bulletproofs], reference implementation for $`\mathcal{R}_{\iota}`$ part can be found in `src/zk`.
+We have presented a [argument system] for the relation $`\mathcal{R}_{\iota}`$ where $`\iota(P)=x(P)`$ - affine $x$-coordinate of $P$ using [bulletproofs], reference implementation for $`\mathcal{R}_{\iota}`$ part can be found in `crates/zk`.
 > It is important to stress that commonly $\mathbb{G}$ is an elliptic curve's $`E/\mathbb{F}_q: y^2 = x^3 + ax + b`$ $`\mathbb{F}_q`$-rational points group $E(\mathbb{F}_q)$ where $q=|\mathbb{G}_2|$
 
 One might ask how to prove $`R_{\iota}`$ efficiently. Usage of classic Schnorr $\Sigma$ proofs is not efficient because $\iota$ is a non-linear function. Instead we propose to use [bulletproofs] because it allows us to prove relations abouts commited witnesses.

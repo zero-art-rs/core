@@ -9,7 +9,7 @@ use crate::{
 use ark_bn254::{fr::Fr as ScalarField, G1Projective as G1, G2Projective as G2};
 use serde::{Deserialize, Serialize};
 
-use zk::curve::g2::Fr as ARTScalarField;
+use zk::curve::cortado::Fr as ARTScalarField;
 // use ark_bn254::fr::Fr as ARTScalarField;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

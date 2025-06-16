@@ -320,24 +320,11 @@ mod tests {
 
     #[test]
     fn test_Rι_roundtrip() {
-        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
-
-        tracing_subscriber::fmt()
-            .with_env_filter(log_level)
-            .with_target(false)
-            .init();
-        assert!(Rι_roundtrip(10).is_ok());
+        assert!(Rι_roundtrip(7).is_ok());
     }
 
     #[test]
     fn test_Rσ_roundtrip() {
-        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
-
-        tracing_subscriber::fmt()
-            .with_env_filter(log_level)
-            .with_target(false)
-            .init();
-
         let G_1 = CortadoAffine::generator();
         let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
 

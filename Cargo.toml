@@ -1,0 +1,15 @@
+[workspace]
+name = "project_m"
+
+members = [
+    "crates/hibbe",
+    "crates/chat_node",
+    "crates/zk"
+]
+resolver = "2"
+
+[profile.test]
+    inherits = "release"
+
+[workspace.dependencies]
+
