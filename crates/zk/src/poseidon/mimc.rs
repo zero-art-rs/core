@@ -214,7 +214,7 @@ mod tests {
         //let constants = (0..MIMC_ROUNDS).map(|i| Scalar::one()).collect::<Vec<_>>();
 
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(2048, 1);
+        let bp_gens = BulletproofGens::new(1024, 1);
 
         const SAMPLES: u32 = 1;
         let mut total_proving = Duration::new(0, 0);

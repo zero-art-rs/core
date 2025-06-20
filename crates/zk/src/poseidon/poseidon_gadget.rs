@@ -24,22 +24,6 @@ use std::borrow::BorrowMut;
 use std::{fmt, mem};
 use std::collections::HashMap;
 
-pub trait EvaluatableConstraintSystem: ConstraintSystem {
-    fn eval(&self, lc: &LinearCombination) -> Option<Scalar>;
-}
-
-impl<'g, T: BorrowMut<Transcript>> EvaluatableConstraintSystem for Prover<'g, T> {
-    fn eval(&self, lc: &LinearCombination) -> Option<Scalar> {
-        Some(self.eval(lc))
-    }
-}
-
-impl<T: BorrowMut<Transcript>> EvaluatableConstraintSystem for Verifier<T> {
-    fn eval(&self, _lc: &LinearCombination) -> Option<Scalar> {
-        None
-    }
-}
-
 /// Following code for handling Hex is taken from https://play.rust-lang.org/?version=stable&mode=debug&edition=2015&gist=e241493d100ecaadac3c99f37d0f766f
 use std::num::ParseIntError;
 
@@ -163,21 +147,7 @@ impl PoseidonParams {
 /// Simplify linear combination by taking Variables common across terms and adding their corresponding scalars.
 /// Useful when linear combinations become large. Takes ownership of linear combination as this function is useful
 /// when memory is limited and the obvious action after this function call will be to free the memory held by the passed linear combination
-/*fn simplify_lc(lc: LinearCombination) -> LinearCombination {
-    // TODO: Move this code to the fork of bulletproofs
-    let mut vars: HashMap<Variable, Scalar> = HashMap::new();
-    
-    let terms = lc.get_terms();
-    for (var, val) in terms {
-        *vars.entry(var).or_insert(Scalar::ZERO) += val;
-    }
 
-    let mut new_lc_terms = vec![];
-    for (var, val) in vars {
-        new_lc_terms.push((var, val));
-    }
-    new_lc_terms.iter().collect()
-}*/
 
 pub enum SboxType {
     Cube,
@@ -192,7 +162,7 @@ impl SboxType {
         }
     }
 
-    fn synthesize_sbox<CS: EvaluatableConstraintSystem >(
+    fn synthesize_sbox<CS: ConstraintSystem >(
         &self,
         cs: &mut CS,
         input_var: LinearCombination,
@@ -206,7 +176,7 @@ impl SboxType {
     }
 
     // Allocate variables in circuit and enforce constraints when Sbox as cube
-    fn synthesize_cube_sbox<CS: EvaluatableConstraintSystem>(
+    fn synthesize_cube_sbox<CS: ConstraintSystem>(
         cs: &mut CS,
         input_var: LinearCombination,
         round_key: Scalar
@@ -218,7 +188,7 @@ impl SboxType {
     }
 
     // Allocate variables in circuit and enforce constraints when Sbox as inverse
-    fn synthesize_inverse_sbox<CS: EvaluatableConstraintSystem>(
+    fn synthesize_inverse_sbox<CS: ConstraintSystem>(
         cs: &mut CS,
         input_var: LinearCombination,
         round_key: Scalar
@@ -331,7 +301,7 @@ fn Poseidon_permutation(
     current_state
 }
 
-pub fn Poseidon_permutation_constraints<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_permutation_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: Vec<LinearCombination>,
     params: &'a PoseidonParams,
@@ -411,11 +381,11 @@ pub fn Poseidon_permutation_constraints<'a, CS: EvaluatableConstraintSystem >(
         let mut next_input_vars: Vec<LinearCombination> = vec![LinearCombination::default(); width];
 
         apply_linear_layer(width, sbox_outputs, &mut next_input_vars, &params.MDS_matrix);
-
-        /*for i in 0..width {
+        
+        for i in 0..width {
             // replace input_vars with simplified next_input_vars
-            input_vars[i] = simplify_lc(next_input_vars.remove(0));
-        }*/
+            input_vars[i] = next_input_vars.remove(0).simplify();
+        }
     }
 
     // ------------ Middle rounds with partial SBox end --------------------
@@ -451,7 +421,7 @@ pub fn Poseidon_permutation_constraints<'a, CS: EvaluatableConstraintSystem >(
 }
 
 
-pub fn Poseidon_permutation_gadget<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_permutation_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: Vec<AllocatedScalar>,
     params: &'a PoseidonParams,
@@ -494,7 +464,7 @@ pub fn Poseidon_hash_2(xl: Scalar, xr: Scalar, params: &PoseidonParams, sbox: &S
     Poseidon_permutation(&input, params, sbox)[1]
 }
 
-pub fn Poseidon_hash_2_constraints<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_hash_2_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     xl: LinearCombination,
     xr: LinearCombination,
@@ -519,7 +489,7 @@ pub fn Poseidon_hash_2_constraints<'a, CS: EvaluatableConstraintSystem >(
     Ok(permutation_output[1].to_owned())
 }
 
-pub fn Poseidon_hash_2_gadget<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_hash_2_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     xl: AllocatedScalar,
     xr: AllocatedScalar,
@@ -554,7 +524,7 @@ pub fn Poseidon_hash_4(inputs: [Scalar; 4], params: &PoseidonParams, sbox: &Sbox
     Poseidon_permutation(&input, params, sbox)[1]
 }
 
-pub fn Poseidon_hash_4_constraints<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_hash_4_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: [LinearCombination; 4],
     statics: Vec<LinearCombination>,
@@ -581,7 +551,7 @@ pub fn Poseidon_hash_4_constraints<'a, CS: EvaluatableConstraintSystem >(
     Ok(permutation_output[1].to_owned())
 }
 
-pub fn Poseidon_hash_4_gadget<'a, CS: EvaluatableConstraintSystem >(
+pub fn Poseidon_hash_4_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: Vec<AllocatedScalar>,
     statics: Vec<AllocatedScalar>,
@@ -688,7 +658,7 @@ mod tests {
         println!("{:?}", &expected_output);*/
 
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(2048, 1);
+        let bp_gens = BulletproofGens::new(512, 1);
 
         println!("Proving");
         let mut prover_transcript = Transcript::new(transcript_label);
@@ -757,7 +727,7 @@ mod tests {
         println!("{:?}", &expected_output);*/
 
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(2048, 1);
+        let bp_gens = BulletproofGens::new(512, 1);
 
         println!("Proving");
         let (proof, commitments) = {
@@ -854,7 +824,7 @@ mod tests {
         println!("{:?}", &expected_output);*/
 
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(2048, 1);
+        let bp_gens = BulletproofGens::new(512, 1);
 
         println!("Proving");
         let (proof, commitments) = {
