@@ -10,7 +10,7 @@ ark-ed25519 = "0.5.0"
 ark-ff = "0.5.0"
 ark-serialize = "0.5.0"
 ark-std = "0.5.0"
-bulletproofs = { version = "5.0.0", git="ssh://git@github.com/zk-messenger/bulletproofs", features = ["yoloproofs"] }
+bulletproofs = { version = "5.0.0", git="https://github.com/zk-messenger/bulletproofs", features = ["yoloproofs"] }
 curve25519-dalek = { version = "4.1.1", features = ["digest", "group", "rand_core", "serde"] }
 hex = "0.4.3"
 merlin = "3.0.0"

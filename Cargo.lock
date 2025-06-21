@@ -524,7 +524,7 @@ dependencies = [
 [[package]]
 name = "bulletproofs"
 version = "5.0.0"
-source = "git+ssh://git@github.com/zk-messenger/bulletproofs#1e95af1139deea191de7f79ed139b3092eb9e541"
+source = "git+https://github.com/zk-messenger/bulletproofs#1e95af1139deea191de7f79ed139b3092eb9e541"
 dependencies = [
  "byteorder",
  "clear_on_drop",
@@ -4417,7 +4417,7 @@ dependencies = [
  "ark-ff",
  "ark-serialize",
  "ark-std",
- "bulletproofs 5.0.0 (git+ssh://git@github.com/zk-messenger/bulletproofs)",
+ "bulletproofs 5.0.0 (git+https://github.com/zk-messenger/bulletproofs)",
  "curve25519-dalek",
  "hex",
  "merlin",
