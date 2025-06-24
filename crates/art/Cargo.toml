@@ -1,0 +1,24 @@
+[package]
+name = "art"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "example"
+path = "examples/simple_workflow.rs"
+
+[dependencies]
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-std = { workspace = true }
+ark-serialize = { workspace = true, features = ["derive"] }
+ark-bn254 = { workspace = true, features = ["curve"] }
+rand = { workspace = true, features = ["thread_rng"]}
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_bytes = {workspace = true}
+criterion = { workspace = true }
+zk = {path = "../zk"}
