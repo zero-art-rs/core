@@ -16,6 +16,12 @@ pub struct AllocatedScalar {
     pub assignment: Option<Scalar>
 }
 
+impl AllocatedScalar {
+    pub fn new(variable: Variable, assignment: Option<Scalar>) -> Self {
+        return Self { variable, assignment }
+    }
+}
+
 /// Enforces that the quantity of v is in the range [0, 2^n).
 pub fn positive_no_gadget<CS: ConstraintSystem>(
     cs: &mut CS,

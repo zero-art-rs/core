@@ -3,9 +3,9 @@
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 use rand_core::{le, OsRng};
-use bulletproofs::r1cs::*;
+use bulletproofs::r1cs::{R1CSError, R1CSProof as BPR1CSProof, Prover, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
@@ -19,30 +19,61 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
 use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar, FromScalar};
-use crate::dh::dh_gadget_v2;
+use crate::dh::dh_gadget;
+use crate::poseidon::r1cs_utils::AllocatedScalar;
 
 #[derive(Clone)]
+pub struct R1CSProof(BPR1CSProof);
+
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ARTProof {
     pub Rι: Vec<R1CSProof>, // Rι gadget proofs
     pub Rσ: CrossDLEQProof<CortadoAffine>, // cross-group relation proof
     pub R: Vec<CortadoAffine>, // auxiliary public keys
 }
 
-/*
-impl ARTProof {
-    pub fn to_bytes(&self) -> Result<Vec<u8>, zkp::ProofError> {
-        let mut bytes = vec![];
-        for proof in &self.Rι {
-            bytes.extend_from_slice(&proof.to_bytes()?);
-        }
-        bytes.extend_from_slice(&self.Rσ.to_bytes()?);
-        for r in &self.R {
-            bytes.extend_from_slice(&r.to_bytes()?);
-        }
-        Ok(bytes)
+impl CanonicalSerialize for R1CSProof {
+    fn serialize_with_mode<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        // Serialize the proof
+        let proof_bytes = self.0.to_bytes();
+        (proof_bytes.len() as u32).serialize_with_mode(&mut writer, compress)?;
+        writer.write_all(&proof_bytes)?;
+
+        Ok(())
+    }
+
+    fn serialized_size(&self, _compress: Compress) -> usize {
+        let proof_size = self.0.to_bytes().len();
+        proof_size + 4
     }
 }
-*/
+
+impl ark_serialize::Valid for R1CSProof {
+    fn check(&self) -> Result<(), SerializationError> {
+        Ok(())
+    }
+}
+
+impl CanonicalDeserialize for R1CSProof {
+    fn deserialize_with_mode<R: std::io::Read>(
+        mut reader: R,
+        _compress: ark_serialize::Compress,
+        _validate: ark_serialize::Validate,
+    ) -> Result<Self, ark_serialize::SerializationError> {
+        // Deserialize the proof
+        let proof_len = u32::deserialize_compressed(&mut reader)? as usize;
+        let mut proof_bytes = vec![0u8; proof_len];
+        reader.read_exact(&mut proof_bytes)?;
+        let proof = bulletproofs::r1cs::R1CSProof::from_bytes(&proof_bytes)
+            .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
+
+        Ok(R1CSProof ( proof ))
+    }
+}
 
 /// Prove the cross-group relation Rσ for a given basis:
 /// Rσ = { (λ_a, r; Q ∈ 𝔾_1^k, Com ∈ 𝔾_2^k) | ∀i ∈ [0, k-1], Q[i] = λ_a[i] * H_1, Com(λ_a[i]) = λ_a[i] * G_2 + r[i] * H_2 }
@@ -121,6 +152,8 @@ pub fn Rι_prove(
                 let mut prover = Prover::new(&pc_gens, &mut transcript);
                 let (a_commitment, var_a) = prover.commit(λ_a_i, blindings_i.0);
                 let (ab_commitment, var_ab) = prover.commit(λ_a_next, blindings_i.1);
+                let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i)); 
+                let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next)); 
                 {
                     let mut commitments = commitments.lock().unwrap();
                     commitments[i] = a_commitment;
@@ -129,7 +162,7 @@ pub fn Rι_prove(
                     }
                 }
     
-                dh_gadget_v2(&mut prover, Some(λ_a_i), Q_b_i, var_a, var_ab).unwrap();
+                dh_gadget(2, &mut prover, λ_a_i, λ_a_next, Q_b_i).unwrap();
     
                 let proof = prover.prove(&bp_gens).unwrap();
                 {
@@ -156,8 +189,10 @@ pub fn Rι_prove(
                     commitments[i+1] = ab_commitment;
                 }
             }
+            let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i)); 
+            let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next)); 
 
-            dh_gadget_v2(&mut prover, Some(λ_a[i]), Q_b[i], var_a, var_ab).unwrap();
+            dh_gadget(2, &mut prover, λ_a_i, λ_a_next, Q_b_i).unwrap();
 
             let proof = prover.prove(&bp_gens).unwrap();
             {
@@ -170,8 +205,8 @@ pub fn Rι_prove(
         .filter_map(|x| x.as_ref())
         .map(|x| x.to_bytes().len())
         .sum::<usize>();
-    debug!("ARTGadget for depth {k} proving time: {:?}, proof_len: {proof_len}", start.elapsed());
-    Ok((proofs.lock().unwrap().iter().map(|x| x.as_ref().unwrap().clone()).collect(), commitments.lock().unwrap().clone()))
+    debug!("Rι_prove for depth {k} proving time: {:?}, proof_len: {proof_len}", start.elapsed());
+    Ok((proofs.lock().unwrap().iter().map(|x| R1CSProof(x.as_ref().unwrap().clone()) ).collect(), commitments.lock().unwrap().clone()))
 }
 
 pub fn Rι_verify(
@@ -203,8 +238,12 @@ pub fn Rι_verify(
                 let mut verifier = Verifier::new(&mut transcript);
                 let var_a = verifier.commit(commitment_i);
                 let var_ab = verifier.commit(commitment_next);
-                let _ = tx.send(dh_gadget_v2(&mut verifier, None, Q_b_i, var_a, var_ab)
-                    .and_then(|_| verifier.verify(&proof_i, &pc_gens, &bp_gens)));
+                let λ_a_i = AllocatedScalar::new(var_a, None); 
+                let λ_a_next = AllocatedScalar::new(var_ab, None); 
+                let _ = tx.send(
+                    dh_gadget(2, &mut verifier, λ_a_i, λ_a_next, Q_b_i)
+                        .and_then(|_| verifier.verify(&proof_i.0, &pc_gens, &bp_gens))
+                );
             }));
         }
         for _ in handles {
@@ -218,11 +257,13 @@ pub fn Rι_verify(
             let mut verifier = Verifier::new(&mut transcript);
             let var_a = verifier.commit(commitments[i]);
             let var_ab = verifier.commit(commitments[i+1]);
-            dh_gadget_v2(&mut verifier, None, Q_b[i], var_a, var_ab)?;
+            let λ_a_i = AllocatedScalar::new(var_a, None); 
+            let λ_a_next = AllocatedScalar::new(var_ab, None); 
+            dh_gadget(2, &mut verifier, λ_a_i, λ_a_next, Q_b_i)?;
             verifier.verify(&proofs[i], &pc_gens, &bp_gens)?;
         }
     }
-    debug!("ARTGadget for depth {} verification time: {:?}", Q_b.len(), start.elapsed());
+    debug!("Rι_verify for depth {} verification time: {:?}", Q_b.len(), start.elapsed());
 
     Ok(())
 }
@@ -245,23 +286,6 @@ pub fn random_witness_gen(k: u32) -> (Vec<CortadoAffine>, Vec<Scalar>) {
     }
     debug!("Witness generation for Rι with depth {} took {:?}", k, start.elapsed());
     (Q, λ)
-}
-
-pub fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
-    let mut blinding_rng = rand::thread_rng();
-    let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(2048, 1);
-    let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
-    let (Q, λ) = random_witness_gen(k);
-    let (proofs, commitments) = Rι_prove(
-        &pc_gens, 
-        &bp_gens, 
-        Q.clone(), 
-        λ,
-        blindings
-    )?;
-
-    Rι_verify(&pc_gens, &bp_gens, proofs, Q, commitments)
 }
 
 pub fn art_prove(
@@ -310,21 +334,43 @@ pub fn art_verify(
     Rσ_verify(basis, proof.R, proof.Rσ)
         .map_err(|e| R1CSError::GadgetError{ description: format!("Rσ_verify failed: {e:?}") })?;
     
-    info!("ART proof verification time: {:?}", start.elapsed());
+    debug!("ART proof verification time: {:?}", start.elapsed());
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use zkp::ProofError;
+
     use super::*;
 
-    #[test]
-    fn test_Rι_roundtrip() {
-        assert!(Rι_roundtrip(7).is_ok());
+    fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
+        let mut blinding_rng = rand::thread_rng();
+        let pc_gens = PedersenGens::default();
+        let bp_gens = BulletproofGens::new(2048, 1);
+        let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
+        let (Q, λ) = random_witness_gen(k);
+        let (proofs, commitments) = Rι_prove(
+            &pc_gens, 
+            &bp_gens, 
+            Q.clone(), 
+            λ,
+            blindings
+        )?;
+
+        Rι_verify(&pc_gens, &bp_gens, proofs, Q, commitments)
     }
 
     #[test]
-    fn test_Rσ_roundtrip() {
+    fn test_Rι_roundtrip() {
+        assert!(Rι_roundtrip(1).is_ok());
+        assert!(Rι_roundtrip(4).is_ok());
+        assert!(Rι_roundtrip(7).is_ok());
+        assert!(Rι_roundtrip(10).is_ok());
+        assert!(Rι_roundtrip(15).is_ok());
+    }
+
+    fn Rσ_roundtrip(k: u32) -> Result<(), ProofError> {
         let G_1 = CortadoAffine::generator();
         let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
 
@@ -336,7 +382,6 @@ mod tests {
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
         
-        let k = 7;
         let (Q, λ) = random_witness_gen(k);
         let s = (0..2).map(|_| cortado::Fr::rand(&mut thread_rng())).collect::<Vec<_>>();
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut thread_rng())).collect();
@@ -345,19 +390,20 @@ mod tests {
             s,
             λ.clone(),
             blindings
-        ).expect("Rσ_prove failed");
-        assert!(Rσ_verify(basis, R, proof).is_ok(), "Rσ_verify failed");
+        )?;
+        Rσ_verify(basis, R, proof)
     }
 
     #[test]
-    fn test_art_roundtrip() {
-        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+    fn test_Rσ_roundtrip() {
+        assert!(Rσ_roundtrip(1).is_ok());
+        assert!(Rσ_roundtrip(4).is_ok());
+        assert!(Rσ_roundtrip(7).is_ok());
+        assert!(Rσ_roundtrip(10).is_ok());
+        assert!(Rσ_roundtrip(15).is_ok());
+    }
 
-        tracing_subscriber::fmt()
-            .with_env_filter(log_level)
-            .with_target(false)
-            .init();
-
+    fn art_roundtrip(k: u32) -> Result<(), R1CSError> {
         let G_1 = CortadoAffine::generator();
         let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
 
@@ -369,7 +415,6 @@ mod tests {
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
         
-        let k = 7;
         let (Q, λ) = random_witness_gen(k);
         let s = (0..2).map(|_| cortado::Fr::rand(&mut thread_rng())).collect::<Vec<_>>();
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut thread_rng())).collect();
@@ -381,13 +426,29 @@ mod tests {
             λ.clone(),
             s,
             blindings
-        ).expect("art_prove failed");
+        )?;
         
-        assert!(art_verify(
+        art_verify(
             &BulletproofGens::new(2048, 1),
             basis,
             Q,
             proof
-        ).is_ok(), "art_verify failed");
+        )
+    }
+
+    #[test]
+    fn test_art_roundtrip() {
+        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+
+        tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .init();
+
+        assert!(art_roundtrip(1).is_ok());
+        assert!(art_roundtrip(4).is_ok());
+        assert!(art_roundtrip(7).is_ok());
+        assert!(art_roundtrip(10).is_ok());
+        assert!(art_roundtrip(15).is_ok());
     }
 }

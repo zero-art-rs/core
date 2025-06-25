@@ -1,11 +1,11 @@
 #![allow(non_snake_case)]
 use std::ops::{Add, Mul};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Instant;
+use std::time::{self, Instant};
 
 use rand_core::{le, OsRng};
 use ark_serialize::Valid;
-use bulletproofs::r1cs::*;
+use bulletproofs::{r1cs::*, ProofError};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
@@ -17,6 +17,7 @@ use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use tracing_subscriber::field::debug;
 use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar};
+use crate::poseidon::r1cs_utils::AllocatedScalar;
 use hex::FromHex;
 
 
@@ -52,6 +53,7 @@ impl GetBit for Scalar {
         (self.as_bytes()[i/8] >> (i%8)) & 1 == 1
     }
 }
+
 fn bin_equality_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     x: &LinearCombination,
@@ -88,14 +90,14 @@ fn bin_equality_gadget<CS: ConstraintSystem>(
 // sketch2: Com((λ_a, r), (P1, H1)) ∈ G1, check if DL equal across Com, Q_a; Q_b, Q_ab ∈ G2: compute λ_ab=x([λ_a]Q_B) => check Q_ab==[λ_ab]P2
 // we use https://eprint.iacr.org/2022/1593.pdf to prove that λ_a is equal across G1, G2 (generalization of Chaum-Pedersen proto (G1=G2))
 
-// proof of x(Q_ab) = x([λ_a]Q_b), idea from https://eprint.iacr.org/archive/2024/397/20240622:224417
-pub fn dh_gadget_v1<CS: ConstraintSystem>(
+/// gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
+/// based on https://eprint.iacr.org/archive/2024/397/20240622:224417
+pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     cs: &mut CS,
-    λ_a: Option<Scalar>,
+    λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
-    var_a: Variable,
-    var_ab: Variable,
-) -> Result<(), R1CSError> {
+) -> Result<(Variable, Variable), R1CSError> {
+    let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
@@ -150,10 +152,8 @@ pub fn dh_gadget_v1<CS: ConstraintSystem>(
         cs.constrain(t1-t2);
     }
     info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
-    // final check of x coordinate
-    cs.constrain(var_ab - P_vars.last().unwrap().0 );
     
-    Ok(())
+    Ok(*P_vars.last().unwrap())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,14 +164,14 @@ pub struct Witness {
     pub s_i: Scalar,
 }
 
-// proof based on https://eprint.iacr.org/archive/2024/397/20250504:183956
-pub fn dh_gadget_v2<CS: ConstraintSystem>(
+/// second ver. of gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
+/// based on https://eprint.iacr.org/archive/2024/397/20250504:183956
+pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     cs: &mut CS,
-    λ_a: Option<Scalar>,
+    λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
-    var_a: Variable,
-    var_ab: Variable,
-) -> Result<(), R1CSError> {
+) -> Result<(Variable, Variable), R1CSError> {
+    let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
         (cortado::Parameters::GENERATOR * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
@@ -232,9 +232,25 @@ pub fn dh_gadget_v2<CS: ConstraintSystem>(
         cs.constrain(t2 - (P_i_1_y + y_P));
     }
     debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
-    // final check of x coordinate
-    cs.constrain(var_ab - P_vars.last().unwrap().0 );
     
+    Ok(*P_vars.last().unwrap())
+}
+
+/// gadget constraining λ_ab = x(λ_a * Q_b)
+pub fn dh_gadget<CS: ConstraintSystem>(
+    ver: u8,
+    cs: &mut CS,
+    λ_a: AllocatedScalar,
+    λ_ab: AllocatedScalar,
+    Q_b: CortadoAffine,
+) -> Result<(), R1CSError> {
+    let AllocatedScalar {variable: var_ab, assignment: _} = λ_ab;
+    let (var_R_x, _) = match ver {
+        1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
+        2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
+        _ => return Err(R1CSError::VerificationError),
+    };
+    cs.constrain(var_R_x - var_ab);
     Ok(())
 }
 
@@ -257,12 +273,12 @@ pub fn dh_gadget_proof(
     // 2. Commit high-level variables
     let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
     let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
+    let λ_a = AllocatedScalar::new(var_a, Some(λ_a)); 
+    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab)); 
     let mut start = Instant::now();
-    match ver {
-        1 => dh_gadget_v1(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?,
-        2 => dh_gadget_v2(&mut prover, Some(λ_a), Q_b, var_a, var_ab)?,
-        _ => return Err(R1CSError::VerificationError),
-    }
+    
+    dh_gadget(ver, &mut prover, λ_a, λ_ab, Q_b)?;
+    
     debug!("DHGadget prover synthetize time: {:?}, metrics: {:?}", start.elapsed(), prover.metrics());
     start = Instant::now();
     let proof = prover.prove(bp_gens)?;
@@ -286,12 +302,12 @@ pub fn dh_gadget_verify(
     let mut verifier = Verifier::new(&mut transcript);
     let var_a = verifier.commit(a_commitment);
     let var_ab = verifier.commit(ab_commitment);
+    let λ_a = AllocatedScalar::new(var_a, None); 
+    let λ_ab = AllocatedScalar::new(var_ab, None); 
     let mut start = Instant::now();
-    match ver {
-        1 => dh_gadget_v1(&mut verifier, None, Q_b, var_a, var_ab)?,
-        2 => dh_gadget_v2(&mut verifier, None, Q_b, var_a, var_ab)?,
-        _ => return Err(R1CSError::VerificationError),
-    }
+
+    dh_gadget(ver, &mut verifier, λ_a, λ_ab, Q_b)?;
+
     debug!("DHGadget verifier synthetize time: {:?}", start.elapsed());
     start = Instant::now();
     let r = verifier
@@ -301,35 +317,35 @@ pub fn dh_gadget_verify(
     r
 }
 
-pub fn dh_gadget_roundtrip(ver: u8) -> Result<(), R1CSError> {
-    let mut blinding_rng = rand::thread_rng();
-    let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(2048, 1);
-
-    let r: cortado::Fr = blinding_rng.r#gen();
-    let Q_b = (CortadoAffine::generator() * r).into_affine();
-    let λ_a: cortado::Fr = blinding_rng.r#gen();
-    
-    let R = (Q_b * λ_a).into_affine();
-    debug!("R_real={:?}", R);
-    
-    let (proof, (var_a, var_b)) = dh_gadget_proof(
-        ver, 
-        &pc_gens, 
-        &bp_gens, Q_b, 
-        Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
-        R.x().unwrap().into_scalar() 
-    )?;
-
-    dh_gadget_verify(ver, &pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ark_ff::UniformRand;
     use ark_serialize::CanonicalDeserialize;
     use rand::thread_rng;
+
+    fn dh_gadget_roundtrip(ver: u8) -> Result<(), R1CSError> {
+        let mut blinding_rng = rand::thread_rng();
+        let pc_gens = PedersenGens::default();
+        let bp_gens = BulletproofGens::new(2048, 1);
+
+        let r: cortado::Fr = blinding_rng.r#gen();
+        let Q_b = (CortadoAffine::generator() * r).into_affine();
+        let λ_a: cortado::Fr = blinding_rng.r#gen();
+        
+        let R = (Q_b * λ_a).into_affine();
+        debug!("R_real={:?}", R);
+        
+        let (proof, (var_a, var_b)) = dh_gadget_proof(
+            ver, 
+            &pc_gens, 
+            &bp_gens, Q_b, 
+            Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
+            R.x().unwrap().into_scalar() 
+        )?;
+
+        dh_gadget_verify(ver, &pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
+    }
 
     #[test]
     fn dh_gadget_roundtrip_v1() {
