@@ -1,8 +1,18 @@
-use ark_ec::CurveGroup;
+use crate::helper_tools::{ark_de, ark_se};
+use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::helper_tools::{ark_de, ark_se};
+#[derive(Error, Debug)]
+pub enum ARTNodeError {
+    #[error("given parameters are invalid: {0}")]
+    InvalidParameters(String),
+    #[error("the method is callable only for leaves: {0}")]
+    LeafOnly(String),
+    #[error("the method is callable only for internal nodes: {0}")]
+    InternalNodeOnly(String),
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
 pub enum Direction {
@@ -13,7 +23,7 @@ pub enum Direction {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
-pub struct ARTNode<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
+pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_key: G,
     pub l: Option<Box<ARTNode<G>>>,
@@ -22,7 +32,7 @@ pub struct ARTNode<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
     pub weight: usize,
 }
 
-impl<G: CurveGroup> ARTNode<G> {
+impl<G: AffineRepr> ARTNode<G> {
     /// Creates a new ARTNode with the given public key and optional left and right children.
     ///
     /// The node must either be:
@@ -34,11 +44,15 @@ impl<G: CurveGroup> ARTNode<G> {
         public_key: G,
         l: Option<Box<ARTNode<G>>>,
         r: Option<Box<ARTNode<G>>>,
-    ) -> Result<ARTNode<G>, String> {
+    ) -> Result<ARTNode<G>, ARTNodeError> {
         let weight = match (&l, &r) {
             (Some(l), Some(r)) => l.weight + r.weight, //internal node
             (None, None) => 1,                         // leaf node
-            _ => return Err("Cannot create a node with only one child".to_string()),
+            _ => {
+                return Err(ARTNodeError::InvalidParameters(
+                    "Cannot create a node with only one child".to_string(),
+                ));
+            }
         };
 
         Ok(ARTNode {
@@ -80,73 +94,83 @@ impl<G: CurveGroup> ARTNode<G> {
     }
 
     /// Returns a reference to the left child node.
-    pub fn get_left(&self) -> &Box<ARTNode<G>> {
+    pub fn get_left(&self) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
         match &self.l {
-            Some(l) => l,
-            None => panic!("Leaf doesn't have a left child."),
+            Some(l) => Ok(l),
+            None => Err(ARTNodeError::InternalNodeOnly(
+                "Leaf doesn't have a left child.".to_string(),
+            )),
         }
     }
 
     /// If the node is a leaf node, converts the node to temporal, else return error
-    pub fn make_temporal(&mut self, temporal_public_key: &G) -> Result<(), String> {
+    pub fn make_temporal(&mut self, temporal_public_key: &G) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
             self.set_public_key(temporal_public_key.clone());
             self.is_temporal = true;
             self.weight = 0;
             Ok(())
         } else {
-            Err("Cannot convert internal node to temporal one.".to_string())
+            Err(ARTNodeError::LeafOnly(
+                "Cannot convert internal node to temporal one.".to_string(),
+            ))
         }
     }
 
     /// Returns a mutable reference to the left child node.
-    pub fn get_mut_left(&mut self) -> &mut Box<ARTNode<G>> {
+    pub fn get_mut_left(&mut self) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
         match &mut self.l {
-            Some(l) => l,
-            None => panic!("Leaf doesn't have a left child."),
+            Some(l) => Ok(l),
+            None => Err(ARTNodeError::InternalNodeOnly(
+                "Leaf doesn't have a left child.".to_string(),
+            )),
         }
     }
 
     /// Returns a reference to the right child node.
-    pub fn get_right(&self) -> &Box<ARTNode<G>> {
+    pub fn get_right(&self) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
         match &self.r {
-            Some(r) => r,
-            None => panic!("Leaf doesn't have a right child."),
+            Some(r) => Ok(r),
+            None => Err(ARTNodeError::InternalNodeOnly(
+                "Leaf doesn't have a right child.".to_string(),
+            )),
         }
     }
 
     /// Returns a mutable reference to the right child node.
-    pub fn get_mut_right(&mut self) -> &mut Box<ARTNode<G>> {
+    pub fn get_mut_right(&mut self) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
         match &mut self.r {
-            Some(r) => r,
-            None => panic!("Leaf doesn't have a right child."),
+            Some(r) => Ok(r),
+            None => Err(ARTNodeError::InternalNodeOnly(
+                "Leaf doesn't have a right child.".to_string(),
+            )),
         }
     }
 
     /// Changes left child of inner node with a given one
-    pub fn set_left(&mut self, other: ARTNode<G>) -> Result<(), String> {
+    pub fn set_left(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            return Err(
+            return Err(ARTNodeError::InternalNodeOnly(
                 "Cant set left node for leaf. To append node use extend instead.".to_string(),
-            );
+            ));
         }
 
         self.l = Some(Box::new(other));
-        self.weight = self.get_right().weight + self.get_left().weight;
+        self.weight = self.get_right()?.weight + self.get_left()?.weight;
 
         Ok(())
     }
 
     /// Changes right child of inner node with a given one
-    pub fn set_right(&mut self, other: ARTNode<G>) -> Result<(), String> {
+    pub fn set_right(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            return Err(
+            return Err(ARTNodeError::InternalNodeOnly(
                 "Cant set left node for leaf. To append node use extend instead.".to_string(),
-            );
+            ));
         }
 
         self.r = Some(Box::new(other));
-        self.weight = self.get_right().weight + self.get_left().weight;
+        self.weight = self.get_right()?.weight + self.get_left()?.weight;
 
         Ok(())
     }
@@ -160,53 +184,59 @@ impl<G: CurveGroup> ARTNode<G> {
         self.public_key = public_key;
     }
 
-    // remove. Reason: is_leaf ccan bee useed instead
-    // pub fn have_child(&self, child: &Direction) -> bool {
-    //     match child {
-    //         Direction::Left => self.l.is_some(),
-    //         Direction::Right => self.r.is_some(),
-    //         _ => false,
-    //     }
-    // }
-
     /// Returns a reference on a child of a given inner node by a given direction to the child.
-    pub fn get_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, String> {
+    pub fn get_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err("leaf node have no children.".to_string());
+            return Err(ARTNodeError::InternalNodeOnly(
+                "leaf node have no children.".to_string(),
+            ));
         }
 
         match child {
-            Direction::Left => Ok(self.get_left()),
-            Direction::Right => Ok(self.get_right()),
-            Direction::NoDirection => Err("Unexpected direction".into()),
+            Direction::Left => Ok(self.get_left()?),
+            Direction::Right => Ok(self.get_right()?),
+            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
+                "Unexpected direction".to_string(),
+            )),
         }
     }
 
     /// Returns a mutable reference on a child of a given inner node by a given direction to
     /// the child.
-    pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<ARTNode<G>>, String> {
+    pub fn get_mut_child(
+        &mut self,
+        child: &Direction,
+    ) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err("leaf node have no children.".to_string());
+            return Err(ARTNodeError::InternalNodeOnly(
+                "leaf node have no children.".to_string(),
+            ));
         }
 
         match child {
-            Direction::Left => Ok(self.get_mut_left()),
-            Direction::Right => Ok(self.get_mut_right()),
-            Direction::NoDirection => Err("Unexpected direction".into()),
+            Direction::Left => Ok(self.get_mut_left()?),
+            Direction::Right => Ok(self.get_mut_right()?),
+            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
+                "Unexpected direction".to_string(),
+            )),
         }
     }
 
     /// Returns a reference on a child of a given inner node, which is located on the opposite
     /// side to the given direction.
-    pub fn get_other_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, String> {
+    pub fn get_other_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err("leaf node have no children.".to_string());
+            return Err(ARTNodeError::InternalNodeOnly(
+                "leaf node have no children.".to_string(),
+            ));
         }
 
         match child {
-            Direction::Left => Ok(self.get_right()),
-            Direction::Right => Ok(self.get_left()),
-            Direction::NoDirection => Err("Unexpected direction".into()),
+            Direction::Left => Ok(self.get_right()?),
+            Direction::Right => Ok(self.get_left()?),
+            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
+                "unexpected direction".into(),
+            )),
         }
     }
 
@@ -215,15 +245,19 @@ impl<G: CurveGroup> ARTNode<G> {
     pub fn get_mut_other_child(
         &mut self,
         child: &Direction,
-    ) -> Result<&mut Box<ARTNode<G>>, String> {
+    ) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err("leaf node have no children.".to_string());
+            return Err(ARTNodeError::InternalNodeOnly(
+                "leaf node have no children.".to_string(),
+            ));
         }
 
         match child {
             Direction::Left => Ok(self.r.as_mut().unwrap()),
             Direction::Right => Ok(self.l.as_mut().unwrap()),
-            Direction::NoDirection => Err("Unexpected direction".into()),
+            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
+                "Unexpected direction".to_string(),
+            )),
         }
     }
 
@@ -256,9 +290,11 @@ impl<G: CurveGroup> ARTNode<G> {
 
     /// If the node is temporal, replace the node, else moves current node down to left,
     /// and append other node to the right.
-    pub fn extend_or_replace(&mut self, other: ARTNode<G>) -> Result<(), String> {
+    pub fn extend_or_replace(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
         if !self.is_leaf() {
-            return Err("Cannot extend an internal node.".to_string());
+            return Err(ARTNodeError::LeafOnly(
+                "Cannot extend an internal node.".to_string(),
+            ));
         }
 
         match self.is_temporal {
@@ -270,15 +306,21 @@ impl<G: CurveGroup> ARTNode<G> {
     }
 
     /// Change current node with its child. Other child is removed and returned.
-    pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<ARTNode<G>>>, String> {
+    pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<ARTNode<G>>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err("Cannot shrink a leaf node.".to_string());
+            return Err(ARTNodeError::InternalNodeOnly(
+                "Cannot shrink a leaf node.".to_string(),
+            ));
         }
 
-        let (mut new_self, other_child) = match child {
+        let (new_self, other_child) = match child {
             Direction::Left => (self.l.take(), self.r.take()),
             Direction::Right => (self.r.take(), self.l.take()),
-            _ => return Err("Unexpected direction".into()),
+            _ => {
+                return Err(ARTNodeError::InvalidParameters(
+                    "Unexpected direction".into(),
+                ));
+            }
         };
 
         let mut new_self = new_self.unwrap();
@@ -296,18 +338,20 @@ impl<G: CurveGroup> ARTNode<G> {
     pub fn shrink_to_other(
         &mut self,
         for_removal: Direction,
-    ) -> Result<Option<Box<ARTNode<G>>>, String> {
+    ) -> Result<Option<Box<ARTNode<G>>>, ARTNodeError> {
         match for_removal {
             Direction::Left => self.shrink_to(Direction::Right),
             Direction::Right => self.shrink_to(Direction::Left),
-            _ => return Err("Unexpected direction".into()),
+            _ => Err(ARTNodeError::InvalidParameters(
+                "Unexpected direction".into(),
+            )),
         }
     }
 }
 
-impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> PartialEq for ARTNode<G> {
+impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for ARTNode<G> {
     fn eq(&self, other: &Self) -> bool {
-        match self.public_key.into_affine() != other.public_key.into_affine()
+        match self.public_key != other.public_key
             || self.l != other.l
             || self.r != other.r
             || self.is_temporal != other.is_temporal

@@ -1,67 +1,61 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::art_node::{ARTNode, Direction};
-use crate::helper_tools::{ark_de, ark_se};
+use crate::art_node::{ARTNode, ARTNodeError, Direction};
+use crate::{ARTRootKey, BranchChanges, BranchChangesType, ark_de, ark_se};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, Field, PrimeField};
+use ark_ff::{BigInt, BigInteger, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::iterable::Iterable;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use ark_std::{One, UniformRand, Zero};
+use curve25519_dalek::Scalar;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{cmp::max, mem};
+use thiserror::Error;
+use zk::curve::cortado::fq::ToScalar;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(bound = "")]
-pub enum BranchChangesType<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
-    MakeTemporal(
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G,
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G::ScalarField,
-    ),
-    AppendNode(ARTNode<G>),
-    UpdateKeys,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    RemoveNode(G),
+#[derive(Error, Debug)]
+pub enum ARTError {
+    #[error("error in art logic: {0}")]
+    NodesLogicError(#[from] ARTNodeError),
+    #[error("error in art logic: {0}")]
+    ARTLogicError(String),
+    #[error("given parameters are invalid: {0}")]
+    InvalidParameters(String),
+    #[error("given parameters are invalid: {0}")]
+    SerialisationError(String),
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(bound = "")]
-pub struct BranchChanges<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
-    pub change_type: BranchChangesType<G>,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub public_keys: Vec<G>,
-    pub next: Vec<Direction>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
-#[serde(bound = "")]
-pub struct ARTRootKey<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub key: G::ScalarField,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub generator: G,
+pub enum NodeIndex {
+    Index(usize),
+    Coordinate(usize, usize),
+    Direction(Vec<Direction>),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
-pub struct ART<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> {
+pub struct ART<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     pub root: Box<ARTNode<G>>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub generator: G,
 }
 
-impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
+impl<G> ART<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
     /// Iota function is a function which converts computed public secret to scalar field. It can
     /// be any function. Here, th function takes x coordinate of affine representation of a point.
     /// If the base field of curve defined on extension of a field, we take the first coefficient.
     pub fn iota_function(point: &G) -> G::ScalarField {
-        // Convert into affine representation, so the result will always be the same
-        let x = point.into_affine().x().unwrap();
-        let base_field_x = x.to_base_prime_field_elements().next().unwrap();
-        let x_bigint = base_field_x.into_bigint().to_bytes_le();
-        G::ScalarField::from_le_bytes_mod_order(x_bigint.as_slice())
+        let x = point.x().unwrap();
+        let lambda =
+            Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap());
+
+        G::ScalarField::from_le_bytes_mod_order(&lambda.to_bytes())
     }
 
     fn compute_next_layer_of_tree(
@@ -79,11 +73,15 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
 
             level_secrets.remove(0); // skip the first secret
 
-            let common_secret =
-                Self::iota_function(&left_node.public_key.mul(level_secrets.remove(0)));
+            let common_secret = Self::iota_function(
+                &left_node
+                    .public_key
+                    .mul(level_secrets.remove(0))
+                    .into_affine(),
+            );
 
             let node = ARTNode::new_internal_node(
-                generator.mul(&common_secret),
+                generator.mul(&common_secret).into_affine(),
                 Box::new(left_node),
                 Box::new(right_node),
             );
@@ -114,7 +112,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
 
         // leaves of the tree
         for leaf_secret in secrets {
-            let node = ARTNode::new_leaf(generator.mul(leaf_secret));
+            let node = ARTNode::new_leaf(generator.mul(leaf_secret).into_affine());
 
             level_nodes.push(node);
             level_secrets.push(leaf_secret.clone());
@@ -151,7 +149,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     }
 
     /// Returns a co-path to the leaf with a given public key.
-    pub fn get_co_path_values(&self, user_public_key: &G) -> Result<Vec<G>, String> {
+    pub fn get_co_path_values(&self, user_public_key: &G) -> Result<Vec<G>, ARTError> {
         let (path_nodes, next_node) = self.get_path_to_leaf(user_public_key)?;
 
         let mut co_path_values = Vec::new();
@@ -161,9 +159,9 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
             let direction = next_node.get(i).unwrap();
 
             match direction {
-                Direction::Left => co_path_values.push(node.get_right().public_key),
-                Direction::Right => co_path_values.push(node.get_left().public_key),
-                _ => return Err("Unexpected direction".into()),
+                Direction::Left => co_path_values.push(node.get_right()?.public_key),
+                Direction::Right => co_path_values.push(node.get_left()?.public_key),
+                _ => return Err(ARTError::ARTLogicError("Unexpected direction".to_string())),
             }
         }
 
@@ -175,7 +173,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     pub fn get_path_to_leaf(
         &self,
         user_val: &G,
-    ) -> Result<(Vec<&ARTNode<G>>, Vec<Direction>), String> {
+    ) -> Result<(Vec<&ARTNode<G>>, Vec<Direction>), ARTError> {
         let root = self.get_root();
 
         let mut path = vec![root.as_ref()];
@@ -195,7 +193,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
             } else {
                 match next.pop().unwrap() {
                     Direction::Left => {
-                        path.push(last_node.get_right().as_ref());
+                        path.push(last_node.get_right()?.as_ref());
 
                         next.push(Direction::Right);
                         next.push(Direction::NoDirection);
@@ -204,7 +202,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
                         path.pop();
                     }
                     Direction::NoDirection => {
-                        path.push(last_node.get_left().as_ref());
+                        path.push(last_node.get_left()?.as_ref());
 
                         next.push(Direction::Left);
                         next.push(Direction::NoDirection);
@@ -213,16 +211,19 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
             }
         }
 
-        Err("Can't find a path.".to_string())
+        Err(ARTError::ARTLogicError("Can't find a path.".to_string()))
     }
 
     /// Recomputes art root key using the given leaf secret key.
-    pub fn recompute_root_key(&self, secret_key: G::ScalarField) -> Result<ARTRootKey<G>, String> {
+    pub fn recompute_root_key(
+        &self,
+        secret_key: G::ScalarField,
+    ) -> Result<ARTRootKey<G>, ARTError> {
         let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
 
         let mut secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            secret = Self::iota_function(&public_key.mul(secret));
+            secret = Self::iota_function(&public_key.mul(secret).into_affine());
         }
 
         Ok(ARTRootKey {
@@ -231,9 +232,33 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         })
     }
 
+    /// Recomputes art root key using the given leaf secret key.
+    pub fn recompute_root_key_with_artefacts(
+        &self,
+        secret_key: G::ScalarField,
+    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<G::ScalarField>), ARTError> {
+        let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
+
+        let mut secret = secret_key.clone();
+        let mut secrets = vec![secret.clone()];
+        for public_key in co_path_values.iter() {
+            secret = Self::iota_function(&public_key.mul(secret).into_affine());
+            secrets.push(secret.clone());
+        }
+
+        Ok((
+            ARTRootKey {
+                key: secret,
+                generator: self.generator.clone(),
+            },
+            co_path_values,
+            secrets,
+        ))
+    }
+
     /// Shorthand for computing public key.
     fn public_key_of(&self, secret: &G::ScalarField) -> G {
-        self.generator.mul(secret)
+        self.generator.mul(secret).into_affine()
     }
 
     /// Update all public keys on path from the root to node, corresponding to the given secret
@@ -241,7 +266,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     pub fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), String> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let (_, mut next) = self.get_path_to_leaf(&self.public_key_of(secret_key))?;
 
         let mut changes = BranchChanges {
@@ -268,9 +293,9 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
             changes.public_keys.push(public_key);
 
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
-            let common_secret = other_child_public_key.mul(level_secret_key);
+            let common_secret = other_child_public_key.mul(level_secret_key).into_affine();
             level_secret_key = Self::iota_function(&common_secret);
-            public_key = self.generator.mul(&level_secret_key);
+            public_key = self.generator.mul(&level_secret_key).into_affine();
         }
 
         self.root.set_public_key(public_key);
@@ -290,11 +315,11 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         old_secret_key: &G::ScalarField,
         new_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), String> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let (_, next) = self.get_path_to_leaf(&self.public_key_of(old_secret_key))?;
         let new_public_key = self.public_key_of(new_secret_key);
 
-        let user_node = self.get_to_node(next)?;
+        let user_node = self.get_node_by_path(next)?;
         user_node.set_public_key(new_public_key);
 
         self.update_art_with_secret_key(&new_secret_key)
@@ -314,27 +339,27 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
 
     /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
     /// with the smallest weight. Priority is given to left-most branch.
-    pub fn find_path_to_possible_leaf_for_insertion(&self) -> Vec<Direction> {
+    pub fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
         let mut candidate = self.get_root();
         let mut next = vec![];
 
         while !candidate.is_leaf() {
-            let l = candidate.get_left();
-            let r = candidate.get_right();
+            let l = candidate.get_left()?;
+            let r = candidate.get_right()?;
 
             match l.weight <= r.weight {
                 true => {
                     next.push(Direction::Left);
-                    candidate = candidate.get_left();
+                    candidate = candidate.get_left()?;
                 }
                 false => {
                     next.push(Direction::Right);
-                    candidate = candidate.get_right();
+                    candidate = candidate.get_right()?;
                 }
             }
         }
 
-        next
+        Ok(next)
     }
 
     /// Extends a leaf on the end of a given path with the given node. This method don't change
@@ -344,7 +369,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         node: ARTNode<G>,
         path: &Vec<Direction>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ARTError> {
         let mut node_for_extension = self.root.as_mut();
         for direction in path {
             node_for_extension.weight += 1; // The weight of every node is increased by 1
@@ -364,8 +389,8 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     pub fn append_node(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), String> {
-        let path = self.find_path_to_possible_leaf_for_insertion();
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
+        let path = self.find_path_to_possible_leaf_for_insertion()?;
         let node = ARTNode::new_leaf(self.public_key_of(&secret_key));
 
         self.append_node_without_changes(node.clone(), &path)?;
@@ -384,7 +409,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         path: &Vec<Direction>,
         temporal_public_key: &G,
-    ) -> Result<(), String> {
+    ) -> Result<(), ARTError> {
         let mut target_node = self.root.as_mut();
         for direction in path {
             target_node.weight -= 1;
@@ -402,7 +427,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         public_key: &G,
         temporal_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), String> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let new_public_key = self.public_key_of(temporal_secret_key);
         let (_, next) = self.get_path_to_leaf(public_key)?;
 
@@ -420,7 +445,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
 
     /// Updates art public keys using public keys provided in changes. Can be used after
     /// operations on art like append_node, etc.
-    pub fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), String> {
+    pub fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         let mut current_node = self.root.as_mut();
         for i in 0..changes.public_keys.len() - 1 {
             current_node.set_public_key(changes.public_keys[i].clone());
@@ -439,7 +464,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         changes: &BranchChanges<G>,
         path: &Vec<Direction>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ARTError> {
         let mut current_node = self.root.as_mut();
         for (next, public_key) in path
             .iter()
@@ -455,13 +480,84 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     }
 
     /// Returns mutable node by the given path to it
-    fn get_to_node(&mut self, next: Vec<Direction>) -> Result<&mut ARTNode<G>, String> {
+    fn get_node_by_path(&mut self, next: Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError> {
         let mut target_node = self.root.as_mut();
         for direction in &next {
             target_node = target_node.get_mut_child(direction)?;
         }
 
         Ok(target_node)
+    }
+
+    /// Returns mutable node by the given coordinate of a node. For example, the root is (l:0, p:0),
+    /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
+    pub fn get_node_by_coordinate(
+        &mut self,
+        level: usize,
+        position: usize,
+    ) -> Result<&mut ARTNode<G>, ARTError> {
+        if position >= (2 << level) {
+            return Err(ARTError::InvalidParameters(
+                "position out of bounds".to_string(),
+            ));
+        }
+
+        let mut target_node = self.root.as_mut();
+        let mut l = level;
+        let mut p = position;
+        while l != 0 {
+            // max number of leaves on level l in a subtree divided by 2
+            let relative_center_index = 1 << (l - 1);
+            if p < relative_center_index {
+                // node is on the left form target_node
+                target_node = target_node.get_mut_left()?;
+            } else {
+                // node is on the right from target_node
+                target_node = target_node.get_mut_right()?;
+                p = p - relative_center_index;
+            }
+
+            l -= 1;
+        }
+
+        Ok(target_node)
+    }
+
+    /// Returns mutable node by the given index of a node. For example, root have index 0, its
+    /// children are 1 and 2.
+    pub fn get_node_index(&mut self, index: usize) -> Result<&mut ARTNode<G>, ARTError> {
+        if index == 0 {
+            return Ok(self.root.as_mut());
+        }
+
+        let mut i = index + 1;
+
+        let mut path = Vec::new();
+        while i > 1 {
+            if i % 2 == 0 {
+                path.push(Direction::Left);
+            } else {
+                path.push(Direction::Right);
+            }
+
+            i = i / 2;
+        }
+
+        let mut target_node = self.root.as_mut();
+        for direction in path.iter().rev() {
+            target_node = target_node.get_mut_child(direction)?;
+        }
+
+        Ok(target_node)
+    }
+
+    /// Returns mutable node by the given NodeIndex
+    fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        match index {
+            NodeIndex::Index(index) => self.get_node_index(index),
+            NodeIndex::Coordinate(level, position) => self.get_node_by_coordinate(level, position),
+            NodeIndex::Direction(path) => self.get_node_by_path(path),
+        }
     }
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
@@ -490,7 +586,7 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     }
 
     /// Remove the last node in the given path if can
-    fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), String> {
+    fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), ARTError> {
         let mut target_node = self.root.as_mut();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
@@ -508,9 +604,11 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         &mut self,
         lambda: &G::ScalarField,
         public_key: &G,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), String> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         if !self.can_remove(lambda, public_key) {
-            return Err("Can't remove a node, because the given node isn't close enough".into());
+            return Err(ARTError::InvalidParameters(
+                "Can't remove a node, because the given node isn't close enough".to_string(),
+            ));
         }
 
         let (_, path) = self.get_path_to_leaf(public_key)?;
@@ -527,11 +625,11 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
     }
 
     /// Updates art with given changes.
-    pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), String> {
+    pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
             BranchChangesType::UpdateKeys => self.update_art_with_changes(changes),
             BranchChangesType::AppendNode(node) => {
-                let path = self.find_path_to_possible_leaf_for_insertion();
+                let path = self.find_path_to_possible_leaf_for_insertion()?;
                 self.append_node_without_changes(node.clone(), &path)?;
                 self.update_art_with_changes(changes)
             }
@@ -548,25 +646,33 @@ impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> ART<G> {
         }
     }
 
-    pub fn to_string(&self) -> Result<String, String> {
+    pub fn to_string(&self) -> Result<String, ARTError> {
         match serde_json::to_string(&self) {
             Ok(json) => Ok(json),
-            Err(e) => Err(format!("Failed to serialise: {:?}", e)),
+            Err(e) => Err(ARTError::SerialisationError(format!(
+                "Failed to serialise: {:?}",
+                e
+            ))),
         }
     }
 
-    pub fn from_string(canonical_json: &String) -> Result<Self, String> {
+    pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
         let tree: Self = match serde_json::from_str(canonical_json) {
             Ok(tree) => tree,
-            Err(e) => return Err(format!("Failed to deserialize: {:?}", e)),
+            Err(e) => {
+                return Err(ARTError::SerialisationError(format!(
+                    "Failed to deserialize: {:?}",
+                    e
+                )));
+            }
         };
 
         Ok(tree)
     }
 }
 
-impl<G: CurveGroup + CanonicalSerialize + CanonicalDeserialize> PartialEq for ART<G> {
+impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for ART<G> {
     fn eq(&self, other: &Self) -> bool {
-        !(self.root != other.root || self.generator.into_affine() != other.generator.into_affine())
+        !(self.root != other.root || self.generator != other.generator)
     }
 }
