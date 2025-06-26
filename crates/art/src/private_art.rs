@@ -3,6 +3,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
+use curve25519_dalek::Scalar;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
@@ -33,7 +34,7 @@ where
 
     pub fn recompute_root_key_with_artefacts(
         &self,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
         self.art.recompute_root_key_with_artefacts(self.secret_key)
     }
 

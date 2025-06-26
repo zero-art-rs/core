@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{cmp::max, mem};
 use thiserror::Error;
-use zk::curve::cortado::fq::ToScalar;
 
 #[derive(Error, Debug)]
 pub enum ARTError {
@@ -50,12 +49,10 @@ where
     /// Iota function is a function which converts computed public secret to scalar field. It can
     /// be any function. Here, th function takes x coordinate of affine representation of a point.
     /// If the base field of curve defined on extension of a field, we take the first coefficient.
-    pub fn iota_function(point: &G) -> G::ScalarField {
+    pub fn iota_function(point: &G) -> Scalar {
         let x = point.x().unwrap();
-        let lambda =
-            Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap());
 
-        G::ScalarField::from_le_bytes_mod_order(&lambda.to_bytes())
+        Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap())
     }
 
     fn compute_next_layer_of_tree(
@@ -80,14 +77,16 @@ where
                     .into_affine(),
             );
 
+            let ark_common_secret = G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
+
             let node = ARTNode::new_internal_node(
-                generator.mul(&common_secret).into_affine(),
+                generator.mul(&ark_common_secret).into_affine(),
                 Box::new(left_node),
                 Box::new(right_node),
             );
 
             upper_level_nodes.push(node);
-            upper_level_secrets.push(common_secret);
+            upper_level_secrets.push(ark_common_secret);
         }
 
         // if one have an odd number of nodes, the last one will be added to the next level
@@ -221,13 +220,14 @@ where
     ) -> Result<ARTRootKey<G>, ARTError> {
         let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
 
-        let mut secret = secret_key.clone();
+        let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            secret = Self::iota_function(&public_key.mul(secret).into_affine());
+            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
+            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
         Ok(ARTRootKey {
-            key: secret,
+            key: ark_secret,
             generator: self.generator.clone(),
         })
     }
@@ -236,19 +236,20 @@ where
     pub fn recompute_root_key_with_artefacts(
         &self,
         secret_key: G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
         let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
 
-        let mut secret = secret_key.clone();
-        let mut secrets = vec![secret.clone()];
+        let mut ark_secret = secret_key.clone();
+        let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order((&secret_key.clone().into_bigint().to_bytes_le()[..]).try_into().unwrap())];
         for public_key in co_path_values.iter() {
-            secret = Self::iota_function(&public_key.mul(secret).into_affine());
+            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
             secrets.push(secret.clone());
+            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
         Ok((
             ARTRootKey {
-                key: secret,
+                key: ark_secret,
                 generator: self.generator.clone(),
             },
             co_path_values,
@@ -277,7 +278,7 @@ where
 
         let mut public_key = self.public_key_of(secret_key);
 
-        let mut level_secret_key = secret_key.clone();
+        let mut ark_level_secret_key = secret_key.clone();
         while !next.is_empty() {
             let next_child = next.pop().unwrap();
 
@@ -293,9 +294,10 @@ where
             changes.public_keys.push(public_key);
 
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
-            let common_secret = other_child_public_key.mul(level_secret_key).into_affine();
-            level_secret_key = Self::iota_function(&common_secret);
-            public_key = self.generator.mul(&level_secret_key).into_affine();
+            let common_secret = other_child_public_key.mul(ark_level_secret_key).into_affine();
+            let level_secret_key = Self::iota_function(&common_secret);
+            ark_level_secret_key = G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
+            public_key = self.generator.mul(&ark_level_secret_key).into_affine();
         }
 
         self.root.set_public_key(public_key);
@@ -303,7 +305,7 @@ where
         changes.public_keys.reverse();
 
         let key = ARTRootKey {
-            key: level_secret_key,
+            key: ark_level_secret_key,
             generator: self.generator.clone(),
         };
 
