@@ -5,7 +5,7 @@ use std::time::{self, Instant, SystemTime};
 
 use rand_core::{le, OsRng};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
-use bulletproofs::{r1cs::*, ProofError};
+use bulletproofs::{r1cs::{self, *}, ProofError};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::ristretto::{self, CompressedRistretto};
 use curve25519_dalek::scalar::Scalar;
@@ -24,7 +24,7 @@ use crate::curve::cortado::{self, CortadoAffine, FromScalar, Parameters, ToScala
 use crate::dh::scalar_mul_gadget_v2;
 use crate::gadgets;
 use crate::gadgets::poseidon_gadget::{PoseidonParams, Poseidon_hash_4, Poseidon_hash_8, Poseidon_hash_8_constraints, Poseidon_hash_8_gadget, SboxType};
-use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
+use crate::gadgets::r1cs_utils::{co_linear_gadget, AllocatedPoint, AllocatedScalar};
 use hex::FromHex;
 use zkp::toolbox::prover::Prover;
 use zkp::toolbox::verifier::Verifier;
@@ -126,37 +126,55 @@ impl Credential {
 
     /// create credential presentation proof
     pub fn present(&self) -> Result<R1CSProof, R1CSError> {
+        let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
+        let pc_gens = PedersenGens::default();
+        let mut prover = r1cs::Prover::new(&pc_gens, &mut transcript);
+        let (id_comm, id_var) = prover.commit(self.claims.id.into_scalar(), Scalar::random(&mut thread_rng()));
+        let id_var = AllocatedScalar::new(id_var, Some(self.claims.id.into_scalar()));
+        let ((Q_holder_x_comm, Q_holder_y_comm), Q_holder_var) = {
+            let (x_comm, x_var) = prover.commit(self.claims.Q.x().unwrap().into_scalar(), Scalar::random(&mut thread_rng()));
+            let (y_comm, y_var) = prover.commit(self.claims.Q.y().unwrap().into_scalar(), Scalar::random(&mut thread_rng()));
+            let Q_holder_var = AllocatedPoint {
+                x: AllocatedScalar::new(x_var, Some(self.claims.Q.x().unwrap().into_scalar())),
+                y: AllocatedScalar::new(y_var, Some(self.claims.Q.y().unwrap().into_scalar())),
+            };
+            ((x_comm, y_comm), Q_holder_var)
+        };
+        let (exp_comm, exp_var) = prover.commit(cortado::Fq::from(self.claims.expiration).into_scalar(),Scalar::random(&mut thread_rng()));
+        let exp_var = AllocatedScalar::new(exp_var, Some(cortado::Fq::from(self.claims.expiration).into_scalar()));
         todo!()
     }
 }
 
 pub fn credential_presentation_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
-    poseidon_statics: Vec<AllocatedScalar>,
     id: AllocatedScalar,
     Q_holder: AllocatedPoint,
     expiration: AllocatedScalar,
-    Q_issuer: AllocatedPoint, // public input
+    Q_issuer: CortadoAffine,
     c: AllocatedScalar,
     R: AllocatedPoint,
     s: AllocatedScalar,
 ) -> Result<(), R1CSError> {
-
     let input = [
         LinearCombination::from(id.variable), 
         LinearCombination::from(Q_holder.x.variable), 
         LinearCombination::from(Q_holder.y.variable), 
         LinearCombination::from(expiration.variable), 
-        LinearCombination::from(Q_issuer.x.variable), 
-        LinearCombination::from(Q_issuer.y.variable),
+        LinearCombination::from(Variable::One() * Q_issuer.x().unwrap().into_scalar()), 
+        LinearCombination::from(Variable::One() * Q_issuer.y().unwrap().into_scalar()),
         LinearCombination::from(R.x.variable), 
         LinearCombination::from(R.y.variable),
     ];
     
-    let hash_lc = Poseidon_hash_8_constraints(cs, input, poseidon_statics.iter().map(|x| LinearCombination::from(x.variable)).collect(), &get_poseidon_params(), &SboxType::Penta)?;
+    let hash_lc = Poseidon_hash_8_constraints(cs, input, &get_poseidon_params(), &SboxType::Penta)?;
     cs.constrain(c.variable - hash_lc);
-    todo!()
-    //scalar_mul_gadget_v2(cs, c, Q_b)
+
+    let P = scalar_mul_gadget_v2(cs, s, CortadoAffine::generator())?;
+    let Q = scalar_mul_gadget_v2(cs, c, Q_issuer)?;
+
+    // check that R = P - Q
+    co_linear_gadget(cs, P, Q, R)
 }
 
 #[test]

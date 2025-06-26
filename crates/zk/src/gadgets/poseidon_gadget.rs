@@ -496,23 +496,19 @@ pub fn Poseidon_hash_2_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     xl: LinearCombination,
     xr: LinearCombination,
-    statics: Vec<LinearCombination>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
-) -> Result<LinearCombination, R1CSError> {
-    let width = params.width;
-    // Only 2 inputs to the permutation are set to the input of this hash function.
-    assert_eq!(statics.len(), width-2);
-
+) -> Result<LinearCombination, R1CSError> {    
     // Always keep the 1st input as 0
-    let mut inputs = vec![statics[0].to_owned()];
-    inputs.push(xl);
-    inputs.push(xr);
+    let inputs = vec![
+        Variable::One() * Scalar::ZERO,
+        xl.clone(),
+        xr.clone(),
+        Variable::One() * Scalar::from(PADDING_CONST),
+        Variable::One() * Scalar::ZERO,
+        Variable::One() * Scalar::ZERO
+    ];
 
-    // statics correspond to committed variables with values as PADDING_CONST and 0s and randomness as 0
-    for i in 1..statics.len() {
-        inputs.push(statics[i].to_owned());
-    }
     let permutation_output = Poseidon_permutation_constraints::<CS>(cs, inputs, params, sbox_type)?;
     Ok(permutation_output[1].to_owned())
 }
@@ -521,14 +517,11 @@ pub fn Poseidon_hash_2_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     xl: AllocatedScalar,
     xr: AllocatedScalar,
-    statics: Vec<AllocatedScalar>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
     output: &Scalar
 ) -> Result<(), R1CSError> {
-
-    let statics: Vec<LinearCombination> = statics.iter().map(|s| s.variable.into()).collect();
-    let hash = Poseidon_hash_2_constraints::<CS>(cs, xl.variable.into(), xr.variable.into(), statics, params, sbox_type)?;
+    let hash = Poseidon_hash_2_constraints::<CS>(cs, xl.variable.into(), xr.variable.into(), params, sbox_type)?;
 
     constrain_lc_with_scalar::<CS>(cs, hash, output);
 
@@ -555,26 +548,17 @@ pub fn Poseidon_hash_4(inputs: [Scalar; 4], params: &PoseidonParams, sbox: &Sbox
 pub fn Poseidon_hash_4_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: [LinearCombination; 4],
-    statics: Vec<LinearCombination>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
 ) -> Result<LinearCombination, R1CSError> {
-
-    let width = params.width;
-    // Only 4 inputs to the permutation are set to the input of this hash function.
-    assert_eq!(statics.len(), width-4);
-
-    // Always keep the 1st input as 0
-    let mut inputs = vec![statics[0].to_owned()];
-    inputs.push(input[0].clone());
-    inputs.push(input[1].clone());
-    inputs.push(input[2].clone());
-    inputs.push(input[3].clone());
-
-    // statics correspond to committed variables with values as PADDING_CONST and 0s and randomness as 0
-    for i in 1..statics.len() {
-        inputs.push(statics[i].to_owned());
-    }
+    let inputs = vec![
+        Variable::One() * Scalar::ZERO,
+        input[0].clone(),
+        input[1].clone(),
+        input[2].clone(),
+        input[3].clone(),
+        Variable::One() * Scalar::from(PADDING_CONST)
+    ];
     let permutation_output = Poseidon_permutation_constraints::<CS>(cs, inputs, params, sbox_type)?;
     Ok(permutation_output[1].to_owned())
 }
@@ -582,18 +566,15 @@ pub fn Poseidon_hash_4_constraints<'a, CS: ConstraintSystem >(
 pub fn Poseidon_hash_4_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: Vec<AllocatedScalar>,
-    statics: Vec<AllocatedScalar>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
     output: &Scalar
 ) -> Result<(), R1CSError> {
-
-    let statics: Vec<LinearCombination> = statics.iter().map(|s| s.variable.into()).collect();
     let mut input_arr: [LinearCombination; 4] = [LinearCombination::default(), LinearCombination::default(), LinearCombination::default(), LinearCombination::default()];
     for i in 0..input.len() {
         input_arr[i] = input[i].variable.into();
     }
-    let hash = Poseidon_hash_4_constraints::<CS>(cs, input_arr, statics, params, sbox_type)?;
+    let hash = Poseidon_hash_4_constraints::<CS>(cs, input_arr, params, sbox_type)?;
 
     constrain_lc_with_scalar::<CS>(cs, hash, output);
 
@@ -624,30 +605,21 @@ pub fn Poseidon_hash_8(inputs: [Scalar; 8], params: &PoseidonParams, sbox: &Sbox
 pub fn Poseidon_hash_8_constraints<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: [LinearCombination; 8],
-    statics: Vec<LinearCombination>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
 ) -> Result<LinearCombination, R1CSError> {
-
-    let width = params.width;
-    // Only 8 inputs to the permutation are set to the input of this hash function.
-    assert_eq!(statics.len(), width-8);
-
-    // Always keep the 1st input as 0
-    let mut inputs = vec![statics[0].to_owned()];
-    inputs.push(input[0].clone());
-    inputs.push(input[1].clone());
-    inputs.push(input[2].clone());
-    inputs.push(input[3].clone());
-    inputs.push(input[4].clone());
-    inputs.push(input[5].clone());
-    inputs.push(input[6].clone());
-    inputs.push(input[7].clone());
-
-    // statics correspond to committed variables with values as PADDING_CONST and 0s and randomness as 0
-    for i in 1..statics.len() {
-        inputs.push(statics[i].to_owned());
-    }
+    let inputs = vec![
+        Variable::One() * Scalar::ZERO,
+        input[0].clone(),
+        input[1].clone(),
+        input[2].clone(),
+        input[3].clone(),
+        input[4].clone(),
+        input[5].clone(),
+        input[6].clone(),
+        input[7].clone(),
+        Variable::One() * Scalar::from(PADDING_CONST)
+    ];
     let permutation_output = Poseidon_permutation_constraints::<CS>(cs, inputs, params, sbox_type)?;
     Ok(permutation_output[1].to_owned())
 }
@@ -655,80 +627,20 @@ pub fn Poseidon_hash_8_constraints<'a, CS: ConstraintSystem >(
 pub fn Poseidon_hash_8_gadget<'a, CS: ConstraintSystem >(
     cs: &mut CS,
     input: Vec<AllocatedScalar>,
-    statics: Vec<AllocatedScalar>,
     params: &'a PoseidonParams,
     sbox_type: &SboxType,
     output: &Scalar
 ) -> Result<(), R1CSError> {
-
-    let statics: Vec<LinearCombination> = statics.iter().map(|s| s.variable.into()).collect();
     let mut input_arr: [LinearCombination; 8] = [LinearCombination::default(), LinearCombination::default(), LinearCombination::default(), LinearCombination::default(),
                                                 LinearCombination::default(), LinearCombination::default(), LinearCombination::default(), LinearCombination::default()];
     for i in 0..input.len() {
         input_arr[i] = input[i].variable.into();
     }
-    let hash = Poseidon_hash_8_constraints::<CS>(cs, input_arr, statics, params, sbox_type)?;
+    let hash = Poseidon_hash_8_constraints::<CS>(cs, input_arr, params, sbox_type)?;
 
     constrain_lc_with_scalar::<CS>(cs, hash, output);
 
     Ok(())
-}
-
-/// Allocate padding constant and zeroes for Prover
-pub fn allocate_statics_for_prover<T: BorrowMut<Transcript>>(prover: &mut Prover<T>, num_statics: usize) -> Vec<AllocatedScalar> {
-    let mut statics = vec![];
-    let (_, var) = prover.commit(Scalar::from(ZERO_CONST), Scalar::ZERO);
-    statics.push(AllocatedScalar {
-        variable: var,
-        assignment: Some(Scalar::from(ZERO_CONST)),
-    });
-
-    // Commitment to PADDING_CONST with blinding as 0
-    let (_, var) = prover.commit(Scalar::from(PADDING_CONST), Scalar::ZERO);
-    statics.push(AllocatedScalar {
-        variable: var,
-        assignment: Some(Scalar::from(PADDING_CONST)),
-    });
-
-    // Commit to 0 with randomness 0 for the rest of the elements of width
-    for _ in 2..num_statics {
-        let (_, var) = prover.commit(Scalar::from(ZERO_CONST), Scalar::ZERO);
-        statics.push(AllocatedScalar {
-            variable: var,
-            assignment: Some(Scalar::from(ZERO_CONST)),
-        });
-    }
-    statics
-}
-
-/// Allocate padding constant and zeroes for Verifier
-pub fn allocate_statics_for_verifier<T: BorrowMut<Transcript>>(verifier: &mut Verifier<T>, num_statics: usize, pc_gens: &PedersenGens) -> Vec<AllocatedScalar> {
-    let mut statics = vec![];
-    // Commitment to PADDING_CONST with blinding as 0
-    let pad_comm = pc_gens.commit(Scalar::from(PADDING_CONST), Scalar::ZERO).compress();
-
-    // Commitment to 0 with blinding as 0
-    let zero_comm = pc_gens.commit(Scalar::from(ZERO_CONST), Scalar::ZERO).compress();
-
-    let v = verifier.commit(zero_comm.clone());
-    statics.push(AllocatedScalar {
-        variable: v,
-        assignment: None,
-    });
-
-    let v = verifier.commit(pad_comm);
-    statics.push(AllocatedScalar {
-        variable: v,
-        assignment: None,
-    });
-    for _ in 2..num_statics {
-        let v = verifier.commit(zero_comm.clone());
-        statics.push(AllocatedScalar {
-            variable: v,
-            assignment: None,
-        });
-    }
-    statics
 }
 
 #[cfg(test)]
@@ -851,16 +763,12 @@ mod tests {
             let r_alloc = AllocatedScalar {
                 variable: var_r,
                 assignment: Some(xr),
-            };
-
-            let num_statics = 4;
-            let statics = allocate_statics_for_prover(&mut prover, num_statics);
+            };            
 
             let start = Instant::now();
             assert!(Poseidon_hash_2_gadget(&mut prover,
                                            l_alloc,
                                            r_alloc,
-                                           statics,
                                            &s_params,
                                            sbox_type,
                                            &expected_output).is_ok());
@@ -891,14 +799,10 @@ mod tests {
             assignment: None,
         };
 
-        let num_statics = 4;
-        let statics = allocate_statics_for_verifier(&mut verifier, num_statics, &pc_gens);
-
         let start = Instant::now();
         assert!(Poseidon_hash_2_gadget(&mut verifier,
                                        l_alloc,
                                        r_alloc,
-                                       statics,
                                        &s_params,
                                        sbox_type,
                                        &expected_output).is_ok());
@@ -920,12 +824,6 @@ mod tests {
         input.copy_from_slice(_input.as_slice());
         let expected_output = Poseidon_hash_4(input, &s_params, sbox_type);
 
-        /*debug!("Input:\n");
-        debug!("xl={:?}", &xl);
-        debug!("xr={:?}", &xr);
-        debug!("Expected output:\n");
-        debug!("{:?}", &expected_output);*/
-
         let pc_gens = PedersenGens::default();
         let bp_gens = BulletproofGens::new(512, 1);
 
@@ -946,13 +844,9 @@ mod tests {
                 });
             }
 
-            let num_statics = 2;
-            let statics = allocate_statics_for_prover(&mut prover, num_statics);
-
             let start = Instant::now();
             assert!(Poseidon_hash_4_gadget(&mut prover,
                                            allocs,
-                                           statics,
                                            &s_params,
                                            sbox_type,
                                            &expected_output).is_ok());
@@ -982,13 +876,9 @@ mod tests {
             });
         }
 
-        let num_statics = 2;
-        let statics = allocate_statics_for_verifier(&mut verifier, num_statics, &pc_gens);
-
         let start = Instant::now();
         assert!(Poseidon_hash_4_gadget(&mut verifier,
                                        allocs,
-                                       statics,
                                        &s_params,
                                        sbox_type,
                                        &expected_output).is_ok());
@@ -1010,12 +900,6 @@ mod tests {
         input.copy_from_slice(_input.as_slice());
         let expected_output = Poseidon_hash_8(input, &s_params, sbox_type);
 
-        /*debug!("Input:\n");
-        debug!("xl={:?}", &xl);
-        debug!("xr={:?}", &xr);
-        debug!("Expected output:\n");
-        debug!("{:?}", &expected_output);*/
-
         let pc_gens = PedersenGens::default();
         let bp_gens = BulletproofGens::new(1024, 1);
 
@@ -1036,13 +920,9 @@ mod tests {
                 });
             }
 
-            let num_statics = 2;
-            let statics = allocate_statics_for_prover(&mut prover, num_statics);
-
             let start = Instant::now();
             assert!(Poseidon_hash_8_gadget(&mut prover,
                                            allocs,
-                                           statics,
                                            &s_params,
                                            sbox_type,
                                            &expected_output).is_ok());
@@ -1072,13 +952,9 @@ mod tests {
             });
         }
 
-        let num_statics = 2;
-        let statics = allocate_statics_for_verifier(&mut verifier, num_statics, &pc_gens);
-
         let start = Instant::now();
         assert!(Poseidon_hash_8_gadget(&mut verifier,
                                        allocs,
-                                       statics,
                                        &s_params,
                                        sbox_type,
                                        &expected_output).is_ok());
@@ -1122,7 +998,6 @@ mod tests {
 
     #[test]
     fn test_poseidon_hash_8_cube_sbox() {
-        
         poseidon_hash_8(&SboxType::Penta, b"Poseidon_hash_8_cube");
     }
 
