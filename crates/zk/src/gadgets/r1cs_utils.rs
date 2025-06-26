@@ -1,7 +1,11 @@
+use ark_ec::short_weierstrass::SWCurveConfig as _;
 use bulletproofs::r1cs::{ConstraintSystem, R1CSError, Variable};
 use curve25519_dalek::scalar::Scalar;
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs::r1cs::LinearCombination;
+
+use crate::art::R1CSProof;
+use crate::curve::cortado::{self, ToScalar as _};
 
 /// Represents a variable for quantity, along with its assignment.
 #[derive(Copy, Clone, Debug)]
@@ -20,6 +24,12 @@ impl AllocatedScalar {
     pub fn new(variable: Variable, assignment: Option<Scalar>) -> Self {
         return Self { variable, assignment }
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct AllocatedPoint {
+    pub x: AllocatedScalar,
+    pub y: AllocatedScalar,
 }
 
 /// Enforces that the quantity of v is in the range [0, 2^n).
@@ -57,3 +67,32 @@ pub fn positive_no_gadget<CS: ConstraintSystem>(
 pub fn constrain_lc_with_scalar<CS: ConstraintSystem>(cs: &mut CS, lc: LinearCombination, scalar: &Scalar) {
     cs.constrain(lc - LinearCombination::from(*scalar));
 }
+
+/// Constrain that R = P - Q
+pub fn co_linear_gadget<CS: ConstraintSystem>(
+    cs: &mut CS,
+    P: AllocatedPoint,
+    Q: AllocatedPoint,
+    R: AllocatedPoint,
+) -> Result<(), R1CSError> {
+    let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
+    
+    let (x1, y1) = (P.x.variable, P.y.variable);
+    let (x2, y2) = (Q.x.variable, Q.y.variable);
+    let (x3, y3) = (R.x.variable, R.y.variable);
+    let (_, _, y_sqr) = cs.multiply(y3.into(), y3.into());
+    let (_, _, x_sqr) = cs.multiply(x3.into(), x3.into());
+    let (_, _, x_cube) = cs.multiply(x3.into(), x_sqr.into());
+
+    let curve_eq = y_sqr - (x_cube + w_a * x3 + w_b);
+    cs.constrain(curve_eq);
+
+    // (y1 + y3) * (x2 - x3) = (y3 - y2) * (x1 - x3)
+    let (_, _, lhs) = cs.multiply(LinearCombination::from(y1) + LinearCombination::from(y3), LinearCombination::from(x2) - LinearCombination::from(x3));
+    let (_, _, rhs) = cs.multiply(LinearCombination::from(y3) - LinearCombination::from(y2), LinearCombination::from(x1) - LinearCombination::from(x3));
+    
+    cs.constrain(lhs - rhs);
+    
+    Ok(())
+}
+    

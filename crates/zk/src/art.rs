@@ -20,7 +20,7 @@ use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifie
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
 use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar, FromScalar};
 use crate::dh::dh_gadget;
-use crate::poseidon::r1cs_utils::AllocatedScalar;
+use crate::gadgets::r1cs_utils::AllocatedScalar;
 
 #[derive(Clone)]
 pub struct R1CSProof(BPR1CSProof);
