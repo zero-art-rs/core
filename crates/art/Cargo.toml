@@ -8,14 +8,13 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "art_example"
-path = "examples/simple_workflow.rs"
+path = "src/bin/simple_workflow.rs"
 
 [dependencies]
 ark-ec = { workspace = true }
 ark-ff = { workspace = true }
 ark-std = { workspace = true }
 ark-serialize = { workspace = true, features = ["derive"] }
-ark-bn254 = { workspace = true, features = ["curve"] }
 rand = { workspace = true, features = ["thread_rng"]}
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -27,3 +26,5 @@ ark-ed25519 = "0.5.0"
 curve25519-dalek = { version = "4.1.1", features = ["digest", "group", "rand_core", "serde"] }
 bulletproofs = { version = "5.0.0", git="https://github.com/zk-messenger/bulletproofs", features = ["yoloproofs"] }
 zkp = { version = "0.9.3", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
+display_tree = {workspace = true}
+postcard = { workspace = true, features = ["alloc"] }
