@@ -1,8 +1,15 @@
+#![allow(non_snake_case)]
+
+use std::borrow::BorrowMut;
+
 use ark_ec::short_weierstrass::SWCurveConfig as _;
-use bulletproofs::r1cs::{ConstraintSystem, R1CSError, Variable};
+use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, Variable, Verifier};
+use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs::r1cs::LinearCombination;
+use rand::thread_rng;
+use merlin::Transcript;
 
 use crate::art::R1CSProof;
 use crate::curve::cortado::{self, ToScalar as _};
@@ -30,6 +37,50 @@ impl AllocatedScalar {
 pub struct AllocatedPoint {
     pub x: AllocatedScalar,
     pub y: AllocatedScalar,
+}
+
+pub trait ProversAllocatableCortado: ConstraintSystem {
+    fn allocate_scalar(&mut self, value: Scalar) -> Result<(AllocatedScalar, CompressedRistretto), R1CSError>;
+    fn allocate_point(&mut self, x: Scalar, y: Scalar) -> Result<(AllocatedPoint, (CompressedRistretto, CompressedRistretto)), R1CSError>;
+}
+
+impl<'g, T: BorrowMut<Transcript>> ProversAllocatableCortado for Prover<'g, T> {
+    fn allocate_scalar(&mut self, value: Scalar) -> Result<(AllocatedScalar, CompressedRistretto), R1CSError> {
+        let (value_comm, value_var) = self.commit(value, Scalar::random(&mut thread_rng()));
+        let value_var = AllocatedScalar::new(value_var, Some(value));
+        Ok((value_var, value_comm))
+    }
+    fn allocate_point(&mut self, x: Scalar, y: Scalar) -> Result<(AllocatedPoint, (CompressedRistretto, CompressedRistretto)), R1CSError> {
+        let (x_comm, x_var) = self.commit(x, Scalar::random(&mut thread_rng()));
+        let (y_comm, y_var) = self.commit(y, Scalar::random(&mut thread_rng()));
+        let Q = AllocatedPoint {
+            x: AllocatedScalar::new(x_var, Some(x)),
+            y: AllocatedScalar::new(y_var, Some(y)),
+        };
+        Ok((Q, (x_comm, y_comm)))
+    }
+}
+
+pub trait VerifiersAllocatableCortado: ConstraintSystem {
+    fn allocate_scalar(&mut self, comm: CompressedRistretto) -> Result<AllocatedScalar, R1CSError>;
+    fn allocate_point(&mut self, x_comm: CompressedRistretto, y_comm: CompressedRistretto) -> Result<AllocatedPoint, R1CSError>;
+}
+
+impl<T: BorrowMut<Transcript>> VerifiersAllocatableCortado for Verifier<T> {
+    fn allocate_scalar(&mut self, comm: CompressedRistretto) -> Result<AllocatedScalar, R1CSError> {
+        let x_var = self.commit(comm);
+        let x = AllocatedScalar::new(x_var, None);
+        Ok(x)
+    }
+    fn allocate_point(&mut self, x_comm: CompressedRistretto, y_comm: CompressedRistretto) -> Result<AllocatedPoint, R1CSError> {
+        let x_var = self.commit(x_comm);
+        let y_var = self.commit(y_comm);
+        let Q = AllocatedPoint {
+            x: AllocatedScalar::new(x_var, None),
+            y: AllocatedScalar::new(y_var, None),
+        };
+        Ok(Q)
+    }
 }
 
 /// Enforces that the quantity of v is in the range [0, 2^n).
@@ -68,7 +119,7 @@ pub fn constrain_lc_with_scalar<CS: ConstraintSystem>(cs: &mut CS, lc: LinearCom
     cs.constrain(lc - LinearCombination::from(*scalar));
 }
 
-/// Constrain that R = P - Q
+/// Constrain that R = P - Q for Cortado points
 pub fn co_linear_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     P: AllocatedPoint,

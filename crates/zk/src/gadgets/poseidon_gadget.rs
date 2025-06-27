@@ -997,7 +997,7 @@ mod tests {
     }
 
     #[test]
-    fn test_poseidon_hash_8_cube_sbox() {
+    fn test_poseidon_hash_8_penta_sbox() {
         poseidon_hash_8(&SboxType::Penta, b"Poseidon_hash_8_cube");
     }
 

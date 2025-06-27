@@ -151,7 +151,7 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Δ_i_y + y_P, P_i_1_x - x_P);
         cs.constrain(t1-t2);
     }
-    info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
     
     let (x_var,y_var) = *P_vars.last().unwrap();
     let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
