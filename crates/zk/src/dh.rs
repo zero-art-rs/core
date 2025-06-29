@@ -97,13 +97,14 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
+    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
     } else {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(i+2)).into_affine()
+        (G * cortado::Fr::from(i+2)).into_affine()
     }).collect();
 
     let mut δ = vec![Q_b];
@@ -177,12 +178,13 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
+    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
     } else {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(i+2)).into_affine()
+        (G * cortado::Fr::from(i+2)).into_affine()
     }).collect();
 
     let mut δ = vec![Q_b];

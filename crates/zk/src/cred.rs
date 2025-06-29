@@ -122,7 +122,7 @@ impl Credential {
         };
         let (Q, R, s) = Self::sign_claims(&claims, issuer)
             .map_err(|_| R1CSError::FormatError)?;
-        debug!("{}", cortado::FqConfig::MODULUS >= s.into_bigint());
+
         Ok(Self {
             claims,
             signature: (R, s),
@@ -160,6 +160,7 @@ impl Credential {
         id: AllocatedScalar,
         Q_holder: AllocatedPoint,
         expiration: AllocatedScalar,
+        //current_time: u64,
         Q_issuer: CortadoAffine,
         c: AllocatedScalar,
         R: AllocatedPoint,
@@ -175,16 +176,15 @@ impl Credential {
             LinearCombination::from(R.x.variable), 
             LinearCombination::from(R.y.variable),
         ];
+        //let time_lc = LinearCombination::from(expiration.variable - current_time);
 
         let hash_lc = Poseidon_hash_8_constraints(cs, input, &get_poseidon_params(), &SboxType::Penta)?;
         cs.constrain(c.variable - hash_lc);
-        
-        let P = scalar_mul_gadget_v1(cs, s, CortadoAffine::generator())?;
-        let Q = scalar_mul_gadget_v1(cs, c, Q_issuer)?;
+        let P = scalar_mul_gadget_v2(cs, s, CortadoAffine::generator())?;
+        let Q = scalar_mul_gadget_v2(cs, c, Q_issuer)?;
 
         // check that R = P - Q
         co_linear_gadget(cs, P, Q, R)
-        //Ok(())
     }
 
     /// create credential presentation proof
