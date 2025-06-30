@@ -3,6 +3,7 @@ use std::ops::{Add, Mul};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{self, Instant, SystemTime};
 
+use chrono::{DateTime, Utc};
 use rand_core::{le, OsRng};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
 use bulletproofs::{r1cs::{self, *}, ProofError};
@@ -20,13 +21,16 @@ use zkp::toolbox::dalek_ark::ark_to_scalar;
 use zkp::toolbox::{FromBytes, SchnorrCS, ToBytes};
 use zkp::BatchableProof;
 use crate::curve::cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use crate::dh::{scalar_mul_gadget_v1, scalar_mul_gadget_v2};
+use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v1, scalar_mul_gadget_v2};
 use crate::gadgets;
 use crate::gadgets::poseidon_gadget::{PoseidonParams, Poseidon_hash_4, Poseidon_hash_8, Poseidon_hash_8_constraints, Poseidon_hash_8_gadget, SboxType};
-use crate::gadgets::r1cs_utils::{co_linear_gadget, AllocatedPoint, AllocatedScalar, ProversAllocatableCortado as _, VerifiersAllocatableCortado as _};
+use crate::gadgets::r1cs_utils::{co_linear_gadget, AllocatedPoint, AllocatedQuantity, AllocatedScalar, ProversAllocatableCortado as _, VerifiersAllocatableCortado as _};
 use hex::FromHex;
 use zkp::toolbox::prover::Prover;
 use zkp::toolbox::verifier::Verifier;
+
+const TIME_DELTA_SIZE: u64 = 32; // size of the maximum time delta in bits
+const TIME_PROVER_VERIFIER_TIME_TOLERANCE: u64 = 10;
 
 fn get_poseidon_params() -> PoseidonParams{
     let width = 10;
@@ -59,6 +63,7 @@ pub struct CredentialPresentationProof {
     pub proof: R1CSProof,
     pub id_comm: CompressedRistretto,
     pub Q_holder_comm: (CompressedRistretto, CompressedRistretto),
+    pub claimed_time: DateTime<Utc>,
     pub exp_comm: CompressedRistretto,
     pub c_comm: CompressedRistretto,
     pub R_comm: (CompressedRistretto, CompressedRistretto),
@@ -111,14 +116,11 @@ impl Credential {
     }
 
     /// issue new credential
-    pub fn issue(issuer: cortado::Fr, expiration: SystemTime, holder: CortadoAffine) -> Result<Self, R1CSError> {
+    pub fn issue(issuer: cortado::Fr, validity_period: u64, holder: CortadoAffine) -> Result<Self, R1CSError> {
         let claims = CredentialClaims {
             id: cortado::Fq::rand(&mut rand::thread_rng()), // This should be a unique identifier, e.g., a hash of the holder's public key
             Q: holder,
-            expiration: expiration
-                .duration_since(time::UNIX_EPOCH)
-                .expect("expiration must be after UNIX_EPOCH")
-                .as_secs(),
+            expiration: (Utc::now().timestamp() as u64) + validity_period, // expiration time in seconds
         };
         let (Q, R, s) = Self::sign_claims(&claims, issuer)
             .map_err(|_| R1CSError::FormatError)?;
@@ -160,7 +162,7 @@ impl Credential {
         id: AllocatedScalar,
         Q_holder: AllocatedPoint,
         expiration: AllocatedScalar,
-        //current_time: u64,
+        prover_time: u64,
         Q_issuer: CortadoAffine,
         c: AllocatedScalar,
         R: AllocatedPoint,
@@ -176,7 +178,8 @@ impl Credential {
             LinearCombination::from(R.x.variable), 
             LinearCombination::from(R.y.variable),
         ];
-        //let time_lc = LinearCombination::from(expiration.variable - current_time);
+        let time_lc = LinearCombination::from(expiration.variable - prover_time);
+        bin_equality_gadget(cs, &time_lc, expiration.assignment.map(|e| e - Scalar::from(prover_time)), TIME_DELTA_SIZE)?;
 
         let hash_lc = Poseidon_hash_8_constraints(cs, input, &get_poseidon_params(), &SboxType::Penta)?;
         cs.constrain(c.variable - hash_lc);
@@ -205,11 +208,14 @@ impl Credential {
             self.signature.0.y().unwrap().into_scalar(),
         )?;
         let (s_var, s_comm) = prover.allocate_scalar( Scalar::from_bytes_mod_order((&self.signature.1.into_bigint().to_bytes_le()[..]).try_into().unwrap() ) )?;
+        let claimed_time = Utc::now();
+
         Self::credential_presentation_gadget(
             &mut prover,
             id_var,
             Q_holder,
             exp_var,
+            claimed_time.timestamp() as u64,
             self.issuer,
             c_var,
             R,
@@ -223,6 +229,7 @@ impl Credential {
             proof,
             id_comm,
             Q_holder_comm,
+            claimed_time,
             exp_comm,
             c_comm,
             R_comm,
@@ -251,11 +258,16 @@ impl Credential {
             id_var,
             Q_holder,
             exp_var,
+            proof.claimed_time.timestamp() as u64,
             proof.Q_issuer,
             c_var,
             R,
             s_var,
         )?;
+        if Utc::now() - proof.claimed_time > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64) {
+            debug!("Credential presentation proof claimed time is within tolerance {:?}", Utc::now() - proof.claimed_time);
+            return Err(R1CSError::VerificationError);
+        }
 
         verifier.verify(&proof.proof, &pc_gens, &BulletproofGens::new(4096, 1))?;
         debug!("Credential presentation proof verified in {:?}", start.elapsed());
@@ -274,11 +286,11 @@ fn test_credential_issue_and_verify() {
 
     let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
     let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
-    let expiration = SystemTime::now() + time::Duration::from_secs(3600); // 1 hour from now
+    let validity_period = 3600; // 1 hour validity
     let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
 
     // Issue a credential
-    let credential = Credential::issue(issuer_secret_key, expiration, holder_public_key).unwrap();
+    let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
     
     // Verify the credential
     assert!(credential.verify().is_ok());

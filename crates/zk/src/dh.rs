@@ -54,14 +54,15 @@ impl GetBit for Scalar {
     }
 }
 
-fn bin_equality_gadget<CS: ConstraintSystem>(
+
+/// checks if x value belongs to the range [0, 2^bit_size)
+pub fn bin_equality_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     x: &LinearCombination,
     x_val: Option<Scalar>,
+    bit_size: u64,
 ) -> Result<Vec<Variable>, R1CSError> {
-
-    
-    let x_bits: Vec<Variable> = (0..MODULUS_BIT_SIZE as usize)
+    let x_bits: Vec<Variable> = (0..bit_size as usize)
         .map(|i| {
             // Create low-level variables and add them to constraints
             let (a, b, o) = cs.allocate_multiplier(x_val.map(|bint| {
@@ -112,7 +113,7 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
     let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a)?;
+    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
@@ -192,7 +193,7 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
     let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a)?;
+    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
