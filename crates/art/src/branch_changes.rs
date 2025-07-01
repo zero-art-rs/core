@@ -1,4 +1,4 @@
-use crate::{ARTNode, Direction, ark_de, ark_se};
+use crate::{ARTNode, Direction, ark_de, ark_se, ARTError};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
@@ -27,11 +27,17 @@ pub struct BranchChanges<G: AffineRepr + CanonicalSerialize + CanonicalDeseriali
 }
 
 impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> BranchChanges<G> {
-    pub fn serialize(&self) -> postcard::Result<Vec<u8>> {
-        to_allocvec(self)
+    pub fn serialze(&self) -> Result<Vec<u8>, ARTError> {
+        match to_allocvec(self) {
+            Ok(output) => Ok(output),
+            Err(e) => Err(ARTError::SerialisationError(format!(
+                "Failed to serialise: {:?}",
+                e
+            ))),
+        }
     }
 
-    pub fn deserialize(bytes: &Vec<u8>) -> postcard::Result<Self> {
-        from_bytes(bytes)
+    pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(|e| ARTError::SerialisationError(e.to_string()))
     }
 }
