@@ -146,4 +146,47 @@ pub fn co_linear_gadget<CS: ConstraintSystem>(
     
     Ok(())
 }
-    
+
+pub fn set_non_membership_gadget<CS: ConstraintSystem>(
+    cs: &mut CS,
+    x: AllocatedScalar,
+    S: Vec<Scalar>,
+) -> Result<(), R1CSError> {
+    let mut l: LinearCombination = Scalar::ONE.into();
+    for s in S {
+        let (_, _, o) = cs.multiply(l.clone(), x.variable - s);
+        l = o.into();
+    }
+    let l_inv = cs.allocate(cs.eval(&l).map(|v| v.invert()))?;
+    let (_, _, o) = cs.multiply(l, l_inv.into());
+    // Output wire should have value 1
+    cs.constrain(o - Scalar::ONE);
+    Ok(())
+}
+
+#[test]
+fn set_non_membership_gadget_test() {
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(128, 1);
+    let mut prover_transcript = Transcript::new(b"test");
+   
+
+    let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
+
+    let (x, x_com) = prover.allocate_scalar(Scalar::from(8u64)).unwrap();
+
+    let S = vec![Scalar::from(1u64), Scalar::from(2u64), Scalar::from(3u64) ];
+
+    set_non_membership_gadget(&mut prover, x, S.clone()).unwrap();
+
+    let proof = prover.prove(&bp_gens).unwrap();
+    {
+        let mut verifier_transcript = Transcript::new(b"test");
+        let mut verifier = Verifier::new(&mut verifier_transcript);
+        let x = verifier.allocate_scalar(x_com).unwrap();
+
+        set_non_membership_gadget(&mut verifier, x, S).unwrap();
+
+        verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+    }
+}

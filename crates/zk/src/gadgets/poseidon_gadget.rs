@@ -13,7 +13,6 @@ use merlin::Transcript;
 use bulletproofs::r1cs::LinearCombination;
 
 use super::r1cs_utils::{AllocatedScalar, constrain_lc_with_scalar};
-use super::gadget_zero_nonzero::is_nonzero_gadget;
 use super::poseidon_constants_6::{MDS_ENTRIES_6, ROUND_CONSTS_6};
 use super::poseidon_constants_10::{MDS_ENTRIES_10, ROUND_CONSTS_10};
 use rand::SeedableRng;

@@ -42,25 +42,25 @@ pub fn is_zero_gadget<CS: ConstraintSystem>(
     Ok(())
 }
 
+pub fn is_zero_gadget_v2<CS: ConstraintSystem>(
+    cs: &mut CS,
+    x: AllocatedScalar,
+) -> Result<(), R1CSError> {
+    // Constrain x to be zero
+    cs.constrain(x.variable.into());
+    Ok(())
+}
+
 /// Enforces that x is 0. Takes x and the inverse of x.
 pub fn is_nonzero_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     x: AllocatedScalar,
-    x_inv: AllocatedScalar,
 ) -> Result<(), R1CSError> {
-    let x_lc = LinearCombination::from(x.variable);
-    let y_lc = LinearCombination::from(Scalar::ONE);
-    let one_minus_y_lc = LinearCombination::from(Variable::One()) - y_lc.clone();
-
-    // x * (1-y) = 0
-    let (_, _, o1) = cs.multiply(x_lc.clone(), one_minus_y_lc);
-    cs.constrain(o1.into());
-
     // x * x_inv = y
-    let inv_lc: LinearCombination = vec![(x_inv.variable, Scalar::ONE)].iter().collect();
-    let (_, _, o2) = cs.multiply(x_lc.clone(), inv_lc.clone());
-    // Output wire should have value `y`
-    cs.constrain(o2 - y_lc);
+    let x_inv = cs.allocate(x.assignment.map(|v| v.invert()))?;
+    let (_, _, o2) = cs.multiply(x.variable.into(), x_inv.into());
+    // Output wire should have value 1
+    cs.constrain(o2 - Scalar::ONE);
 
     Ok(())
 }
@@ -94,7 +94,7 @@ mod tests {
                     variable: var_val,
                     assignment: Some(value),
                 };
-                assert!(is_zero_gadget(&mut prover, alloc_scal).is_ok());
+                assert!(is_zero_gadget_v2(&mut prover, alloc_scal).is_ok());
 
                 let proof = prover.prove(&bp_gens).unwrap();
 
@@ -109,7 +109,7 @@ mod tests {
                 assignment: None,
             };
 
-            assert!(is_zero_gadget(&mut verifier, alloc_scal).is_ok());
+            assert!(is_zero_gadget_v2(&mut verifier, alloc_scal).is_ok());
 
             verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
         }
@@ -117,7 +117,7 @@ mod tests {
         {
             let (proof, commitments) = {
 
-                let value = Scalar::random(&mut rng);
+                let value = Scalar::ONE;
                 let inv = value.invert();
                 let mut prover_transcript = Transcript::new(b"NonZeroTest");
                 let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
@@ -128,33 +128,23 @@ mod tests {
                     assignment: Some(value),
                 };
 
-                let (com_val_inv, var_val_inv) = prover.commit(inv.clone(), Scalar::random(&mut rng));
-                let alloc_scal_inv = AllocatedScalar {
-                    variable: var_val_inv,
-                    assignment: Some(inv),
-                };
-                assert!(is_nonzero_gadget(&mut prover, alloc_scal, alloc_scal_inv).is_ok());
+
+                assert!(is_nonzero_gadget(&mut prover, alloc_scal).is_ok());
 
                 let proof = prover.prove(&bp_gens).unwrap();
 
-                (proof, (com_val, com_val_inv))
+                (proof, (com_val))
             };
 
             let mut verifier_transcript = Transcript::new(b"NonZeroTest");
             let mut verifier = Verifier::new(&mut verifier_transcript);
-            let var_val = verifier.commit(commitments.0);
+            let var_val = verifier.commit(commitments);
             let alloc_scal = AllocatedScalar {
                 variable: var_val,
                 assignment: None,
             };
 
-            let var_val_inv = verifier.commit(commitments.1);
-            let alloc_scal_inv = AllocatedScalar {
-                variable: var_val_inv,
-                assignment: None,
-            };
-
-            assert!(is_nonzero_gadget(&mut verifier, alloc_scal, alloc_scal_inv).is_ok());
+            assert!(is_nonzero_gadget(&mut verifier, alloc_scal).is_ok());
 
             verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
         }
