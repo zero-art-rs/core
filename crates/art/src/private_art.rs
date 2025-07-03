@@ -2,6 +2,8 @@ use crate::{ART, ARTError, ARTNode, ARTRootKey, BranchChanges, ark_de, ark_se};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use curve25519_dalek::Scalar;
+use postcard::from_bytes;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -20,11 +22,11 @@ where
     pub fn new_art_from_secrets(
         secrets: &Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Self, ARTRootKey<G>) {
+    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
         let secret_key = secrets[0].clone();
-        let (art, root_key) = ART::new_art_from_secrets(secrets, generator);
+        let (art, root_key) = ART::new_art_from_secrets(secrets, generator)?;
 
-        (Self { art, secret_key }, root_key)
+        Ok((Self { art, secret_key }, root_key))
     }
 
     pub fn recompute_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
@@ -33,7 +35,7 @@ where
 
     pub fn recompute_root_key_with_artefacts(
         &self,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
         self.art.recompute_root_key_with_artefacts(self.secret_key)
     }
 
@@ -74,6 +76,10 @@ where
         self.art.to_string()
     }
 
+    pub fn serialise_with_postcard(&self) -> Result<Vec<u8>, ARTError> {
+        self.art.serialise_with_postcard()
+    }
+
     pub fn from_string_and_secret_key(
         canonical_json: &String,
         secret_key: &G::ScalarField,
@@ -90,6 +96,16 @@ where
 
         Ok(Self {
             art,
+            secret_key: secret_key.clone(),
+        })
+    }
+
+    pub fn deserialize_with_postcard(
+        bytes: &Vec<u8>,
+        secret_key: &G::ScalarField,
+    ) -> Result<Self, ARTError> {
+        Ok(Self {
+            art: ART::deserialize_with_postcard(&bytes)?,
             secret_key: secret_key.clone(),
         })
     }

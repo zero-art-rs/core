@@ -1,14 +1,15 @@
 #[cfg(test)]
 mod tests {
-    use ark_bn254::{G1Affine as ARTGroup, fr::Fr as ARTScalarField};
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
     use ark_ff::Field;
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use art::{ART, Direction};
+    use postcard::{from_bytes, to_allocvec};
     use rand::{Rng, rng};
     use std::ops::Mul;
+    use cortado::{CortadoAffine as ARTGroup, Fq as BaseField, Fr as ARTScalarField};
 
     pub fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
@@ -34,7 +35,7 @@ mod tests {
         let main_user_id = rng().random_range(0..number_of_users);
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
+        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for _ in 0..number_of_users {
@@ -92,7 +93,7 @@ mod tests {
         let number_of_users = 100;
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
+        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
         for _ in 0..10 {
             let _ = tree.append_node(&ARTScalarField::rand(&mut rng)).unwrap();
@@ -148,10 +149,10 @@ mod tests {
         let number_of_users = 100;
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
+        let (tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
-        let serialized = tree.to_string().unwrap();
-        let deserialized: ART<ARTGroup> = ART::from_string(&serialized).unwrap();
+        let serialized = tree.serialise_with_postcard().unwrap();
+        let deserialized: ART<ARTGroup> = ART::deserialize_with_postcard(&serialized).unwrap();
 
         assert!(deserialized.eq(&tree));
     }
@@ -170,7 +171,7 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(rand::random());
 
-        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
+        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for _ in 0..number_of_users {
@@ -243,7 +244,7 @@ mod tests {
 
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
+        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let node_pk = tree.get_node_by_coordinate(0, 0).unwrap().get_public_key();
         let root_pk = tree.root.get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -320,20 +321,20 @@ mod tests {
         let number_of_users = 32;
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator());
-        let node_pk = tree.get_node_index(0).unwrap().get_public_key();
+        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let node_pk = tree.get_node_by_index(1).unwrap().get_public_key();
         let root_pk = tree.root.get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_index(1).unwrap().get_public_key();
+        let node_pk = tree.get_node_by_index(2).unwrap().get_public_key();
         let root_pk = tree.root.get_left().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_index(2).unwrap().get_public_key();
+        let node_pk = tree.get_node_by_index(3).unwrap().get_public_key();
         let root_pk = tree.root.get_right().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_index(26).unwrap().get_public_key();
+        let node_pk = tree.get_node_by_index(27).unwrap().get_public_key();
         let root_pk = tree
             .root
             .get_right()
@@ -346,5 +347,14 @@ mod tests {
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
+    }
+
+    #[test]
+    fn art_balance() {
+        for i in 1..100 {
+            let secrets = create_random_secrets(i);
+            let (art, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            assert!(art.get_disbalance().unwrap() < 2);
+        }
     }
 }

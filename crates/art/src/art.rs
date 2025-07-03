@@ -10,20 +10,22 @@ use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use ark_std::{One, UniformRand, Zero};
 use curve25519_dalek::Scalar;
+use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::cmp::min;
 use std::{cmp::max, mem};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ARTError {
-    #[error("error in art logic: {0}")]
+    #[error("Error in art logic: {0}")]
     NodesLogicError(#[from] ARTNodeError),
-    #[error("error in art logic: {0}")]
+    #[error("Error in art logic: {0}")]
     ARTLogicError(String),
-    #[error("given parameters are invalid: {0}")]
+    #[error("Given parameters are invalid: {0}")]
     InvalidParameters(String),
-    #[error("given parameters are invalid: {0}")]
+    #[error("Serialization failure: {0}")]
     SerialisationError(String),
 }
 
@@ -49,12 +51,10 @@ where
     /// Iota function is a function which converts computed public secret to scalar field. It can
     /// be any function. Here, th function takes x coordinate of affine representation of a point.
     /// If the base field of curve defined on extension of a field, we take the first coefficient.
-    pub fn iota_function(point: &G) -> G::ScalarField {
+    pub fn iota_function(point: &G) -> Scalar {
         let x = point.x().unwrap();
-        let lambda =
-            Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap());
 
-        G::ScalarField::from_le_bytes_mod_order(&lambda.to_bytes())
+        Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap())
     }
 
     fn compute_next_layer_of_tree(
@@ -79,18 +79,76 @@ where
                     .into_affine(),
             );
 
+            let ark_common_secret =
+                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
+
             let node = ARTNode::new_internal_node(
-                generator.mul(&common_secret).into_affine(),
+                generator.mul(&ark_common_secret).into_affine(),
                 Box::new(left_node),
                 Box::new(right_node),
             );
 
             upper_level_nodes.push(node);
-            upper_level_secrets.push(common_secret);
+            upper_level_secrets.push(ark_common_secret);
         }
 
         // if one have an odd number of nodes, the last one will be added to the next level
         if level_nodes.len() == 1 {
+            let first_node = level_nodes.remove(0);
+            upper_level_nodes.push(first_node);
+            let first_secret = level_secrets.remove(0);
+            upper_level_secrets.push(first_secret.clone());
+        }
+
+        (upper_level_nodes, upper_level_secrets)
+    }
+
+    /// fit all the leaves on the same level, so the tree is balanced
+    pub fn fit_leaves_in_one_level(
+        mut level_nodes: Vec<ARTNode<G>>,
+        mut level_secrets: Vec<G::ScalarField>,
+        generator: &G,
+    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
+        let mut level_size = 2;
+        while level_size < level_nodes.len() {
+            level_size = level_size << 1;
+        }
+
+        if level_size == level_nodes.len() {
+            return (level_nodes, level_secrets);
+        }
+
+        let excess = level_size - level_nodes.len();
+
+        let mut upper_level_nodes = Vec::new();
+        let mut upper_level_secrets = Vec::new();
+        for i in 0..(level_nodes.len() - excess) >> 1 {
+            let left_node = level_nodes.remove(0);
+            let right_node = level_nodes.remove(0);
+
+            level_secrets.remove(0); // skip the first secret
+
+            let common_secret = Self::iota_function(
+                &left_node
+                    .public_key
+                    .mul(level_secrets.remove(0))
+                    .into_affine(),
+            );
+
+            let ark_common_secret =
+                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
+
+            let node = ARTNode::new_internal_node(
+                generator.mul(&ark_common_secret).into_affine(),
+                Box::new(left_node),
+                Box::new(right_node),
+            );
+
+            upper_level_nodes.push(node);
+            upper_level_secrets.push(ark_common_secret);
+        }
+
+        for i in 0..excess {
             let first_node = level_nodes.remove(0);
             upper_level_nodes.push(first_node);
             let first_secret = level_secrets.remove(0);
@@ -105,7 +163,12 @@ where
     pub fn new_art_from_secrets(
         secrets: &Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Self, ARTRootKey<G>) {
+    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
+        if secrets.len() == 0 {
+            return Err(ARTError::InvalidParameters(
+                "Can't create art of size 0".to_string(),
+            ));
+        }
         let mut level_nodes = Vec::new();
         let mut level_secrets = Vec::new();
 
@@ -115,6 +178,12 @@ where
 
             level_nodes.push(node);
             level_secrets.push(leaf_secret.clone());
+        }
+
+        // fully fit leaf nodes in the next level by combining only part of them
+        if level_nodes.len() > 2 {
+            (level_nodes, level_secrets) =
+                Self::fit_leaves_in_one_level(level_nodes, level_secrets, &generator);
         }
 
         // iterate by levels. Go from current level to upper level
@@ -134,7 +203,7 @@ where
             generator: generator.clone(),
         };
 
-        (art, root_key)
+        Ok((art, root_key))
     }
 
     /// Returns a reference on a root node
@@ -220,13 +289,14 @@ where
     ) -> Result<ARTRootKey<G>, ARTError> {
         let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
 
-        let mut secret = secret_key.clone();
+        let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            secret = Self::iota_function(&public_key.mul(secret).into_affine());
+            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
+            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
         Ok(ARTRootKey {
-            key: secret,
+            key: ark_secret,
             generator: self.generator.clone(),
         })
     }
@@ -235,19 +305,24 @@ where
     pub fn recompute_root_key_with_artefacts(
         &self,
         secret_key: G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
         let co_path_values = self.get_co_path_values(&self.public_key_of(&secret_key))?;
 
-        let mut secret = secret_key.clone();
-        let mut secrets = vec![secret.clone()];
+        let mut ark_secret = secret_key.clone();
+        let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order(
+            (&secret_key.clone().into_bigint().to_bytes_le()[..])
+                .try_into()
+                .unwrap(),
+        )];
         for public_key in co_path_values.iter() {
-            secret = Self::iota_function(&public_key.mul(secret).into_affine());
+            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
             secrets.push(secret.clone());
+            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
         Ok((
             ARTRootKey {
-                key: secret,
+                key: ark_secret,
                 generator: self.generator.clone(),
             },
             co_path_values,
@@ -276,7 +351,7 @@ where
 
         let mut public_key = self.public_key_of(secret_key);
 
-        let mut level_secret_key = secret_key.clone();
+        let mut ark_level_secret_key = secret_key.clone();
         while !next.is_empty() {
             let next_child = next.pop().unwrap();
 
@@ -292,9 +367,13 @@ where
             changes.public_keys.push(public_key);
 
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
-            let common_secret = other_child_public_key.mul(level_secret_key).into_affine();
-            level_secret_key = Self::iota_function(&common_secret);
-            public_key = self.generator.mul(&level_secret_key).into_affine();
+            let common_secret = other_child_public_key
+                .mul(ark_level_secret_key)
+                .into_affine();
+            let level_secret_key = Self::iota_function(&common_secret);
+            ark_level_secret_key =
+                G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
+            public_key = self.generator.mul(&ark_level_secret_key).into_affine();
         }
 
         self.root.set_public_key(public_key);
@@ -302,7 +381,7 @@ where
         changes.public_keys.reverse();
 
         let key = ARTRootKey {
-            key: level_secret_key,
+            key: ark_level_secret_key,
             generator: self.generator.clone(),
         };
 
@@ -524,22 +603,24 @@ where
 
     /// Returns mutable node by the given index of a node. For example, root have index 0, its
     /// children are 1 and 2.
-    pub fn get_node_index(&mut self, index: usize) -> Result<&mut ARTNode<G>, ARTError> {
+    pub fn get_node_by_index(&mut self, index: usize) -> Result<&mut ARTNode<G>, ARTError> {
         if index == 0 {
-            return Ok(self.root.as_mut());
+            return Err(ARTError::InvalidParameters(
+                "The enumeration of nodes starts with 1".to_string(),
+            ));
         }
 
-        let mut i = index + 1;
+        let mut i = index;
 
         let mut path = Vec::new();
         while i > 1 {
-            if i % 2 == 0 {
+            if (i & 1) == 0 {
                 path.push(Direction::Left);
             } else {
                 path.push(Direction::Right);
             }
 
-            i = i / 2;
+            i = i >> 1;
         }
 
         let mut target_node = self.root.as_mut();
@@ -553,7 +634,7 @@ where
     /// Returns mutable node by the given NodeIndex
     fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
         match index {
-            NodeIndex::Index(index) => self.get_node_index(index),
+            NodeIndex::Index(index) => self.get_node_by_index(index),
             NodeIndex::Coordinate(level, position) => self.get_node_by_coordinate(level, position),
             NodeIndex::Direction(path) => self.get_node_by_path(path),
         }
@@ -623,6 +704,53 @@ where
         }
     }
 
+    fn min_max_leaf_height(&self) -> Result<(usize, usize), ARTError> {
+        let mut min_height = usize::MAX;
+        let mut max_height = 0;
+        let root = self.get_root();
+
+        let mut path = vec![root.as_ref()];
+        let mut next = vec![Direction::NoDirection];
+
+        while !path.is_empty() {
+            let last_node = path.last().unwrap();
+
+            if last_node.is_leaf() {
+                min_height = min(min_height, path.len());
+                max_height = max(max_height, path.len());
+
+                path.pop();
+                next.pop();
+            } else {
+                match next.pop().unwrap() {
+                    Direction::Left => {
+                        path.push(last_node.get_right()?.as_ref());
+
+                        next.push(Direction::Right);
+                        next.push(Direction::NoDirection);
+                    }
+                    Direction::Right => {
+                        path.pop();
+                    }
+                    Direction::NoDirection => {
+                        path.push(last_node.get_left()?.as_ref());
+
+                        next.push(Direction::Left);
+                        next.push(Direction::NoDirection);
+                    }
+                }
+            }
+        }
+
+        Ok((min_height, max_height))
+    }
+
+    pub fn get_disbalance(&self) -> Result<usize, ARTError> {
+        let (min_height, max_height) = self.min_max_leaf_height()?;
+
+        Ok(max_height - min_height)
+    }
+
     /// Updates art with given changes.
     pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
@@ -645,7 +773,7 @@ where
         }
     }
 
-    pub fn to_string(&self) -> Result<String, ARTError> {
+    pub fn serialise_with_serde_json(&self) -> Result<String, ARTError> {
         match serde_json::to_string(&self) {
             Ok(json) => Ok(json),
             Err(e) => Err(ARTError::SerialisationError(format!(
@@ -655,18 +783,27 @@ where
         }
     }
 
-    pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
-        let tree: Self = match serde_json::from_str(canonical_json) {
-            Ok(tree) => tree,
-            Err(e) => {
-                return Err(ARTError::SerialisationError(format!(
-                    "Failed to deserialize: {:?}",
-                    e
-                )));
-            }
-        };
+    pub fn serialise_with_postcard(&self) -> Result<Vec<u8>, ARTError> {
+        match to_allocvec(self) {
+            Ok(output) => Ok(output),
+            Err(e) => Err(ARTError::SerialisationError(format!(
+                "Failed to serialise: {:?}",
+                e
+            ))),
+        }
+    }
 
-        Ok(tree)
+    pub fn to_string(&self) -> Result<String, ARTError> {
+        self.serialise_with_serde_json()
+    }
+
+    pub fn deserialize_with_postcard(bytes: &Vec<u8>) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(|e| ARTError::SerialisationError(e.to_string()))
+    }
+
+    pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
+        serde_json::from_str(canonical_json)
+            .map_err(|e| ARTError::SerialisationError(format!("Failed to deserialize: {:?}", e)))
     }
 }
 

@@ -1,17 +1,24 @@
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
+use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use art::{ART, PrivateART};
+use bulletproofs::{BulletproofGens, PedersenGens};
+use curve25519_dalek::scalar::Scalar;
+use rand::{Rng, rng};
+use zk::art::{art_prove, art_verify};
 use std::ops::Mul;
 use cortado::{
-    CortadoAffine as ARTGroup, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
+    CortadoAffine, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
 };
+use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
+use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
 
 /// PrivateART usage example. PrivateART contain handle key management, while ART isn't.
 fn private_example() {
     let number_of_users = 100;
-    let generator = ARTGroup::generator();
+    let generator = CortadoAffine::generator();
     let mut rng = StdRng::seed_from_u64(rand::random());
 
     // To create a new tree, the creator of a group will create a set of invitations.
@@ -23,25 +30,31 @@ fn private_example() {
         .collect::<Vec<_>>();
 
     // For new art, creator provides the next method with set of secrets and some generator.
-    let (art, tk) = PrivateART::new_art_from_secrets(&secrets, &generator);
+    let (art, tk) = PrivateART::new_art_from_secrets(&secrets, &generator).unwrap();
 
     // This art can be converted to string using serde serialise as serde_json::to_string(&art)
     // or using build in method.
 
-    let string_representation = art.to_string().unwrap();
-    let recovered_art =
-        PrivateART::<ARTGroup>::from_string_and_secret_key(&string_representation, &secrets[0])
-            .unwrap();
+    let encoded_representation = art.serialise_with_postcard().unwrap();
+    let recovered_art = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+        &encoded_representation,
+        &secrets[0],
+    )
+    .unwrap();
 
     assert_eq!(recovered_art.art, art.art);
 
     // Assume art_i is i-th user art. i-th user knows i-th secret key
-    let mut art_0 =
-        PrivateART::<ARTGroup>::from_string_and_secret_key(&string_representation, &secrets[0])
-            .unwrap();
-    let mut art_1 =
-        PrivateART::<ARTGroup>::from_string_and_secret_key(&string_representation, &secrets[1])
-            .unwrap();
+    let mut art_0 = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+        &encoded_representation,
+        &secrets[0],
+    )
+    .unwrap();
+    let mut art_1 = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+        &encoded_representation,
+        &secrets[1],
+    )
+    .unwrap();
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
     let (tk_1, changes_1) = art_1.update_key(&new_secret_key_1).unwrap();
@@ -80,12 +93,44 @@ fn private_example() {
 
     // For proof generation. there might be useful the next method.
     let (tk, co_path, lambdas) = art_1.recompute_root_key_with_artefacts().unwrap();
+
+    let k = co_path.len();
+
+    let g_1 = CortadoAffine::generator();
+    let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+
+    let gens = PedersenGens::default();
+    let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
+        g_1,
+        h_1,
+        ristretto255_to_ark(gens.B).unwrap(),
+        ristretto255_to_ark(gens.B_blinding).unwrap(),
+    );
+
+    let s = (0..2)
+        .map(|_| cortado::Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+    let blindings: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
+
+    let proof = art_prove(
+        &BulletproofGens::new(2048, 1),
+        basis.clone(),
+        co_path.clone(),
+        lambdas.clone(),
+        s,
+        blindings,
+    )
+    .unwrap();
+
+    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, co_path, proof);
+
+    assert!(verification_result.is_ok());
 }
 
 /// Usage example for usual ART
 fn public_example() {
     let number_of_users = 100;
-    let generator = ARTGroup::generator();
+    let generator = CortadoAffine::generator();
     let mut rng = StdRng::seed_from_u64(rand::random());
 
     // To create a new tree, the creator of a group will firstly create a set of invitations.
@@ -97,13 +142,13 @@ fn public_example() {
         .collect::<Vec<_>>();
 
     // For new art, creator provides the next method with set of secrets and some generator.
-    let (art, tk) = ART::new_art_from_secrets(&secrets, &generator);
+    let (art, tk) = ART::new_art_from_secrets(&secrets, &generator).unwrap();
 
     // This art can be converted to string using serde serialise as serde_json::to_string(&art)
     // or using build in method.
 
-    let string_representation = art.to_string().unwrap();
-    let recovered_art = ART::from_string(&string_representation).unwrap();
+    let string_representation = art.serialise_with_postcard().unwrap();
+    let recovered_art = ART::deserialize_with_postcard(&string_representation).unwrap();
 
     assert_eq!(recovered_art, art);
 

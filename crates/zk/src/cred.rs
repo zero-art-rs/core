@@ -95,7 +95,7 @@ impl Credential {
         secret_key: cortado::Fr,
     ) -> Result<(CortadoAffine, CortadoAffine, cortado::Fr), R1CSError> {
         let Q = (CortadoAffine::generator() * secret_key).into_affine();
-        let r = cortado::Fr::rand(&mut rand::rng());
+        let r = cortado::Fr::rand(&mut rand::thread_rng());
         let R = (CortadoAffine::generator() * r).into_affine();
         let hash = Poseidon_hash_8(
             [

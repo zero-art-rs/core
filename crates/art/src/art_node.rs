@@ -1,7 +1,10 @@
 use crate::helper_tools::{ark_de, ark_se};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Debug;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -21,13 +24,29 @@ pub enum Direction {
     Right,
 }
 
+#[derive(DisplayTree)]
+pub enum ARTDisplayTree {
+    Leaf {
+        #[node_label]
+        public_key: String,
+    },
+    Inner {
+        #[node_label]
+        public_key: String,
+        #[tree]
+        left: Box<Self>,
+        #[tree]
+        right: Box<Self>,
+    },
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
 pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_key: G,
-    pub l: Option<Box<ARTNode<G>>>,
-    pub r: Option<Box<ARTNode<G>>>,
+    pub l: Option<Box<Self>>,
+    pub r: Option<Box<Self>>,
     pub is_temporal: bool,
     pub weight: usize,
 }
@@ -346,6 +365,47 @@ impl<G: AffineRepr> ARTNode<G> {
                 "Unexpected direction".into(),
             )),
         }
+    }
+
+    pub fn display_analog(&self) -> ARTDisplayTree {
+        match self.is_leaf() {
+            true => ARTDisplayTree::Leaf {
+                public_key: format!(
+                    "{}leaf of weight: {}, x: {}",
+                    match self.is_temporal {
+                        true => "temporal ",
+                        false => "",
+                    },
+                    self.weight,
+                    self.public_key.x().unwrap(),
+                ),
+            },
+            false => ARTDisplayTree::Inner {
+                public_key: format!(
+                    "{}node of weight: {}, x: {}",
+                    match self.is_temporal {
+                        true => "temporal ",
+                        false => "",
+                    },
+                    self.weight,
+                    self.public_key.x().unwrap(),
+                ),
+                left: Box::new(self.get_left().unwrap().display_analog()),
+                right: Box::new(self.get_right().unwrap().display_analog()),
+            },
+        }
+    }
+
+    pub fn print_as_formated_tree(&self) {
+        println!(
+            "{}",
+            format_tree!(
+                self.display_analog(),
+                Style::default()
+                    .indentation(4)
+                    .char_set(CharSet::DOUBLE_LINE)
+            )
+        );
     }
 }
 
