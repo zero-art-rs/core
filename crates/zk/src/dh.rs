@@ -16,7 +16,7 @@ use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use tracing_subscriber::field::debug;
-use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar};
+use cortado::{self, CortadoAffine, Parameters, ToScalar};
 use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
 use hex::FromHex;
 

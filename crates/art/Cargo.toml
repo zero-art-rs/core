@@ -23,4 +23,5 @@ serde_bytes = {workspace = true}
 criterion = { workspace = true }
 thiserror = {workspace = true}
 zk = {path = "../zk"}
+cortado = {path = "../cortado"}
 curve25519-dalek = { version = "4.1.1", features = ["digest", "group", "rand_core", "serde"] }

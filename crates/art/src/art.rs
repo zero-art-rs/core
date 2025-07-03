@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{cmp::max, mem};
 use thiserror::Error;
-use zk::curve::cortado::fq::ToScalar;
 
 #[derive(Error, Debug)]
 pub enum ARTError {

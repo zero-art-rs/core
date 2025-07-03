@@ -20,7 +20,7 @@ use tracing_subscriber::field::debug;
 use zkp::toolbox::dalek_ark::ark_to_scalar;
 use zkp::toolbox::{FromBytes, SchnorrCS, ToBytes};
 use zkp::BatchableProof;
-use crate::curve::cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
+use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
 use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v1, scalar_mul_gadget_v2};
 use crate::gadgets;
 use crate::gadgets::poseidon_gadget::{PoseidonParams, Poseidon_hash_4, Poseidon_hash_8, Poseidon_hash_8_constraints, Poseidon_hash_8_gadget, SboxType};
@@ -95,7 +95,7 @@ impl Credential {
         secret_key: cortado::Fr,
     ) -> Result<(CortadoAffine, CortadoAffine, cortado::Fr), R1CSError> {
         let Q = (CortadoAffine::generator() * secret_key).into_affine();
-        let r = cortado::Fr::rand(&mut rand::thread_rng());
+        let r = cortado::Fr::rand(&mut rand::rng());
         let R = (CortadoAffine::generator() * r).into_affine();
         let hash = Poseidon_hash_8(
             [

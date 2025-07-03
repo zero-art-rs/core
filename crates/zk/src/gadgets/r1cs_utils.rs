@@ -12,7 +12,7 @@ use rand::thread_rng;
 use merlin::Transcript;
 
 use crate::art::R1CSProof;
-use crate::curve::cortado::{self, ToScalar as _};
+use cortado::{self, ToScalar as _};
 
 /// Represents a variable for quantity, along with its assignment.
 #[derive(Copy, Clone, Debug)]

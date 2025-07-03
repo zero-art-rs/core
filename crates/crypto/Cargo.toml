@@ -1,0 +1,14 @@
+[package]
+name = "crypto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hkdf = { version = "0.12.4", features = ["std"] }
+zkp = { workspace = true }
+thiserror = { workspace = true }
+sha3 = "0.10.8"
+ark-serialize = { workspace = true }
+cortado = { path = "../cortado" }
+rand = "0.8.5"
+rand_core = "0.6.4"

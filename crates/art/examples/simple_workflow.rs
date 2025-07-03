@@ -4,7 +4,7 @@ use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use art::{ART, PrivateART};
 use std::ops::Mul;
-use zk::curve::cortado::{
+use cortado::{
     CortadoAffine as ARTGroup, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
 };
 
