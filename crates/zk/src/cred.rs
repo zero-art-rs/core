@@ -3,36 +3,45 @@ use std::ops::{Add, Mul};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{self, Instant, SystemTime};
 
+use chrono::{DateTime, Utc};
 use rand_core::{le, OsRng};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
-use bulletproofs::{r1cs::*, ProofError};
+use bulletproofs::{r1cs::{self, *}, ProofError};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::ristretto::{self, CompressedRistretto};
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
-use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
+use ark_ff::{BigInt, BigInteger, Field, MontConfig, PrimeField, UniformRand};
 use tracing_subscriber::field::debug;
+use zkp::toolbox::dalek_ark::ark_to_scalar;
 use zkp::toolbox::{FromBytes, SchnorrCS, ToBytes};
 use zkp::BatchableProof;
-use crate::art::R1CSProof;
-use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar};
-use crate::poseidon::r1cs_utils::AllocatedScalar;
+use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
+use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v1, scalar_mul_gadget_v2};
+use crate::gadgets;
+use crate::gadgets::poseidon_gadget::{PoseidonParams, Poseidon_hash_4, Poseidon_hash_8, Poseidon_hash_8_constraints, Poseidon_hash_8_gadget, SboxType};
+use crate::gadgets::r1cs_utils::{co_linear_gadget, set_non_membership_gadget, AllocatedPoint, AllocatedQuantity, AllocatedScalar, ProversAllocatableCortado as _, VerifiersAllocatableCortado as _};
 use hex::FromHex;
 use zkp::toolbox::prover::Prover;
 use zkp::toolbox::verifier::Verifier;
 
-pub struct AllocatedPoint {
-    pub x: AllocatedScalar,
-    pub y: AllocatedScalar,
+const TIME_DELTA_SIZE: u64 = 32; // size of the maximum time delta in bits
+const TIME_PROVER_VERIFIER_TIME_TOLERANCE: u64 = 10;
+
+fn get_poseidon_params() -> PoseidonParams{
+    let width = 10;
+    let (full_b, full_e) = (4, 4);
+    let partial_rounds = 140;
+    PoseidonParams::new(width, full_b, full_e, partial_rounds)
 }
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct CredentialClaims {
-    id: cortado::Fr, // credential unique identifier (seed)
+    id: cortado::Fq, // credential unique identifier (seed)
     Q: CortadoAffine, // credential holder public key
     expiration: u64, // credential expiration time as UNIX timestamp
 }
@@ -43,75 +52,314 @@ impl FromBytes for CredentialClaims {}
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Credential {
     pub claims: CredentialClaims,
-    pub signature: (CortadoAffine, cortado::Fr)
+    pub signature: (CortadoAffine, cortado::Fr),
+    pub issuer: CortadoAffine, // issuer public key
+}
+
+
+// TODO: implement FromBytes and ToBytes for CredentialPresentationProof
+#[derive(Clone)]
+pub struct CredentialPresentationProof {
+    pub proof: R1CSProof,
+    pub id_comm: CompressedRistretto,
+    pub Q_holder_comm: (CompressedRistretto, CompressedRistretto),
+    pub claimed_time: DateTime<Utc>,
+    pub exp_comm: CompressedRistretto,
+    pub k_comm: CompressedRistretto,
+    pub c_comm: CompressedRistretto,
+    pub R_comm: (CompressedRistretto, CompressedRistretto),
+    pub s_comm: CompressedRistretto,
+    pub Q_issuer: CortadoAffine, // issuer public key
 }
 
 impl Credential {
-    fn dl_statement<CS: SchnorrCS>(
-        cs: &mut CS,
-        x: CS::ScalarVar,
-        A: CS::PointVar,
-        B: CS::PointVar,
-    ) {
-        cs.constrain(A, vec![(x, B)]);
+    fn get_hash(&self) -> Scalar {
+        Poseidon_hash_8(
+            [
+                self.claims.id.into_scalar(), 
+                self.claims.Q.x().unwrap().into_scalar(), 
+                self.claims.Q.y().unwrap().into_scalar(), 
+                cortado::Fq::from(self.claims.expiration).into_scalar(),
+                self.issuer.x().unwrap().into_scalar(),
+                self.issuer.y().unwrap().into_scalar(),
+                self.signature.0.x().unwrap().into_scalar(),
+                self.signature.0.y().unwrap().into_scalar(),
+            ], 
+            &get_poseidon_params(), 
+            &SboxType::Penta
+        )
+    }
+
+    fn sign_claims(
+        claims: &CredentialClaims,
+        secret_key: cortado::Fr,
+    ) -> Result<(CortadoAffine, CortadoAffine, cortado::Fr), R1CSError> {
+        let Q = (CortadoAffine::generator() * secret_key).into_affine();
+        let r = cortado::Fr::rand(&mut rand::thread_rng());
+        let R = (CortadoAffine::generator() * r).into_affine();
+        let hash = Poseidon_hash_8(
+            [
+                claims.id.into_scalar(), 
+                claims.Q.x().unwrap().into_scalar(), 
+                claims.Q.y().unwrap().into_scalar(), 
+                cortado::Fq::from(claims.expiration).into_scalar(),
+                Q.x().unwrap().into_scalar(),
+                Q.y().unwrap().into_scalar(),
+                R.x().unwrap().into_scalar(),
+                R.y().unwrap().into_scalar()
+                ], 
+            &get_poseidon_params(), 
+            &SboxType::Penta
+        );
+        let s = secret_key * cortado::Fr::from_le_bytes_mod_order(hash.as_bytes()) + r;
+        
+        Ok((Q, R, s))
     }
 
     /// issue new credential
-    pub fn issue(issuer: cortado::Fr, expiration: SystemTime, holder: CortadoAffine) -> Result<Self, R1CSError> {
+    pub fn issue(issuer: cortado::Fr, validity_period: u64, holder: CortadoAffine) -> Result<Self, R1CSError> {
         let claims = CredentialClaims {
-            id: issuer,
+            id: cortado::Fq::rand(&mut rand::thread_rng()), // This should be a unique identifier, e.g., a hash of the holder's public key
             Q: holder,
-            expiration: expiration
-                .duration_since(time::UNIX_EPOCH)
-                .expect("expiration must be after UNIX_EPOCH")
-                .as_secs(),
+            expiration: (Utc::now().timestamp() as u64) + validity_period, // expiration time in seconds
         };
-        let claims_bytes = claims.to_bytes().map_err(|_| R1CSError::FormatError)?;
-        let mut transcript = Transcript::new(b"credential_issuance");
-        transcript.append_message(b"credential", &claims_bytes);
-        let mut prover = Prover::new(b"credential_issuance", transcript);
-        let s_var = prover.allocate_scalar(b"s", issuer);
-        let (G_var, _) = prover.allocate_point(b"G", cortado::CortadoAffine::generator());
-        let Q = (cortado::CortadoAffine::generator() * issuer).into_affine();
-        let (Q_var, _) = prover.allocate_point(b"Q", Q);
-        Self::dl_statement(&mut prover, s_var, Q_var, G_var);
-        let proof = prover.prove_batchable();
-        Ok(
-            Credential { claims, signature: (proof.commitments[0], proof.responses[0]) }
-        )
+        let (Q, R, s) = Self::sign_claims(&claims, issuer)
+            .map_err(|_| R1CSError::FormatError)?;
+
+        Ok(Self {
+            claims,
+            signature: (R, s),
+            issuer: Q,
+        })
     }
 
     /// verify loaded credential (only for holder)
     pub fn verify(&self) -> Result<(), R1CSError> {
-        let claims_bytes = self.claims.to_bytes().map_err(|_| R1CSError::FormatError)?;
-        let mut transcript = Transcript::new(b"credential_issuance");
-        transcript.append_message(b"credential", &claims_bytes);
-        let mut verifier = Verifier::new(b"credential_issuance", transcript);
-        let s_var = verifier.allocate_scalar(b"s");
-        let G_var = verifier.allocate_point(b"G", cortado::CortadoAffine::generator()).map_err(|_| R1CSError::VerificationError)?;
-        let Q_var = verifier.allocate_point(b"Q", self.claims.Q).map_err(|_| R1CSError::VerificationError)?;
-        Self::dl_statement(&mut verifier, s_var, Q_var, G_var);
+        let hash = Poseidon_hash_8(
+            [
+                self.claims.id.into_scalar(), 
+                self.claims.Q.x().unwrap().into_scalar(), 
+                self.claims.Q.y().unwrap().into_scalar(), 
+                cortado::Fq::from(self.claims.expiration).into_scalar(),
+                self.issuer.x().unwrap().into_scalar(),
+                self.issuer.y().unwrap().into_scalar(),
+                self.signature.0.x().unwrap().into_scalar(),
+                self.signature.0.y().unwrap().into_scalar(),
+            ], 
+            &get_poseidon_params(), 
+            &SboxType::Penta
+        );
 
-        verifier.verify_batchable(&BatchableProof{
-            commitments: vec![self.signature.0],
-            responses: vec![self.signature.1],
-        }).map_err(|_| R1CSError::VerificationError)
+        let R2 = (CortadoAffine::generator() * self.signature.1 - self.issuer * cortado::Fr::from_le_bytes_mod_order(hash.as_bytes())).into_affine();
+        if self.signature.0 == R2 {
+            Ok(())
+        } else {
+            Err(R1CSError::VerificationError)
+        }
+    }
+
+    pub fn credential_presentation_gadget<CS: ConstraintSystem>(
+        cs: &mut CS,
+        // public inputs
+        prover_time: u64,
+        Q_issuer: CortadoAffine,
+        revocation_list: Vec<Scalar>,
+
+        // secret inputs
+        id: AllocatedScalar,
+        Q_holder: AllocatedPoint,
+        expiration: AllocatedScalar,
+        k: AllocatedScalar,
+        c: AllocatedScalar,
+        R: AllocatedPoint,
+        s: AllocatedScalar,
+    ) -> Result<(), R1CSError> {
+        // add inputs for the hash
+        let input = [
+            LinearCombination::from(id.variable), 
+            LinearCombination::from(Q_holder.x.variable), 
+            LinearCombination::from(Q_holder.y.variable), 
+            LinearCombination::from(expiration.variable), 
+            LinearCombination::from(Variable::One() * Q_issuer.x().unwrap().into_scalar()), 
+            LinearCombination::from(Variable::One() * Q_issuer.y().unwrap().into_scalar()),
+            LinearCombination::from(R.x.variable), 
+            LinearCombination::from(R.y.variable),
+        ];
+
+        // check hash
+        let hash_lc = Poseidon_hash_8_constraints(cs, input, &get_poseidon_params(), &SboxType::Penta)?;
+        cs.constrain(c.variable - hash_lc);
+
+        // check that id is not in the revocation list
+        set_non_membership_gadget(cs, id, revocation_list)?;
+
+        // check the possesion of k
+        let Q = scalar_mul_gadget_v2(cs, k, CortadoAffine::generator())?;
+        cs.constrain(Q_holder.x.variable - Q.x.variable);
+        cs.constrain(Q_holder.y.variable - Q.y.variable);
+
+        // check that credential is not expired
+        let time_lc = LinearCombination::from(expiration.variable - prover_time);
+        bin_equality_gadget(cs, &time_lc, expiration.assignment.map(|e| e - Scalar::from(prover_time)), TIME_DELTA_SIZE)?;
+
+        // compute verification equation
+        let P = scalar_mul_gadget_v2(cs, s, CortadoAffine::generator())?;
+        let Q = scalar_mul_gadget_v2(cs, c, Q_issuer)?;
+
+        // check that R = P - Q
+        co_linear_gadget(cs, P, Q, R)
     }
 
     /// create credential presentation proof
-    pub fn present(&self) -> Result<R1CSProof, R1CSError> {
-        todo!()
+    pub fn present(&self, k: cortado::Fr, revocation_list: Vec<Scalar>) -> Result<CredentialPresentationProof, R1CSError> {
+        let start = Instant::now();
+        let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
+        let pc_gens = PedersenGens::default();
+        let mut prover = r1cs::Prover::new(&pc_gens, &mut transcript);
+        let (id_var, id_comm) = prover.allocate_scalar(self.claims.id.into_scalar())?;
+        let (Q_holder, Q_holder_comm) = prover.allocate_point(
+            self.claims.Q.x().unwrap().into_scalar(),
+            self.claims.Q.y().unwrap().into_scalar(),
+        )?;
+        let (exp_var, exp_comm) = prover.allocate_scalar(cortado::Fq::from(self.claims.expiration).into_scalar())?;
+        let (k_var, k_comm) = prover.allocate_scalar(k.into_scalar())?;
+        let (c_var, c_comm) = prover.allocate_scalar(self.get_hash())?;
+        let (R, R_comm) = prover.allocate_point(
+            self.signature.0.x().unwrap().into_scalar(),
+            self.signature.0.y().unwrap().into_scalar(),
+        )?;
+        let (s_var, s_comm) = prover.allocate_scalar( Scalar::from_bytes_mod_order((&self.signature.1.into_bigint().to_bytes_le()[..]).try_into().unwrap() ) )?;
+        let claimed_time = Utc::now();
+
+        Self::credential_presentation_gadget(
+            &mut prover,
+            claimed_time.timestamp() as u64,
+            self.issuer,
+            revocation_list,
+            id_var,
+            Q_holder,
+            exp_var,
+            k_var,
+            c_var,
+            R,
+            s_var,
+        )?;
+        debug!("Credential presentation gadget metrics: {:?}", prover.metrics());
+        let proof = prover.prove(&BulletproofGens::new(8192, 1))?;
+        debug!("Credential presentation proof generated in {:?}", start.elapsed());
+
+        Ok(CredentialPresentationProof {
+            proof,
+            id_comm,
+            Q_holder_comm,
+            claimed_time,
+            exp_comm,
+            k_comm,
+            c_comm,
+            R_comm,
+            s_comm,
+            Q_issuer: self.issuer,
+        })
+    }
+
+    pub fn verify_presentation(
+        proof: &CredentialPresentationProof,
+        revocation_list: Vec<Scalar>
+    ) -> Result<(), R1CSError> {
+        let start = Instant::now();
+        let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
+        let pc_gens = PedersenGens::default();
+        let mut verifier = r1cs::Verifier::new(&mut transcript);
+        
+        let id_var = verifier.allocate_scalar(proof.id_comm)?;
+        let Q_holder = verifier.allocate_point(proof.Q_holder_comm.0, proof.Q_holder_comm.1)?;
+        let exp_var = verifier.allocate_scalar(proof.exp_comm)?;
+        let k_var = verifier.allocate_scalar(proof.k_comm)?;
+        let c_var = verifier.allocate_scalar(proof.c_comm)?;
+        let R = verifier.allocate_point(proof.R_comm.0, proof.R_comm.1)?;
+        let s_var = verifier.allocate_scalar(proof.s_comm)?;
+
+        Self::credential_presentation_gadget(
+            &mut verifier,
+            proof.claimed_time.timestamp() as u64,
+            proof.Q_issuer,
+            revocation_list,
+            id_var,
+            Q_holder,
+            exp_var,
+            k_var,
+            c_var,
+            R,
+            s_var,
+        )?;
+        if Utc::now() - proof.claimed_time > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64) {
+            debug!("Credential presentation proof claimed time is within tolerance {:?}", Utc::now() - proof.claimed_time);
+            return Err(R1CSError::VerificationError);
+        }
+
+        verifier.verify(&proof.proof, &pc_gens, &BulletproofGens::new(8192, 1))?;
+        debug!("Credential presentation proof verified in {:?}", start.elapsed());
+        Ok(())
     }
 }
 
-pub fn credential_presentation_gadget<CS: ConstraintSystem>(
-    cs: &mut CS,
-    R: AllocatedPoint,
-    s: AllocatedScalar,
+#[test]
+fn test_credential_issue_and_verify() {
+    let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
 
-    Q_holder: AllocatedPoint,
-    Q_issuer: CortadoAffine,
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(log_level)
+        .with_target(false)
+        .try_init();
+
+    let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+    let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+    let validity_period = 3600; // 1 hour validity
+    let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+    let revocation_list = vec![
+        Scalar::from(1u64), 
+        Scalar::from(2u64), 
+        Scalar::from(3u64), 
+        Scalar::from(4u64)
+    ]; // Example revocation list
+
+    // Issue a credential
+    let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
     
-) -> Result<(), R1CSError> {
-    todo!()
+    // Verify the credential
+    assert!(credential.verify().is_ok());
+
+    // Create a credential presentation proof
+    let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
+
+    // Verify the credential presentation proof
+    assert!(Credential::verify_presentation(&proof, revocation_list).is_ok());
+}
+
+#[test]
+fn test_revoked_credential() {
+    let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(log_level)
+        .with_target(false)
+        .try_init();
+
+    let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+    let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+    let validity_period = 3600; // 1 hour validity
+    let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+    
+    // Issue a credential
+    let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
+    
+    // Verify the credential
+    assert!(credential.verify().is_ok());
+
+    // Create a credential presentation proof
+    let revocation_list = vec![credential.claims.id.into_scalar()]; // Revoking the issued credential
+    let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
+
+    // Verify the credential presentation proof should fail due to revocation
+    assert!(Credential::verify_presentation(&proof, revocation_list).is_err());
 }

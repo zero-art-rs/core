@@ -18,9 +18,9 @@ use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
-use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar, FromScalar};
+use cortado::{self, CortadoAffine, Parameters, ToScalar, FromScalar};
 use crate::dh::dh_gadget;
-use crate::poseidon::r1cs_utils::AllocatedScalar;
+use crate::gadgets::r1cs_utils::AllocatedScalar;
 
 #[derive(Clone)]
 pub struct R1CSProof(BPR1CSProof);

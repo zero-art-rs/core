@@ -9,7 +9,7 @@ mod tests {
     use postcard::{from_bytes, to_allocvec};
     use rand::{Rng, rng};
     use std::ops::Mul;
-    use zk::curve::cortado::{CortadoAffine as ARTGroup, Fq as BaseField, Fr as ARTScalarField};
+    use cortado::{CortadoAffine as ARTGroup, Fq as BaseField, Fr as ARTScalarField};
 
     pub fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());

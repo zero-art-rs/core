@@ -7,10 +7,10 @@ use art::{ART, PrivateART};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
 use rand::{Rng, rng};
+use zk::art::{art_prove, art_verify};
 use std::ops::Mul;
-use zk::art::{art_prove, art_verify, random_witness_gen};
-use zk::curve::cortado::{
-    self, CortadoAffine, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
+use cortado::{
+    CortadoAffine, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
 };
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};

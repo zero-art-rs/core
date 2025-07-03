@@ -1,4 +1,4 @@
-use crate::curve::cortado::{Fq, Fr};
+use crate::{Fq, Fr};
 use ark_ec::{models::CurveConfig, short_weierstrass::*};
 use ark_ff::{Field, MontFp};
 

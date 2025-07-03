@@ -16,8 +16,8 @@ use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use tracing_subscriber::field::debug;
-use crate::curve::cortado::{self, CortadoAffine, Parameters, ToScalar};
-use crate::poseidon::r1cs_utils::AllocatedScalar;
+use cortado::{self, CortadoAffine, Parameters, ToScalar};
+use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
 use hex::FromHex;
 
 
@@ -54,14 +54,15 @@ impl GetBit for Scalar {
     }
 }
 
-fn bin_equality_gadget<CS: ConstraintSystem>(
+
+/// checks if x value belongs to the range [0, 2^bit_size)
+pub fn bin_equality_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
     x: &LinearCombination,
     x_val: Option<Scalar>,
+    bit_size: u64,
 ) -> Result<Vec<Variable>, R1CSError> {
-
-    
-    let x_bits: Vec<Variable> = (0..MODULUS_BIT_SIZE as usize)
+    let x_bits: Vec<Variable> = (0..bit_size as usize)
         .map(|i| {
             // Create low-level variables and add them to constraints
             let (a, b, o) = cs.allocate_multiplier(x_val.map(|bint| {
@@ -96,14 +97,15 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
-) -> Result<(Variable, Variable), R1CSError> {
+) -> Result<AllocatedPoint, R1CSError> {
+    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
     } else {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(i+2)).into_affine()
+        (G * cortado::Fr::from(i+2)).into_affine()
     }).collect();
 
     let mut δ = vec![Q_b];
@@ -111,7 +113,7 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
     let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a)?;
+    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
@@ -151,9 +153,15 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Δ_i_y + y_P, P_i_1_x - x_P);
         cs.constrain(t1-t2);
     }
-    info!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
     
-    Ok(*P_vars.last().unwrap())
+    let (x_var,y_var) = *P_vars.last().unwrap();
+    let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
+    
+    Ok(AllocatedPoint{
+        x: AllocatedScalar { variable: x_var, assignment: P.map(|P| P.x().unwrap().into_scalar()) }, 
+        y: AllocatedScalar { variable: y_var, assignment: P.map(|P| P.y().unwrap().into_scalar()) } 
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,13 +178,14 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
-) -> Result<(Variable, Variable), R1CSError> {
+) -> Result<AllocatedPoint, R1CSError> {
+    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
     } else {
-        (cortado::Parameters::GENERATOR * cortado::Fr::from(i+2)).into_affine()
+        (G * cortado::Fr::from(i+2)).into_affine()
     }).collect();
 
     let mut δ = vec![Q_b];
@@ -184,7 +193,7 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
     let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a)?;
+    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
@@ -231,9 +240,14 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - x_P);
         cs.constrain(t2 - (P_i_1_y + y_P));
     }
-    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone()) );
+    let (x_var,y_var) = *P_vars.last().unwrap();
+    let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
     
-    Ok(*P_vars.last().unwrap())
+    Ok(AllocatedPoint{
+        x: AllocatedScalar { variable: x_var, assignment: P.map(|P| P.x().unwrap().into_scalar()) }, 
+        y: AllocatedScalar { variable: y_var, assignment: P.map(|P| P.y().unwrap().into_scalar()) } 
+    })
 }
 
 /// gadget constraining λ_ab = x(λ_a * Q_b)
@@ -245,12 +259,12 @@ pub fn dh_gadget<CS: ConstraintSystem>(
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
     let AllocatedScalar {variable: var_ab, assignment: _} = λ_ab;
-    let (var_R_x, _) = match ver {
+    let var_R = match ver {
         1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
         2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
         _ => return Err(R1CSError::VerificationError),
     };
-    cs.constrain(var_R_x - var_ab);
+    cs.constrain(var_R.x.variable - var_ab);
     Ok(())
 }
 

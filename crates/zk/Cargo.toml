@@ -4,21 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ark-algebra-test-templates = "0.5.0"
-ark-ec = "0.5.0"
+cortado = {path = "../cortado"}
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+ark-std = { workspace = true }
+bulletproofs = { workspace = true, features = ["yoloproofs"] }
+curve25519-dalek = { workspace = true, features = ["digest", "group", "rand_core", "serde"] }
 ark-ed25519 = "0.5.0"
-ark-ff = "0.5.0"
-ark-serialize = "0.5.0"
-ark-std = "0.5.0"
-bulletproofs = { version = "5.0.0", git="https://github.com/zk-messenger/bulletproofs", features = ["yoloproofs"] }
-curve25519-dalek = { version = "4.1.1", features = ["digest", "group", "rand_core", "serde"] }
+chrono = "0.4.41"
 hex = "0.4.3"
 merlin = "3.0.0"
 rand = "0.8.5"
 rand_core = "0.6.4"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
-zkp = { version = "0.9.3", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"]}
+zkp = { workspace = true, git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
 
 [profile.test]
 inherits = "release"
@@ -27,4 +28,3 @@ inherits = "release"
 multi_thread_prover = []
 multi_thread_verifier = []
 default = ["multi_thread_prover", "multi_thread_verifier"]
-
