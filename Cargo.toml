@@ -29,6 +29,6 @@ curve25519-dalek = { version = "4.1.3", features = ["digest", "group", "rand_cor
 bulletproofs = { version = "5.0.0", git="https://github.com/zk-messenger/bulletproofs"}
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
-zkp = { version = "0.9.3", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
+zkp = { version = "0.10.0", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
 display_tree = { version = "1.1.2" }
 postcard = { version = "1.1.2" }

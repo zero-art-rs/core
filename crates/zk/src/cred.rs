@@ -1,33 +1,23 @@
 #![allow(non_snake_case)]
-use std::ops::{Add, Mul};
-use std::sync::{mpsc, Arc, Mutex};
+
 use std::time::{self, Instant, SystemTime};
 
 use chrono::{DateTime, Utc};
-use rand_core::{le, OsRng};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
 use bulletproofs::{r1cs::{self, *}, ProofError};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::ristretto::{self, CompressedRistretto};
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
-use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tracing::{debug, info, instrument};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, MontConfig, PrimeField, UniformRand};
-use tracing_subscriber::field::debug;
-use zkp::toolbox::dalek_ark::ark_to_scalar;
 use zkp::toolbox::{FromBytes, SchnorrCS, ToBytes};
-use zkp::BatchableProof;
 use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v1, scalar_mul_gadget_v2};
-use crate::gadgets;
-use crate::gadgets::poseidon_gadget::{PoseidonParams, Poseidon_hash_4, Poseidon_hash_8, Poseidon_hash_8_constraints, Poseidon_hash_8_gadget, SboxType};
-use crate::gadgets::r1cs_utils::{co_linear_gadget, set_non_membership_gadget, AllocatedPoint, AllocatedQuantity, AllocatedScalar, ProversAllocatableCortado as _, VerifiersAllocatableCortado as _};
-use hex::FromHex;
-use zkp::toolbox::prover::Prover;
-use zkp::toolbox::verifier::Verifier;
+use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v2};
+use crate::gadgets::poseidon_gadget::*;
+use crate::gadgets::r1cs_utils::*;
 
 const TIME_DELTA_SIZE: u64 = 32; // size of the maximum time delta in bits
 const TIME_PROVER_VERIFIER_TIME_TOLERANCE: u64 = 10;

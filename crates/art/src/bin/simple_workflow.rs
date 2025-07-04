@@ -115,6 +115,7 @@ fn private_example() {
     let proof = art_prove(
         &BulletproofGens::new(2048, 1),
         basis.clone(),
+        b"there should be ART data or hash",
         co_path.clone(),
         lambdas.clone(),
         s,
@@ -122,7 +123,7 @@ fn private_example() {
     )
     .unwrap();
 
-    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, co_path, proof);
+    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, b"there should be ART data or hash", co_path, proof);
 
     assert!(verification_result.is_ok());
 }

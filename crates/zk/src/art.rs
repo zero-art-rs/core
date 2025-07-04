@@ -78,13 +78,15 @@ impl CanonicalDeserialize for R1CSProof {
 /// Prove the cross-group relation Rσ for a given basis:
 /// Rσ = { (λ_a, r; Q ∈ 𝔾_1^k, Com ∈ 𝔾_2^k) | ∀i ∈ [0, k-1], Q[i] = λ_a[i] * H_1, Com(λ_a[i]) = λ_a[i] * G_2 + r[i] * H_2 }
 pub fn Rσ_prove(
+    transcript: &mut Transcript,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     s : Vec<cortado::Fr>, // auxiliary 𝔾_1 secrets
     λ_a: Vec<Scalar>, // cross-group secrets
     blindings: Vec<Scalar>,
 ) -> Result<(CrossDLEQProof<CortadoAffine>, Vec<CortadoAffine>), zkp::ProofError> {
     let start = Instant::now();
-    let mut prover: CrossDleqProver<CortadoAffine> = CrossDleqProver::new(basis);
+    let mut prover: CrossDleqProver<CortadoAffine> = CrossDleqProver::new(basis, transcript);
+    
     let mut R = vec![];
     for s in s {
         R.push(prover.add_dl_statement(s));
@@ -102,12 +104,13 @@ pub fn Rσ_prove(
 }
 
 pub fn Rσ_verify(
+    transcript: &mut Transcript,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     proof: CrossDLEQProof<CortadoAffine>,
 ) -> Result<(), zkp::ProofError> {
     let start = Instant::now();
-    let mut verifier: CrossDleqVerifier<CortadoAffine> = CrossDleqVerifier::new(basis);
+    let mut verifier: CrossDleqVerifier<CortadoAffine> = CrossDleqVerifier::new(basis, transcript);
     for R in R {
         verifier.add_dl_statement(R);
     }
@@ -287,9 +290,12 @@ pub fn random_witness_gen(k: u32) -> (Vec<CortadoAffine>, Vec<Scalar>) {
     (Q, λ)
 }
 
+/// generate an ART update proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
+/// reciprocal co-path public keys Q_b, ART path secrets λ_a, auxiliary 𝔾_1 secrets s, and blinding factors for λ_a
 pub fn art_prove(
     bp_gens: &BulletproofGens,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
+    ad: &[u8], // auxiliary data
     Q_b: Vec<CortadoAffine>, // reciprocal public keys
     λ_a: Vec<Scalar>, // secrets
     s: Vec<cortado::Fr>, // auxiliary 𝔾_1 secrets
@@ -298,7 +304,10 @@ pub fn art_prove(
     let start = Instant::now();
     let pc_gens = PedersenGens{B: ark_to_ristretto255(basis.G_2).unwrap(), B_blinding: ark_to_ristretto255(basis.H_2).unwrap()};
     let (Rι_proofs, _) = Rι_prove(&pc_gens, bp_gens, Q_b.clone(), λ_a.clone(), blindings.clone())?;
+    let mut transcript = Transcript::new(b"R_sigma");
+    transcript.append_message(b"ad", ad);
     let (Rσ_proof, R) = Rσ_prove(
+        &mut transcript,
         basis,
         s,
         λ_a,
@@ -313,9 +322,12 @@ pub fn art_prove(
     })
 }
 
+/// verify an ART proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
+/// reciprocal co-path public keys Q_b, and the ART proof itself
 pub fn art_verify(
     bp_gens: &BulletproofGens,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
+    ad: &[u8], // auxiliary data
     Q_b: Vec<CortadoAffine>, // reciprocal public keys
     proof: ARTProof
 ) -> Result<(), R1CSError> {
@@ -330,7 +342,9 @@ pub fn art_verify(
             ).unwrap().compress()
         ).collect::<Vec<_>>();
     Rι_verify(&pc_gens, bp_gens, proof.Rι, Q_b, commitments)?;
-    Rσ_verify(basis, proof.R, proof.Rσ)
+    let mut transcript = Transcript::new(b"R_sigma");
+    transcript.append_message(b"ad", ad);
+    Rσ_verify(&mut transcript, basis, proof.R, proof.Rσ)
         .map_err(|e| R1CSError::GadgetError{ description: format!("Rσ_verify failed: {e:?}") })?;
     
     debug!("ART proof verification time: {:?}", start.elapsed());
@@ -390,13 +404,16 @@ mod tests {
         let (Q, λ) = random_witness_gen(k);
         let s = (0..2).map(|_| cortado::Fr::rand(&mut thread_rng())).collect::<Vec<_>>();
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut thread_rng())).collect();
+        let mut prover_transcript = Transcript::new(b"Test");
         let (proof, R) = Rσ_prove(
+            &mut prover_transcript,
             basis.clone(),
             s,
             λ.clone(),
             blindings
         )?;
-        Rσ_verify(basis, R, proof)
+        let mut verifier_transcript = Transcript::new(b"Test");
+        Rσ_verify(&mut verifier_transcript, basis, R, proof)
     }
 
     #[test]
@@ -427,6 +444,7 @@ mod tests {
         let proof = art_prove(
             &BulletproofGens::new(2048, 1),
             basis.clone(),
+            &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
             Q.clone(),
             λ.clone(),
             s,
@@ -436,6 +454,7 @@ mod tests {
         art_verify(
             &BulletproofGens::new(2048, 1),
             basis,
+            &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
             Q,
             proof
         )

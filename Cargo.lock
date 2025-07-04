@@ -1881,8 +1881,8 @@ dependencies = [
 
 [[package]]
 name = "zkp"
-version = "0.9.3"
-source = "git+https://github.com/juja256/zkp#e2a3a779202662ab5290bb81a07a783676528c84"
+version = "0.10.0"
+source = "git+https://github.com/juja256/zkp#cd89db6eb0ebd1727b5cebdec8bdfd1c89016b53"
 dependencies = [
  "ark-ec",
  "ark-ed25519",
