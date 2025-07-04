@@ -131,11 +131,12 @@ pub fn Rι_prove(
     let start = Instant::now();
     let k = Q_b.len();
     assert!(k == λ_a.len() - 1, "length mismatch");
-    let commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k+1]));
-    let proofs = Arc::new(Mutex::new(vec![None; k]));
+    
         
     #[cfg(feature = "multi_thread_prover")]
     {
+        let commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k+1]));
+        let proofs = Arc::new(Mutex::new(vec![None; k]));
         let mut handles = Vec::new();
         for i in 0..k {
             let proofs = proofs.clone();
@@ -174,39 +175,35 @@ pub fn Rι_prove(
         for handle in handles {
             handle.join().unwrap();
         }
+
+        let proof_len = proofs.lock().unwrap().iter()
+            .filter_map(|x| x.as_ref())
+            .map(|x| x.to_bytes().len())
+            .sum::<usize>();
+        debug!("Rι_prove (parallel) for depth {k} proving time: {:?}, proof_len: {proof_len}", start.elapsed());
+        Ok((proofs.lock().unwrap().iter().map(|x| R1CSProof(x.as_ref().unwrap().clone()) ).collect(), commitments.lock().unwrap().clone()))
     }
     #[cfg(not(feature = "multi_thread_prover"))]
     {
-        for i in 0..k {
-            let mut transcript = Transcript::new(b"ARTGadget");
-            let mut prover = Prover::new(&pc_gens, &mut transcript);
+        let mut commitments = Vec::new();
+        let mut vars = Vec::new();
+        let mut transcript = Transcript::new(b"ARTGadget");
+        let mut prover = Prover::new(&pc_gens, &mut transcript);
+
+        for i in 0..k+1 {
             let (a_commitment, var_a) = prover.commit(λ_a[i], blindings[i]);
-            let (ab_commitment, var_ab) = prover.commit(λ_a[i+1], blindings[i+1]);
-            {
-                let mut commitments = commitments.lock().unwrap();
-                commitments[i] = a_commitment;
-                if i == k - 1 {
-                    commitments[i+1] = ab_commitment;
-                }
-            }
-            let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i)); 
-            let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next)); 
-
-            dh_gadget(2, &mut prover, λ_a_i, λ_a_next, Q_b_i).unwrap();
-
-            let proof = prover.prove(&bp_gens).unwrap();
-            {
-                let mut proofs = proofs.lock().unwrap();
-                proofs[i] = Some(proof);
-            }
+            commitments.push(a_commitment);
+            vars.push(AllocatedScalar::new(var_a, Some(λ_a[i])));
         }
+        for i in 0..k {
+            dh_gadget(2, &mut prover, vars[i], vars[i+1], Q_b[i])?;
+        }
+        let proof = prover.prove(&bp_gens)?;
+
+        debug!("Rι_prove (integral) for depth {} proving time: {:?}, proof_len: {}", k, start.elapsed(), proof.to_bytes().len());
+        Ok((vec![R1CSProof(proof)], commitments))
     }
-    let proof_len = proofs.lock().unwrap().iter()
-        .filter_map(|x| x.as_ref())
-        .map(|x| x.to_bytes().len())
-        .sum::<usize>();
-    debug!("Rι_prove for depth {k} proving time: {:?}, proof_len: {proof_len}", start.elapsed());
-    Ok((proofs.lock().unwrap().iter().map(|x| R1CSProof(x.as_ref().unwrap().clone()) ).collect(), commitments.lock().unwrap().clone()))
+   
 }
 
 pub fn Rι_verify(
@@ -252,16 +249,18 @@ pub fn Rι_verify(
     }
     #[cfg(not(feature = "multi_thread_verifier"))]
     {
-        for i in 0..k {
-            let mut transcript = Transcript::new(b"ARTGadget");
-            let mut verifier = Verifier::new(&mut transcript);
+        let mut transcript = Transcript::new(b"ARTGadget");
+        let mut verifier = Verifier::new(&mut transcript);
+        let mut vars = Vec::new();
+        for i in 0..k+1 {
             let var_a = verifier.commit(commitments[i]);
-            let var_ab = verifier.commit(commitments[i+1]);
-            let λ_a_i = AllocatedScalar::new(var_a, None); 
-            let λ_a_next = AllocatedScalar::new(var_ab, None); 
-            dh_gadget(2, &mut verifier, λ_a_i, λ_a_next, Q_b_i)?;
-            verifier.verify(&proofs[i], &pc_gens, &bp_gens)?;
+            vars.push(AllocatedScalar::new(var_a, None));
         }
+
+        for i in 0..k {
+            dh_gadget(2, &mut verifier, vars[i], vars[i+1], Q_b[i])?;
+        }
+        verifier.verify(&proofs[0].0, &pc_gens, &bp_gens)?;
     }
     debug!("Rι_verify for depth {} verification time: {:?}", Q_b.len(), start.elapsed());
 
@@ -347,7 +346,7 @@ mod tests {
     fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
         let mut blinding_rng = rand::thread_rng();
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(2048, 1);
+        let bp_gens = BulletproofGens::new(1<<16, 1);
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
         let (Q, λ) = random_witness_gen(k);
         let (proofs, commitments) = Rι_prove(
@@ -363,6 +362,12 @@ mod tests {
 
     #[test]
     fn test_Rι_roundtrip() {
+        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .try_init();
         assert!(Rι_roundtrip(1).is_ok());
         assert!(Rι_roundtrip(4).is_ok());
         assert!(Rι_roundtrip(7).is_ok());
@@ -440,10 +445,10 @@ mod tests {
     fn test_art_roundtrip() {
         let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
 
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_env_filter(log_level)
             .with_target(false)
-            .init();
+            .try_init();
 
         assert!(art_roundtrip(1).is_ok());
         assert!(art_roundtrip(4).is_ok());

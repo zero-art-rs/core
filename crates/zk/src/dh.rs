@@ -19,9 +19,10 @@ use tracing_subscriber::field::debug;
 use cortado::{self, CortadoAffine, Parameters, ToScalar};
 use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
 use hex::FromHex;
-
+use once_cell::sync::OnceCell;
 
 const MODULUS_BIT_SIZE: u64 = 254;
+static S: OnceCell<Vec<CortadoAffine>> = OnceCell::new();
 
 pub fn acc<
     U: Clone,
@@ -98,15 +99,18 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+    
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
     let l = (MODULUS_BIT_SIZE) as i32;
-    let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
-    } else {
-        (G * cortado::Fr::from(i+2)).into_affine()
-    }).collect();
+    let Δ1 = S.get_or_init(|| {
+        let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+        (0..l).map(|i| if i == (l-1) {
+            (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        } else {
+            (G * cortado::Fr::from(i+2)).into_affine()
+        }).collect()
+    });
 
     let mut δ = vec![Q_b];
     for _ in 1..l as usize {
@@ -179,14 +183,16 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
     let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
     let l = (MODULUS_BIT_SIZE) as i32;
-    let Δ1: Vec<_> = (0..l).map(|i| if i == (l-1) {
-        (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
-    } else {
-        (G * cortado::Fr::from(i+2)).into_affine()
-    }).collect();
+    let Δ1 = S.get_or_init(|| {
+        let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+        (0..l).map(|i| if i == (l-1) {
+            (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
+        } else {
+            (G * cortado::Fr::from(i+2)).into_affine()
+        }).collect()
+    });
 
     let mut δ = vec![Q_b];
     for _ in 1..l as usize {

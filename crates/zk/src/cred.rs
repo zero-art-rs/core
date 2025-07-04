@@ -303,63 +303,68 @@ impl Credential {
     }
 }
 
-#[test]
-fn test_credential_issue_and_verify() {
-    let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
-
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .with_target(false)
-        .try_init();
-
-    let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
-    let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
-    let validity_period = 3600; // 1 hour validity
-    let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
-    let revocation_list = vec![
-        Scalar::from(1u64), 
-        Scalar::from(2u64), 
-        Scalar::from(3u64), 
-        Scalar::from(4u64)
-    ]; // Example revocation list
-
-    // Issue a credential
-    let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
     
-    // Verify the credential
-    assert!(credential.verify().is_ok());
+    #[test]
+    fn test_credential_issue_and_verify() {
+        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
 
-    // Create a credential presentation proof
-    let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .try_init();
 
-    // Verify the credential presentation proof
-    assert!(Credential::verify_presentation(&proof, revocation_list).is_ok());
-}
+        let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let validity_period = 3600; // 1 hour validity
+        let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+        let revocation_list = vec![
+            Scalar::from(1u64), 
+            Scalar::from(2u64), 
+            Scalar::from(3u64), 
+            Scalar::from(4u64)
+        ]; // Example revocation list
 
-#[test]
-fn test_revoked_credential() {
-    let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+        // Issue a credential
+        let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .with_target(false)
-        .try_init();
+        // Verify the credential
+        assert!(credential.verify().is_ok());
 
-    let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
-    let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
-    let validity_period = 3600; // 1 hour validity
-    let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
-    
-    // Issue a credential
-    let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
-    
-    // Verify the credential
-    assert!(credential.verify().is_ok());
+        // Create a credential presentation proof
+        let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
 
-    // Create a credential presentation proof
-    let revocation_list = vec![credential.claims.id.into_scalar()]; // Revoking the issued credential
-    let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
+        // Verify the credential presentation proof
+        assert!(Credential::verify_presentation(&proof, revocation_list).is_ok());
+    }
 
-    // Verify the credential presentation proof should fail due to revocation
-    assert!(Credential::verify_presentation(&proof, revocation_list).is_err());
+    #[test]
+    fn test_revoked_credential() {
+        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
+
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .try_init();
+
+        let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let validity_period = 3600; // 1 hour validity
+        let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+
+        // Issue a credential
+        let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
+
+        // Verify the credential
+        assert!(credential.verify().is_ok());
+
+        // Create a credential presentation proof
+        let revocation_list = vec![credential.claims.id.into_scalar()]; // Revoking the issued credential
+        let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
+
+        // Verify the credential presentation proof should fail due to revocation
+        assert!(Credential::verify_presentation(&proof, revocation_list).is_err());
+    }
 }

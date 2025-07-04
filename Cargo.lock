@@ -1871,6 +1871,7 @@ dependencies = [
  "curve25519-dalek",
  "hex",
  "merlin",
+ "once_cell",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "tracing",
