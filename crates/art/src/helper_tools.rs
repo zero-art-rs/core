@@ -6,7 +6,7 @@ use ark_std::{One, UniformRand, Zero};
 use rand;
 use serde_bytes::ByteBuf;
 
-/// Adapter for serialisation of arkworks-compatible types using CanonicalSerialize
+/// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,

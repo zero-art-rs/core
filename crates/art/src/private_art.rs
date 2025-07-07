@@ -3,7 +3,6 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
-use postcard::from_bytes;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -60,12 +59,12 @@ where
         self.art.append_node(&secret_key)
     }
 
-    pub fn make_node_temporal(
+    pub fn make_blank(
         &mut self,
         public_key: &G,
-        temporal_secret_key: &G::ScalarField,
+        temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        self.art.make_node_temporal(public_key, temporal_secret_key)
+        self.art.make_blank(public_key, temporary_secret_key)
     }
 
     pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
@@ -76,23 +75,15 @@ where
         self.art.to_string()
     }
 
-    pub fn serialise_with_postcard(&self) -> Result<Vec<u8>, ARTError> {
-        self.art.serialise_with_postcard()
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
+        self.art.serialize()
     }
 
     pub fn from_string_and_secret_key(
         canonical_json: &String,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        let art: ART<G> = match serde_json::from_str(canonical_json) {
-            Ok(tree) => tree,
-            Err(e) => {
-                return Err(ARTError::SerialisationError(format!(
-                    "Failed to deserialize: {:?}",
-                    e
-                )));
-            }
-        };
+        let art: ART<G> = serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)?;
 
         Ok(Self {
             art,
@@ -100,12 +91,12 @@ where
         })
     }
 
-    pub fn deserialize_with_postcard(
+    pub fn deserialize(
         bytes: &Vec<u8>,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
         Ok(Self {
-            art: ART::deserialize_with_postcard(&bytes)?,
+            art: ART::deserialize(&bytes)?,
             secret_key: secret_key.clone(),
         })
     }
