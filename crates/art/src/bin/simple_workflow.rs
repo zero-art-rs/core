@@ -32,11 +32,11 @@ fn private_example() {
     // For new art, creator provides the next method with set of secrets and some generator.
     let (art, tk) = PrivateART::new_art_from_secrets(&secrets, &generator).unwrap();
 
-    // This art can be converted to string using serde serialise as serde_json::to_string(&art)
+    // This art can be converted to string using serde serialize as serde_json::to_string(&art)
     // or using build in method.
 
-    let encoded_representation = art.serialise_with_postcard().unwrap();
-    let recovered_art = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+    let encoded_representation = art.serialize().unwrap();
+    let recovered_art = PrivateART::<CortadoAffine>::deserialize(
         &encoded_representation,
         &secrets[0],
     )
@@ -45,12 +45,12 @@ fn private_example() {
     assert_eq!(recovered_art.art, art.art);
 
     // Assume art_i is i-th user art. i-th user knows i-th secret key
-    let mut art_0 = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+    let mut art_0 = PrivateART::<CortadoAffine>::deserialize(
         &encoded_representation,
         &secrets[0],
     )
     .unwrap();
-    let mut art_1 = PrivateART::<CortadoAffine>::deserialize_with_postcard(
+    let mut art_1 = PrivateART::<CortadoAffine>::deserialize(
         &encoded_representation,
         &secrets[1],
     )
@@ -76,11 +76,9 @@ fn private_example() {
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
     let (_, changes_4) = art_1.append_node(&some_secret_key3).unwrap();
-    // Remove member from the tree, by making his node temporal.
+    // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5) = art_1
-        .make_node_temporal(&public_key, &some_secret_key2)
-        .unwrap();
+    let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
 
     // Other users will update their trees correspondingly.
     art_0.update_art(&changes_2).unwrap();
@@ -144,11 +142,11 @@ fn public_example() {
     // For new art, creator provides the next method with set of secrets and some generator.
     let (art, tk) = ART::new_art_from_secrets(&secrets, &generator).unwrap();
 
-    // This art can be converted to string using serde serialise as serde_json::to_string(&art)
+    // This art can be converted to string using serde serialize as serde_json::to_string(&art)
     // or using build in method.
 
-    let string_representation = art.serialise_with_postcard().unwrap();
-    let recovered_art = ART::deserialize_with_postcard(&string_representation).unwrap();
+    let string_representation = art.serialize().unwrap();
+    let recovered_art = ART::deserialize(&string_representation).unwrap();
 
     assert_eq!(recovered_art, art);
 
@@ -176,11 +174,9 @@ fn public_example() {
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
     let (_, changes_4) = art_1.append_node(&some_secret_key3).unwrap();
-    // Remove member from the tree, by making his node temporal.
+    // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5) = art_1
-        .make_node_temporal(&public_key, &some_secret_key2)
-        .unwrap();
+    let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
 
     // Other users will update their trees correspondingly.
     art_0.update_art(&changes_2).unwrap();

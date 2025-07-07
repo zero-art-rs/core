@@ -1,37 +1,24 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::art_node::{ARTNode, ARTNodeError, Direction};
+use crate::ARTError;
+use crate::art_node::{ARTNode, Direction};
 use crate::{ARTRootKey, BranchChanges, BranchChangesType, ark_de, ark_se};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInt, BigInteger, Field, PrimeField};
+use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::iterable::Iterable;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use ark_std::{One, UniformRand, Zero};
 use curve25519_dalek::Scalar;
-use postcard::{from_bytes, to_allocvec};
+use postcard::{self, from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::cmp::min;
 use std::{cmp::max, mem};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum ARTError {
-    #[error("Error in art logic: {0}")]
-    NodesLogicError(#[from] ARTNodeError),
-    #[error("Error in art logic: {0}")]
-    ARTLogicError(String),
-    #[error("Given parameters are invalid: {0}")]
-    InvalidParameters(String),
-    #[error("Serialization failure: {0}")]
-    SerialisationError(String),
-}
 
 pub enum NodeIndex {
-    Index(usize),
-    Coordinate(usize, usize),
+    Index(u32),
+    Coordinate(u32, u32),
     Direction(Vec<Direction>),
 }
 
@@ -165,9 +152,7 @@ where
         generator: &G,
     ) -> Result<(Self, ARTRootKey<G>), ARTError> {
         if secrets.len() == 0 {
-            return Err(ARTError::InvalidParameters(
-                "Can't create art of size 0".to_string(),
-            ));
+            return Err(ARTError::InvalidInput);
         }
         let mut level_nodes = Vec::new();
         let mut level_secrets = Vec::new();
@@ -229,7 +214,7 @@ where
             match direction {
                 Direction::Left => co_path_values.push(node.get_right()?.public_key),
                 Direction::Right => co_path_values.push(node.get_left()?.public_key),
-                _ => return Err(ARTError::ARTLogicError("Unexpected direction".to_string())),
+                _ => return Err(ARTError::PathNotExists),
             }
         }
 
@@ -237,7 +222,7 @@ where
     }
 
     /// Searches the tree for a leaf node that matches the given public key, and returns the
-    /// path taken to reach it. Search approach used is depth-first search.
+    /// path taken to reach it. Searching algorithm is depth-first search.
     pub fn get_path_to_leaf(
         &self,
         user_val: &G,
@@ -279,7 +264,27 @@ where
             }
         }
 
-        Err(ARTError::ARTLogicError("Can't find a path.".to_string()))
+        Err(ARTError::PathNotExists)
+    }
+
+    /// Searches the tree for a leaf node that matches the given public key, and returns the
+    /// index of a node. Searching algorithm is depth-first search.
+    pub fn get_leaf_index(
+        &self,
+        user_val: &G,
+    ) -> Result<u32, ARTError> {
+        let (_, next) = self.get_path_to_leaf(user_val)?;
+
+        let mut index = 1u32;
+        for direction in &next {
+            match direction {
+                Direction::Left => index = index << 1,
+                Direction::Right => index = (index << 1) + 1,
+                _ => return Err(ARTError::PathNotExists),
+            }
+        }
+
+        Ok(index)
     }
 
     /// Recomputes art root key using the given leaf secret key.
@@ -463,7 +468,7 @@ where
 
     /// Extends the leaf on a path with new node. New node contains public key corresponding to a
     /// given secret key. Then it updates necessary public keys on a path to root using new
-    /// node temporal secret key. Returns new ARTRootKey and BranchChanges for other users.
+    /// node temporary secret key. Returns new ARTRootKey and BranchChanges for other users.
     pub fn append_node(
         &mut self,
         secret_key: &G::ScalarField,
@@ -480,43 +485,41 @@ where
             })
     }
 
-    /// Converts the leaf on a given path to temporal by changing its public key on given temporal
+    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
     /// one. This method don't change other art nodes. To update art use update_art_with_secret_key
     /// or update_art_with_changes
-    fn make_temporal_without_changes(
+    fn make_blank_without_changes(
         &mut self,
         path: &Vec<Direction>,
-        temporal_public_key: &G,
+        temporary_public_key: &G,
     ) -> Result<(), ARTError> {
         let mut target_node = self.root.as_mut();
         for direction in path {
             target_node.weight -= 1;
             target_node = target_node.get_mut_child(direction)?;
         }
-        target_node.make_temporal(temporal_public_key)?;
+        target_node.make_blank(temporary_public_key)?;
 
         Ok(())
     }
 
-    /// Converts the leaf on a given path to temporal by changing its public key on given temporal
+    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
     /// one. At the end, updates necessary public keys on a path to root. Returns new ARTRootKey
     /// and BranchChanges for other users.
-    pub fn make_node_temporal(
+    pub fn make_blank(
         &mut self,
         public_key: &G,
-        temporal_secret_key: &G::ScalarField,
+        temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        let new_public_key = self.public_key_of(temporal_secret_key);
+        let new_public_key = self.public_key_of(temporary_secret_key);
         let (_, next) = self.get_path_to_leaf(public_key)?;
 
-        self.make_temporal_without_changes(&next, &new_public_key)?;
+        self.make_blank_without_changes(&next, &new_public_key)?;
 
-        self.update_art_with_secret_key(temporal_secret_key)
+        self.update_art_with_secret_key(temporary_secret_key)
             .map(|(root_key, mut changes)| {
-                changes.change_type = BranchChangesType::MakeTemporal(
-                    public_key.clone(),
-                    temporal_secret_key.clone(),
-                );
+                changes.change_type =
+                    BranchChangesType::MakeBlank(public_key.clone(), temporary_secret_key.clone());
                 (root_key, changes)
             })
     }
@@ -571,13 +574,11 @@ where
     /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
     pub fn get_node_by_coordinate(
         &mut self,
-        level: usize,
-        position: usize,
+        level: u32,
+        position: u32,
     ) -> Result<&mut ARTNode<G>, ARTError> {
         if position >= (2 << level) {
-            return Err(ARTError::InvalidParameters(
-                "position out of bounds".to_string(),
-            ));
+            return Err(ARTError::InvalidInput);
         }
 
         let mut target_node = self.root.as_mut();
@@ -603,11 +604,9 @@ where
 
     /// Returns mutable node by the given index of a node. For example, root have index 0, its
     /// children are 1 and 2.
-    pub fn get_node_by_index(&mut self, index: usize) -> Result<&mut ARTNode<G>, ARTError> {
+    pub fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError> {
         if index == 0 {
-            return Err(ARTError::InvalidParameters(
-                "The enumeration of nodes starts with 1".to_string(),
-            ));
+            return Err(ARTError::InvalidInput);
         }
 
         let mut i = index;
@@ -641,7 +640,7 @@ where
     }
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
-    /// specific, so in general don't remove nodes and make them temporal instead
+    /// specific, so in general don't remove nodes and make them temporary instead
     pub fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {
         let users_public_key = self.public_key_of(lambda);
 
@@ -686,9 +685,7 @@ where
         public_key: &G,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         if !self.can_remove(lambda, public_key) {
-            return Err(ARTError::InvalidParameters(
-                "Can't remove a node, because the given node isn't close enough".to_string(),
-            ));
+            return Err(ARTError::RemoveError);
         }
 
         let (_, path) = self.get_path_to_leaf(public_key)?;
@@ -704,53 +701,6 @@ where
         }
     }
 
-    fn min_max_leaf_height(&self) -> Result<(usize, usize), ARTError> {
-        let mut min_height = usize::MAX;
-        let mut max_height = 0;
-        let root = self.get_root();
-
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                min_height = min(min_height, path.len());
-                max_height = max(max_height, path.len());
-
-                path.pop();
-                next.pop();
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
-            }
-        }
-
-        Ok((min_height, max_height))
-    }
-
-    pub fn get_disbalance(&self) -> Result<usize, ARTError> {
-        let (min_height, max_height) = self.min_max_leaf_height()?;
-
-        Ok(max_height - min_height)
-    }
-
     /// Updates art with given changes.
     pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
@@ -760,9 +710,9 @@ where
                 self.append_node_without_changes(node.clone(), &path)?;
                 self.update_art_with_changes(changes)
             }
-            BranchChangesType::MakeTemporal(public_key, temporal_lambda) => {
+            BranchChangesType::MakeBlank(public_key, temporary_lambda) => {
                 let (_, path) = self.get_path_to_leaf(public_key)?;
-                self.make_temporal_without_changes(&path, &self.public_key_of(temporal_lambda))?;
+                self.make_blank_without_changes(&path, &self.public_key_of(temporary_lambda))?;
                 self.update_art_with_changes(changes)
             }
             BranchChangesType::RemoveNode(public_key) => {
@@ -773,37 +723,20 @@ where
         }
     }
 
-    pub fn serialise_with_serde_json(&self) -> Result<String, ARTError> {
-        match serde_json::to_string(&self) {
-            Ok(json) => Ok(json),
-            Err(e) => Err(ARTError::SerialisationError(format!(
-                "Failed to serialise: {:?}",
-                e
-            ))),
-        }
-    }
-
-    pub fn serialise_with_postcard(&self) -> Result<Vec<u8>, ARTError> {
-        match to_allocvec(self) {
-            Ok(output) => Ok(output),
-            Err(e) => Err(ARTError::SerialisationError(format!(
-                "Failed to serialise: {:?}",
-                e
-            ))),
-        }
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
+        to_allocvec(self).map_err(ARTError::Postcard)
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
-        self.serialise_with_serde_json()
+        serde_json::to_string(&self).map_err(ARTError::SerdeJson)
     }
 
-    pub fn deserialize_with_postcard(bytes: &Vec<u8>) -> Result<Self, ARTError> {
-        from_bytes(bytes).map_err(|e| ARTError::SerialisationError(e.to_string()))
+    pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(ARTError::Postcard)
     }
 
     pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
-        serde_json::from_str(canonical_json)
-            .map_err(|e| ARTError::SerialisationError(format!("Failed to deserialize: {:?}", e)))
+        serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)
     }
 }
 
