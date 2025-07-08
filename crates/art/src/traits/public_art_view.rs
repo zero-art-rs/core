@@ -1,0 +1,22 @@
+use crate::ARTNode;
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+
+pub trait ARTPublicView<G>
+where
+    Self: Sized,
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
+    fn get_root(&self) -> &Box<ARTNode<G>>;
+    fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>>;
+    fn get_generator(&self) -> G;
+
+    /// changes the root node with the given one. Old root node is returned.
+    fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>>;
+    
+    fn print_as_formated_tree(&self) {
+        self.get_root().print_as_formated_tree()
+    }
+}

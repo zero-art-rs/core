@@ -1,17 +1,10 @@
-use crate::ARTNodeError;
+use crate::{ARTNodeError, Direction};
 use crate::helper_tools::{ark_de, ark_se};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
-pub enum Direction {
-    NoDirection,
-    Left,
-    Right,
-}
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {
@@ -211,10 +204,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// Returns a mutable reference on a child of a given inner node by a given direction to
     /// the child.
-    pub fn get_mut_child(
-        &mut self,
-        child: &Direction,
-    ) -> Result<&mut Box<Self>, ARTNodeError> {
+    pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "leaf node have no children.".to_string(),
