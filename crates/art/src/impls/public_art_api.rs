@@ -1,208 +1,25 @@
-// Asynchronous Ratchet Tree implementation
-
-use crate::ARTError;
-use crate::art_node::{ARTNode, Direction};
-use crate::{ARTRootKey, BranchChanges, BranchChangesType, ark_de, ark_se};
+use crate::{ARTError, ARTPublicAPI, NodeIndex};
+use crate::{ARTNode, Direction, iota_function};
+use crate::{ARTPublicView, ARTRootKey, BranchChanges, BranchChangesType};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::iterable::Iterable;
-use ark_std::rand::SeedableRng;
-use ark_std::rand::prelude::StdRng;
-use ark_std::{One, UniformRand, Zero};
 use curve25519_dalek::Scalar;
-use postcard::{self, from_bytes, to_allocvec};
-use serde::{Deserialize, Serialize};
+use postcard::{self};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json;
-use std::{cmp::max, mem};
+use std::cmp::{max, min};
 
-pub enum NodeIndex {
-    Index(u32),
-    Coordinate(u32, u32),
-    Direction(Vec<Direction>),
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(bound = "")]
-pub struct ART<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
-    pub root: Box<ARTNode<G>>,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub generator: G,
-}
-
-impl<G> ART<G>
+impl<G, PublicART> ARTPublicAPI<G> for PublicART
 where
+    Self: Sized + Serialize + DeserializeOwned,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
+    PublicART: ARTPublicView<G>,
 {
-    /// Iota function is a function which converts computed public secret to scalar field. It can
-    /// be any function. Here, th function takes x coordinate of affine representation of a point.
-    /// If the base field of curve defined on extension of a field, we take the first coefficient.
-    pub fn iota_function(point: &G) -> Scalar {
-        let x = point.x().unwrap();
-
-        Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap())
-    }
-
-    fn compute_next_layer_of_tree(
-        level_nodes: &mut Vec<ARTNode<G>>,
-        level_secrets: &mut Vec<G::ScalarField>,
-        generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
-        let mut upper_level_nodes = Vec::new();
-        let mut upper_level_secrets = Vec::new();
-
-        // iterate until level_nodes is empty, then swap it with the next layer
-        while level_nodes.len() > 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            level_secrets.remove(0); // skip the first secret
-
-            let common_secret = Self::iota_function(
-                &left_node
-                    .public_key
-                    .mul(level_secrets.remove(0))
-                    .into_affine(),
-            );
-
-            let ark_common_secret =
-                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
-
-            let node = ARTNode::new_internal_node(
-                generator.mul(&ark_common_secret).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
-
-            upper_level_nodes.push(node);
-            upper_level_secrets.push(ark_common_secret);
-        }
-
-        // if one have an odd number of nodes, the last one will be added to the next level
-        if level_nodes.len() == 1 {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-            let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret.clone());
-        }
-
-        (upper_level_nodes, upper_level_secrets)
-    }
-
-    /// fit all the leaves on the same level, so the tree is balanced
-    pub fn fit_leaves_in_one_level(
-        mut level_nodes: Vec<ARTNode<G>>,
-        mut level_secrets: Vec<G::ScalarField>,
-        generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
-        let mut level_size = 2;
-        while level_size < level_nodes.len() {
-            level_size = level_size << 1;
-        }
-
-        if level_size == level_nodes.len() {
-            return (level_nodes, level_secrets);
-        }
-
-        let excess = level_size - level_nodes.len();
-
-        let mut upper_level_nodes = Vec::new();
-        let mut upper_level_secrets = Vec::new();
-        for i in 0..(level_nodes.len() - excess) >> 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            level_secrets.remove(0); // skip the first secret
-
-            let common_secret = Self::iota_function(
-                &left_node
-                    .public_key
-                    .mul(level_secrets.remove(0))
-                    .into_affine(),
-            );
-
-            let ark_common_secret =
-                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
-
-            let node = ARTNode::new_internal_node(
-                generator.mul(&ark_common_secret).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
-
-            upper_level_nodes.push(node);
-            upper_level_secrets.push(ark_common_secret);
-        }
-
-        for i in 0..excess {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-            let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret.clone());
-        }
-
-        (upper_level_nodes, upper_level_secrets)
-    }
-
-    /// Computes a new tree from th set of given secrets. The first secret is a secret key of the
-    /// creator.
-    pub fn new_art_from_secrets(
-        secrets: &Vec<G::ScalarField>,
-        generator: &G,
-    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        if secrets.len() == 0 {
-            return Err(ARTError::InvalidInput);
-        }
-        let mut level_nodes = Vec::new();
-        let mut level_secrets = Vec::new();
-
-        // leaves of the tree
-        for leaf_secret in secrets {
-            let node = ARTNode::new_leaf(generator.mul(leaf_secret).into_affine());
-
-            level_nodes.push(node);
-            level_secrets.push(leaf_secret.clone());
-        }
-
-        // fully fit leaf nodes in the next level by combining only part of them
-        if level_nodes.len() > 2 {
-            (level_nodes, level_secrets) =
-                Self::fit_leaves_in_one_level(level_nodes, level_secrets, &generator);
-        }
-
-        // iterate by levels. Go from current level to upper level
-        while level_nodes.len() > 1 {
-            (level_nodes, level_secrets) =
-                ART::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator);
-        }
-
-        let root = level_nodes.remove(0);
-        let root_key = ARTRootKey {
-            key: level_secrets.remove(0),
-            generator: generator.clone(),
-        };
-
-        let art = ART {
-            root: Box::new(root),
-            generator: generator.clone(),
-        };
-
-        Ok((art, root_key))
-    }
-
-    /// Returns a reference on a root node
-    pub fn get_root(&self) -> &Box<ARTNode<G>> {
-        &self.root
-    }
-
-    /// changes the root node with the given one. Old root node is returned.
-    pub fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>> {
-        mem::replace(&mut self.root, new_root)
-    }
-
-    /// Returns a co-path to the leaf with a given public key.
-    pub fn get_co_path_values(&self, user_public_key: &G) -> Result<Vec<G>, ARTError> {
+    fn get_co_path_values(&self, user_public_key: &G) -> Result<Vec<G>, ARTError> {
         let (path_nodes, next_node) = self.get_path_to_leaf(user_public_key)?;
 
         let mut co_path_values = Vec::new();
@@ -214,16 +31,14 @@ where
             match direction {
                 Direction::Left => co_path_values.push(node.get_right()?.public_key),
                 Direction::Right => co_path_values.push(node.get_left()?.public_key),
-                _ => return Err(ARTError::PathNotExists),
+                _ => return Err(ARTError::InvalidInput),
             }
         }
 
         Ok(co_path_values)
     }
 
-    /// Searches the tree for a leaf node that matches the given public key, and returns the
-    /// path taken to reach it. Searching algorithm is depth-first search.
-    pub fn get_path_to_leaf(
+    fn get_path_to_leaf(
         &self,
         user_val: &G,
     ) -> Result<(Vec<&ARTNode<G>>, Vec<Direction>), ARTError> {
@@ -267,12 +82,7 @@ where
         Err(ARTError::PathNotExists)
     }
 
-    /// Searches the tree for a leaf node that matches the given public key, and returns the
-    /// index of a node. Searching algorithm is depth-first search.
-    pub fn get_leaf_index(
-        &self,
-        user_val: &G,
-    ) -> Result<u32, ARTError> {
+    fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError> {
         let (_, next) = self.get_path_to_leaf(user_val)?;
 
         let mut index = 1u32;
@@ -287,8 +97,7 @@ where
         Ok(index)
     }
 
-    /// Recomputes art root key using the given leaf secret key.
-    pub fn recompute_root_key(
+    fn recompute_root_key_public(
         &self,
         secret_key: G::ScalarField,
     ) -> Result<ARTRootKey<G>, ARTError> {
@@ -296,18 +105,17 @@ where
 
         let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
         Ok(ARTRootKey {
             key: ark_secret,
-            generator: self.generator.clone(),
+            generator: self.get_generator().clone(),
         })
     }
 
-    /// Recomputes art root key using the given leaf secret key.
-    pub fn recompute_root_key_with_artefacts(
+    fn recompute_root_key_with_artefacts_public(
         &self,
         secret_key: G::ScalarField,
     ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
@@ -320,7 +128,7 @@ where
                 .unwrap(),
         )];
         for public_key in co_path_values.iter() {
-            let secret = Self::iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
             secrets.push(secret.clone());
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
@@ -328,21 +136,18 @@ where
         Ok((
             ARTRootKey {
                 key: ark_secret,
-                generator: self.generator.clone(),
+                generator: self.get_generator().clone(),
             },
             co_path_values,
             secrets,
         ))
     }
 
-    /// Shorthand for computing public key.
     fn public_key_of(&self, secret: &G::ScalarField) -> G {
-        self.generator.mul(secret).into_affine()
+        self.get_generator().mul(secret).into_affine()
     }
 
-    /// Update all public keys on path from the root to node, corresponding to the given secret
-    /// key. Can be used to update art after applied changes.
-    pub fn update_art_with_secret_key(
+    fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
@@ -360,7 +165,7 @@ where
         while !next.is_empty() {
             let next_child = next.pop().unwrap();
 
-            let mut parent = self.root.as_mut();
+            let mut parent = self.get_mut_root();
             for direction in &next {
                 parent = parent.get_mut_child(direction)?;
             }
@@ -375,26 +180,28 @@ where
             let common_secret = other_child_public_key
                 .mul(ark_level_secret_key)
                 .into_affine();
-            let level_secret_key = Self::iota_function(&common_secret);
+            let level_secret_key = iota_function(&common_secret);
             ark_level_secret_key =
                 G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
-            public_key = self.generator.mul(&ark_level_secret_key).into_affine();
+            public_key = self
+                .get_generator()
+                .mul(&ark_level_secret_key)
+                .into_affine();
         }
 
-        self.root.set_public_key(public_key);
+        self.get_mut_root().set_public_key(public_key);
         changes.public_keys.push(public_key);
         changes.public_keys.reverse();
 
         let key = ARTRootKey {
             key: ark_level_secret_key,
-            generator: self.generator.clone(),
+            generator: self.get_generator().clone(),
         };
 
         Ok((key, changes))
     }
 
-    /// Changes old_secret_key secret key of a leaf to the new_secret_key.
-    pub fn update_key(
+    fn update_key_public(
         &mut self,
         old_secret_key: &G::ScalarField,
         new_secret_key: &G::ScalarField,
@@ -408,21 +215,7 @@ where
         self.update_art_with_secret_key(&new_secret_key)
     }
 
-    /// Returns random scalar, which is not one or zero.
-    pub fn get_random_scalar(&self) -> G::ScalarField {
-        let mut rng = StdRng::seed_from_u64(rand::random());
-
-        let mut k = G::ScalarField::zero();
-        while k.is_one() || k.is_zero() {
-            k = G::ScalarField::rand(&mut rng);
-        }
-
-        k
-    }
-
-    /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
-    /// with the smallest weight. Priority is given to left-most branch.
-    pub fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
+    fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
         let mut candidate = self.get_root();
         let mut next = vec![];
 
@@ -445,15 +238,12 @@ where
         Ok(next)
     }
 
-    /// Extends a leaf on the end of a given path with the given node. This method don't change
-    /// other nodes public keys. To update art, use update_art_with_secret_key,
-    /// update_art_with_changes, etc.
     fn append_node_without_changes(
         &mut self,
         node: ARTNode<G>,
         path: &Vec<Direction>,
     ) -> Result<(), ARTError> {
-        let mut node_for_extension = self.root.as_mut();
+        let mut node_for_extension = self.get_mut_root();
         for direction in path {
             node_for_extension.weight += 1; // The weight of every node is increased by 1
             node_for_extension = node_for_extension.get_mut_child(direction)?;
@@ -466,10 +256,7 @@ where
         Ok(())
     }
 
-    /// Extends the leaf on a path with new node. New node contains public key corresponding to a
-    /// given secret key. Then it updates necessary public keys on a path to root using new
-    /// node temporary secret key. Returns new ARTRootKey and BranchChanges for other users.
-    pub fn append_node(
+    fn append_node(
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
@@ -485,15 +272,12 @@ where
             })
     }
 
-    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
-    /// one. This method don't change other art nodes. To update art use update_art_with_secret_key
-    /// or update_art_with_changes
     fn make_blank_without_changes(
         &mut self,
         path: &Vec<Direction>,
         temporary_public_key: &G,
     ) -> Result<(), ARTError> {
-        let mut target_node = self.root.as_mut();
+        let mut target_node = self.get_mut_root();
         for direction in path {
             target_node.weight -= 1;
             target_node = target_node.get_mut_child(direction)?;
@@ -503,10 +287,7 @@ where
         Ok(())
     }
 
-    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
-    /// one. At the end, updates necessary public keys on a path to root. Returns new ARTRootKey
-    /// and BranchChanges for other users.
-    pub fn make_blank(
+    fn make_blank(
         &mut self,
         public_key: &G,
         temporary_secret_key: &G::ScalarField,
@@ -524,10 +305,8 @@ where
             })
     }
 
-    /// Updates art public keys using public keys provided in changes. Can be used after
-    /// operations on art like append_node, etc.
-    pub fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
-        let mut current_node = self.root.as_mut();
+    fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+        let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
             current_node.set_public_key(changes.public_keys[i].clone());
             current_node = current_node.get_mut_child(changes.next.get(i).unwrap())?;
@@ -538,15 +317,12 @@ where
         Ok(())
     }
 
-    /// Uses public keys provided in changes to change public keys of art.
-    /// Those public keys are located on a path from root to node, corresponding to user, which
-    /// provided changes.
     fn update_art_with_changes_and_path(
         &mut self,
         changes: &BranchChanges<G>,
         path: &Vec<Direction>,
     ) -> Result<(), ARTError> {
-        let mut current_node = self.root.as_mut();
+        let mut current_node = self.get_mut_root();
         for (next, public_key) in path
             .iter()
             .zip(changes.public_keys[..changes.public_keys.len() - 1].iter())
@@ -560,9 +336,8 @@ where
         Ok(())
     }
 
-    /// Returns mutable node by the given path to it
     fn get_node_by_path(&mut self, next: Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError> {
-        let mut target_node = self.root.as_mut();
+        let mut target_node = self.get_mut_root();
         for direction in &next {
             target_node = target_node.get_mut_child(direction)?;
         }
@@ -570,9 +345,7 @@ where
         Ok(target_node)
     }
 
-    /// Returns mutable node by the given coordinate of a node. For example, the root is (l:0, p:0),
-    /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
-    pub fn get_node_by_coordinate(
+    fn get_node_by_coordinate(
         &mut self,
         level: u32,
         position: u32,
@@ -581,7 +354,7 @@ where
             return Err(ARTError::InvalidInput);
         }
 
-        let mut target_node = self.root.as_mut();
+        let mut target_node = self.get_mut_root();
         let mut l = level;
         let mut p = position;
         while l != 0 {
@@ -602,9 +375,7 @@ where
         Ok(target_node)
     }
 
-    /// Returns mutable node by the given index of a node. For example, root have index 0, its
-    /// children are 1 and 2.
-    pub fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError> {
+    fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError> {
         if index == 0 {
             return Err(ARTError::InvalidInput);
         }
@@ -622,7 +393,7 @@ where
             i = i >> 1;
         }
 
-        let mut target_node = self.root.as_mut();
+        let mut target_node = self.get_mut_root();
         for direction in path.iter().rev() {
             target_node = target_node.get_mut_child(direction)?;
         }
@@ -630,7 +401,6 @@ where
         Ok(target_node)
     }
 
-    /// Returns mutable node by the given NodeIndex
     fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
         match index {
             NodeIndex::Index(index) => self.get_node_by_index(index),
@@ -639,9 +409,7 @@ where
         }
     }
 
-    /// This check says if the node can be immediately removed from a tree. Those cases are
-    /// specific, so in general don't remove nodes and make them temporary instead
-    pub fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {
+    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {
         let users_public_key = self.public_key_of(lambda);
 
         if users_public_key.eq(public_key) {
@@ -664,9 +432,8 @@ where
         true
     }
 
-    /// Remove the last node in the given path if can
     fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), ARTError> {
-        let mut target_node = self.root.as_mut();
+        let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
             target_node = target_node.get_mut_child(direction)?;
@@ -677,8 +444,6 @@ where
         Ok(())
     }
 
-    /// Remove the last node in the given path if can and update public keys on a path from root to
-    /// leaf
     fn remove_node_and_update_tree(
         &mut self,
         lambda: &G::ScalarField,
@@ -701,8 +466,54 @@ where
         }
     }
 
-    /// Updates art with given changes.
-    pub fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+    fn min_max_leaf_height(&self) -> Result<(u32, u32), ARTError> {
+        let mut min_height = u32::MAX;
+        let mut max_height = u32::MIN;
+        let root = self.get_root();
+
+        let mut path = vec![root.as_ref()];
+        let mut next = vec![Direction::NoDirection];
+
+        while !path.is_empty() {
+            let last_node = path.last().unwrap();
+
+            if last_node.is_leaf() {
+                min_height = min(min_height, path.len() as u32);
+                max_height = max(max_height, path.len() as u32);
+
+                path.pop();
+                next.pop();
+            } else {
+                match next.pop().unwrap() {
+                    Direction::Left => {
+                        path.push(last_node.get_right()?.as_ref());
+
+                        next.push(Direction::Right);
+                        next.push(Direction::NoDirection);
+                    }
+                    Direction::Right => {
+                        path.pop();
+                    }
+                    Direction::NoDirection => {
+                        path.push(last_node.get_left()?.as_ref());
+
+                        next.push(Direction::Left);
+                        next.push(Direction::NoDirection);
+                    }
+                }
+            }
+        }
+
+        Ok((min_height, max_height))
+    }
+
+    fn get_disbalance(&self) -> Result<u32, ARTError> {
+        let (min_height, max_height) = self.min_max_leaf_height()?;
+
+        Ok(max_height - min_height)
+    }
+
+    fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
             BranchChangesType::UpdateKeys => self.update_art_with_changes(changes),
             BranchChangesType::AppendNode(node) => {
@@ -721,27 +532,5 @@ where
                 self.update_art_with_changes(changes)
             }
         }
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        to_allocvec(self).map_err(ARTError::Postcard)
-    }
-
-    pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&self).map_err(ARTError::SerdeJson)
-    }
-
-    pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
-        from_bytes(bytes).map_err(ARTError::Postcard)
-    }
-
-    pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
-        serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)
-    }
-}
-
-impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for ART<G> {
-    fn eq(&self, other: &Self) -> bool {
-        !(self.root != other.root || self.generator != other.generator)
     }
 }

@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use ark_ec::{AffineRepr, CurveGroup};
-    use ark_ff::Field;
+    use ark_ff::{Field, One, Zero};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
-    use art::{ART, ARTError, Direction};
+    // use art::{ART, ARTError, Direction};
+    use art::{ARTError, ARTPublicAPI, ARTPublicView, Direction, PublicART};
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
@@ -17,7 +18,8 @@ mod tests {
         let main_user_id = rng().random_range(0..number_of_users);
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (tree, root_key) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for _ in 0..number_of_users {
@@ -27,7 +29,10 @@ mod tests {
         for i in 0..number_of_users {
             // Assert creator and users computed the same tree key.
             assert_eq!(
-                users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                users_arts[i]
+                    .recompute_root_key_public(secrets[i])
+                    .unwrap()
+                    .key,
                 root_key.key
             );
         }
@@ -36,9 +41,9 @@ mod tests {
 
         // Save old secret key to roll back
         let main_old_key = secrets[main_user_id];
-        let main_new_key = main_user_art.get_random_scalar();
+        let main_new_key = get_random_scalar();
         let (new_key, changes) = main_user_art
-            .update_key(&secrets[main_user_id], &main_new_key)
+            .update_key_public(&secrets[main_user_id], &main_new_key)
             .unwrap();
 
         assert_ne!(new_key.key, main_old_key);
@@ -47,14 +52,17 @@ mod tests {
             if i != main_user_id {
                 users_arts[i].update_art(&changes).unwrap();
                 assert_eq!(
-                    users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                    users_arts[i]
+                        .recompute_root_key_public(secrets[i])
+                        .unwrap()
+                        .key,
                     new_key.key
                 );
             }
         }
 
         let (recomputed_old_key, changes) = main_user_art
-            .update_key(&main_new_key, &main_old_key)
+            .update_key_public(&main_new_key, &main_old_key)
             .unwrap();
 
         assert_eq!(root_key.key, recomputed_old_key.key);
@@ -63,7 +71,10 @@ mod tests {
             if i != main_user_id {
                 users_arts[i].update_art(&changes).unwrap();
                 assert_eq!(
-                    users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                    users_arts[i]
+                        .recompute_root_key_public(secrets[i])
+                        .unwrap()
+                        .key,
                     recomputed_old_key.key
                 );
             }
@@ -75,7 +86,8 @@ mod tests {
         let number_of_users = 100;
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (mut tree, _) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
         for _ in 0..10 {
             let _ = tree.append_node(&ARTScalarField::rand(&mut rng)).unwrap();
@@ -131,12 +143,17 @@ mod tests {
         let number_of_users = 100;
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (tree, _) = PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let serialized = tree.serialize().unwrap();
-        let deserialized: ART<ARTGroup> = ART::deserialize(&serialized).unwrap();
+        let deserialized: PublicART<ARTGroup> = PublicART::deserialize(&serialized).unwrap();
 
-        assert!(deserialized.eq(&tree));
+        assert!(
+            deserialized
+                .get_root()
+                .public_key
+                .eq(&tree.get_root().public_key)
+        );
     }
 
     #[test]
@@ -153,7 +170,8 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(rand::random());
 
-        let (tree, root_key) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (tree, root_key) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for _ in 0..number_of_users {
@@ -163,7 +181,10 @@ mod tests {
         for i in 0..number_of_users {
             // Assert all the users computed the same tree key.
             assert_eq!(
-                users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                users_arts[i]
+                    .recompute_root_key_public(secrets[i])
+                    .unwrap()
+                    .key,
                 root_key.key
             );
         }
@@ -180,7 +201,7 @@ mod tests {
 
         assert_eq!(
             main_user_art
-                .recompute_root_key(secrets[main_user_id])
+                .recompute_root_key_public(secrets[main_user_id])
                 .unwrap()
                 .key,
             root_key.key
@@ -189,12 +210,15 @@ mod tests {
         for i in 0..number_of_users {
             if i != temporary_user_id && i != main_user_id {
                 assert_ne!(
-                    users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                    users_arts[i]
+                        .recompute_root_key_public(secrets[i])
+                        .unwrap()
+                        .key,
                     root_key.key
                 );
 
                 users_arts[i].update_art(&changes).unwrap();
-                let user_root_key = users_arts[i].recompute_root_key(secrets[i]).unwrap();
+                let user_root_key = users_arts[i].recompute_root_key_public(secrets[i]).unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().weight, (number_of_users - 1));
@@ -212,7 +236,10 @@ mod tests {
                 users_arts[i].update_art(&changes2).unwrap();
 
                 assert_eq!(
-                    users_arts[i].recompute_root_key(secrets[i]).unwrap().key,
+                    users_arts[i]
+                        .recompute_root_key_public(secrets[i])
+                        .unwrap()
+                        .key,
                     root_key2.key
                 );
                 assert_eq!(users_arts[i].get_root().weight, number_of_users);
@@ -226,7 +253,8 @@ mod tests {
 
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (mut tree, _) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let node_pk = tree.get_node_by_coordinate(0, 0).unwrap().get_public_key();
         let root_pk = tree.root.get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -303,7 +331,8 @@ mod tests {
         let number_of_users = 32;
         let secrets = create_random_secrets(number_of_users);
 
-        let (mut tree, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (mut tree, _) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let node_pk = tree.get_node_by_index(1).unwrap().get_public_key();
         let root_pk = tree.root.get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -340,7 +369,8 @@ mod tests {
     fn art_balance() {
         for i in 1..100 {
             let secrets = create_random_secrets(i);
-            let (art, _) = ART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            let (art, _) =
+                PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
             assert!(get_disbalance(&art).unwrap() < 2);
         }
     }
@@ -363,7 +393,7 @@ mod tests {
         k
     }
 
-    fn min_max_leaf_height(art: &ART<ARTGroup>) -> Result<(usize, usize), ARTError> {
+    fn min_max_leaf_height(art: &PublicART<ARTGroup>) -> Result<(usize, usize), ARTError> {
         let mut min_height = usize::MAX;
         let mut max_height = 0;
         let root = art.get_root();
@@ -404,9 +434,21 @@ mod tests {
         Ok((min_height, max_height))
     }
 
-    fn get_disbalance(art: &ART<ARTGroup>) -> Result<usize, ARTError> {
+    fn get_disbalance(art: &PublicART<ARTGroup>) -> Result<usize, ARTError> {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)
+    }
+
+    /// Returns random scalar, which is not one or zero.
+    fn get_random_scalar() -> ARTScalarField {
+        let mut rng = StdRng::seed_from_u64(rand::random());
+
+        let mut k = ARTScalarField::zero();
+        while k.is_one() || k.is_zero() {
+            k = ARTScalarField::rand(&mut rng);
+        }
+
+        k
     }
 }

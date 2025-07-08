@@ -1,17 +1,15 @@
-use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
-use art::{ART, PrivateART};
+use art::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView};
+use art::{PrivateART, PublicART};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
-use rand::{Rng, rng};
-use zk::art::{art_prove, art_verify};
 use std::ops::Mul;
-use cortado::{
-    CortadoAffine, Fq as BaseField, Fr as ScalarField, FromScalar, ToScalar,
-};
+use zk::art::{art_prove, art_verify, random_witness_gen};
+use zk::curve::cortado::{self, CortadoAffine, Fr as ScalarField};
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
 
@@ -30,31 +28,22 @@ fn private_example() {
         .collect::<Vec<_>>();
 
     // For new art, creator provides the next method with set of secrets and some generator.
-    let (art, tk) = PrivateART::new_art_from_secrets(&secrets, &generator).unwrap();
+    let (art, _) = PrivateART::new_art_from_secrets(&secrets, &generator).unwrap();
 
     // This art can be converted to string using serde serialize as serde_json::to_string(&art)
     // or using build in method.
 
     let encoded_representation = art.serialize().unwrap();
-    let recovered_art = PrivateART::<CortadoAffine>::deserialize(
-        &encoded_representation,
-        &secrets[0],
-    )
-    .unwrap();
+    let recovered_art =
+        PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[0]).unwrap();
 
-    assert_eq!(recovered_art.art, art.art);
+    assert_eq!(recovered_art.root, art.root);
 
     // Assume art_i is i-th user art. i-th user knows i-th secret key
-    let mut art_0 = PrivateART::<CortadoAffine>::deserialize(
-        &encoded_representation,
-        &secrets[0],
-    )
-    .unwrap();
-    let mut art_1 = PrivateART::<CortadoAffine>::deserialize(
-        &encoded_representation,
-        &secrets[1],
-    )
-    .unwrap();
+    let mut art_0 =
+        PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[0]).unwrap();
+    let mut art_1 =
+        PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[1]).unwrap();
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
     let (tk_1, changes_1) = art_1.update_key(&new_secret_key_1).unwrap();
@@ -90,7 +79,7 @@ fn private_example() {
     assert_eq!(tk_0.key, tk_1.key);
 
     // For proof generation. there might be useful the next method.
-    let (tk, co_path, lambdas) = art_1.recompute_root_key_with_artefacts().unwrap();
+    let (_, co_path, lambdas) = art_1.recompute_root_key_with_artefacts().unwrap();
 
     let k = co_path.len();
 
@@ -108,20 +97,19 @@ fn private_example() {
     let s = (0..2)
         .map(|_| cortado::Fr::rand(&mut rng))
         .collect::<Vec<_>>();
-    let blindings: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
+    let blinding_vector: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
 
     let proof = art_prove(
         &BulletproofGens::new(2048, 1),
         basis.clone(),
-        b"there should be ART data or hash",
         co_path.clone(),
         lambdas.clone(),
         s,
-        blindings,
+        blinding_vector,
     )
     .unwrap();
 
-    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, b"there should be ART data or hash", co_path, proof);
+    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, co_path, proof);
 
     assert!(verification_result.is_ok());
 }
@@ -141,27 +129,29 @@ fn public_example() {
         .collect::<Vec<_>>();
 
     // For new art, creator provides the next method with set of secrets and some generator.
-    let (art, tk) = ART::new_art_from_secrets(&secrets, &generator).unwrap();
+    let (art, _) = PublicART::new_art_from_secrets(&secrets, &generator).unwrap();
 
     // This art can be converted to string using serde serialize as serde_json::to_string(&art)
     // or using build in method.
 
     let string_representation = art.serialize().unwrap();
-    let recovered_art = ART::deserialize(&string_representation).unwrap();
+    let recovered_art = PublicART::<CortadoAffine>::deserialize(&string_representation).unwrap();
 
-    assert_eq!(recovered_art, art);
+    assert_eq!(recovered_art.get_root(), art.get_root());
 
     // Assume art_i is i-th user art. i-th user knows i-th secret key
     let mut art_0 = art.clone();
     let mut art_1 = art.clone();
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
-    let (tk_1, changes_1) = art_1.update_key(&secrets[0], &new_secret_key_1).unwrap();
+    let (tk_1, changes_1) = art_1
+        .update_key_public(&secrets[0], &new_secret_key_1)
+        .unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
     art_0.update_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
-    let tk_0 = art_0.recompute_root_key(new_secret_key_1).unwrap();
+    let tk_0 = art_0.recompute_root_key_public(new_secret_key_1).unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
@@ -171,7 +161,9 @@ fn public_example() {
     let (_, changes_2) = art_1.append_node(&some_secret_key1).unwrap();
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
-    let (_, changes_3) = art_1.update_key(&secrets[1], &some_secret_key2).unwrap();
+    let (_, changes_3) = art_1
+        .update_key_public(&secrets[1], &some_secret_key2)
+        .unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
     let (_, changes_4) = art_1.append_node(&some_secret_key3).unwrap();
@@ -184,7 +176,7 @@ fn public_example() {
     art_0.update_art(&changes_3).unwrap();
     art_0.update_art(&changes_4).unwrap();
     art_0.update_art(&changes_5).unwrap();
-    let tk_0 = art_0.recompute_root_key(new_secret_key_1).unwrap();
+    let tk_0 = art_0.recompute_root_key_public(new_secret_key_1).unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 }
