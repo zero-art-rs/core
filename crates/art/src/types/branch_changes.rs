@@ -1,7 +1,7 @@
 use crate::{
     errors::ARTError,
     helper_tools::{ark_de, ark_se},
-    types::{ARTNode, Direction, NodeIndex},
+    types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

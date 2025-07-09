@@ -2,7 +2,7 @@
 
 use crate::{
     errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
     types::{ARTRootKey, BranchChanges, BranchChangesType},
 };
 use ark_ec::AffineRepr;
@@ -46,7 +46,7 @@ where
         let result = <Self as ARTPublicAPI<G>>::update_public_art(self, changes);
 
         match &changes.change_type {
-            BranchChangesType::AppendNode(node) => {
+            BranchChangesType::AppendNode(_) => {
                 self.update_node_index()?;
             }
             _ => {}

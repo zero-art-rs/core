@@ -1,7 +1,7 @@
 use crate::{
     errors::ARTError,
     helper_tools::{ark_de, ark_se},
-    traits::{ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    traits::{ARTPublicAPI},
     types::{ARTNode, ARTRootKey, NodeIndex, PublicART},
 };
 use ark_ec::AffineRepr;

@@ -9,10 +9,8 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::iterable::Iterable;
 use curve25519_dalek::Scalar;
-use postcard::{self};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json;
 use std::cmp::{max, min};
 
 impl<G, PublicART> ARTPublicAPI<G> for PublicART

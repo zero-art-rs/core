@@ -358,18 +358,6 @@ mod tests {
         (0..size).map(|_| F::rand(&mut rng)).collect()
     }
 
-    // return random ScalarField element, which isn't zero or one
-    fn random_non_neutral_scalar_field_element<F: Field>() -> F {
-        let mut rng = StdRng::seed_from_u64(rand::random());
-
-        let mut k = F::zero();
-        while k.is_one() || k.is_zero() {
-            k = F::rand(&mut rng);
-        }
-
-        k
-    }
-
     fn min_max_leaf_height(art: &PrivateART<ARTGroup>) -> Result<(usize, usize), ARTError> {
         let mut min_height = usize::MAX;
         let mut max_height = 0;

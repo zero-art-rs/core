@@ -1,7 +1,7 @@
 use crate::{
     errors::ARTError,
-    traits::{ARTPublicAPI, ARTPublicView},
-    types::{ARTNode, Direction, NodeIndex},
+    traits::{ARTPublicView},
+    types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
