@@ -8,10 +8,10 @@ use art::{
     types::{PrivateART, PublicART},
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
+use cortado::{self, CortadoAffine, Fr as ScalarField};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
 use zk::art::{art_prove, art_verify, random_witness_gen};
-use zk::curve::cortado::{self, CortadoAffine, Fr as ScalarField};
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
 
@@ -104,6 +104,7 @@ fn private_example() {
     let proof = art_prove(
         &BulletproofGens::new(2048, 1),
         basis.clone(),
+        &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
         co_path.clone(),
         lambdas.clone(),
         s,
@@ -111,7 +112,13 @@ fn private_example() {
     )
     .unwrap();
 
-    let verification_result = art_verify(&BulletproofGens::new(2048, 1), basis, co_path, proof);
+    let verification_result = art_verify(
+        &BulletproofGens::new(2048, 1),
+        basis,
+        &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
+        co_path,
+        proof,
+    );
 
     assert!(verification_result.is_ok());
 }

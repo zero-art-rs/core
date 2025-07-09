@@ -10,10 +10,10 @@ mod tests {
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
         types::{Direction, PrivateART, PublicART},
     };
+    use cortado::{CortadoAffine as ARTGroup, Fr as ARTScalarField};
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
-    use zk::curve::cortado::{CortadoAffine as ARTGroup, Fr as ARTScalarField};
 
     #[test]
     fn test_art_key_update() {
