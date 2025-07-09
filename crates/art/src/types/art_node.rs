@@ -1,5 +1,8 @@
-use crate::{ARTNodeError, Direction};
-use crate::helper_tools::{ark_de, ark_se};
+use crate::{
+    errors::ARTNodeError,
+    helper_tools::{ark_de, ark_se},
+    types::Direction,
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
@@ -29,8 +32,9 @@ pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     pub public_key: G,
     pub l: Option<Box<Self>>,
     pub r: Option<Box<Self>>,
-    pub is_temporary: bool,
+    pub is_blank: bool,
     pub weight: usize,
+    pub metadata: Option<Vec<u8>>,
 }
 
 impl<G: AffineRepr> ARTNode<G> {
@@ -60,8 +64,9 @@ impl<G: AffineRepr> ARTNode<G> {
             public_key,
             l,
             r,
-            is_temporary: false,
+            is_blank: false,
             weight,
+            metadata: None,
         })
     }
 
@@ -73,8 +78,9 @@ impl<G: AffineRepr> ARTNode<G> {
             public_key,
             l: Some(l),
             r: Some(r),
-            is_temporary: false,
+            is_blank: false,
             weight,
+            metadata: None,
         }
     }
 
@@ -84,8 +90,9 @@ impl<G: AffineRepr> ARTNode<G> {
             public_key,
             l: None,
             r: None,
-            is_temporary: false,
+            is_blank: false,
             weight: 1,
+            metadata: None,
         }
     }
 
@@ -104,16 +111,16 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
-    /// If the node is a leaf node, converts the node to temporary, else return error
+    /// If the node is a leaf node, converts the node to blank, else return error
     pub fn make_blank(&mut self, temporary_public_key: &G) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
             self.set_public_key(temporary_public_key.clone());
-            self.is_temporary = true;
+            self.is_blank = true;
             self.weight = 0;
             Ok(())
         } else {
             Err(ARTNodeError::LeafOnly(
-                "Cannot convert internal node to temporary one.".to_string(),
+                "Cannot convert internal node to blank one.".to_string(),
             ))
         }
     }
@@ -268,13 +275,15 @@ impl<G: AffineRepr> ARTNode<G> {
             public_key: self.public_key.clone(),
             l: self.l.take(),
             r: self.r.take(),
-            is_temporary: false,
+            is_blank: false,
             weight,
+            metadata: self.metadata.clone(),
         };
 
         self.weight = other.weight + new_self.weight;
         self.l = Some(Box::new(new_self));
         self.r = Some(Box::new(other));
+        self.metadata = None
     }
 
     /// Changes values of the node with the values of the given one.
@@ -282,8 +291,9 @@ impl<G: AffineRepr> ARTNode<G> {
         self.set_public_key(other.get_public_key());
         self.l = other.l;
         self.r = other.r;
-        self.is_temporary = other.is_temporary;
+        self.is_blank = other.is_blank;
         self.weight = other.weight;
+        self.metadata = other.metadata;
     }
 
     /// If the node is temporary, replace the node, else moves current node down to left,
@@ -295,7 +305,7 @@ impl<G: AffineRepr> ARTNode<G> {
             ));
         }
 
-        match self.is_temporary {
+        match self.is_blank {
             true => self.replace_with(other),
             false => self.extend(other),
         }
@@ -327,6 +337,8 @@ impl<G: AffineRepr> ARTNode<G> {
         self.public_key = new_self.public_key.clone();
         self.l = new_self.l.take();
         self.r = new_self.r.take();
+        self.is_blank = new_self.is_blank;
+        self.metadata = new_self.metadata.clone();
 
         Ok(other_child)
     }
@@ -351,7 +363,7 @@ impl<G: AffineRepr> ARTNode<G> {
             true => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{}leaf of weight: {}, x: {}",
-                    match self.is_temporary {
+                    match self.is_blank {
                         true => "temporary ",
                         false => "",
                     },
@@ -362,8 +374,8 @@ impl<G: AffineRepr> ARTNode<G> {
             false => ARTDisplayTree::Inner {
                 public_key: format!(
                     "{}node of weight: {}, x: {}",
-                    match self.is_temporary {
-                        true => "temporary ",
+                    match self.is_blank {
+                        true => "blank ",
                         false => "",
                     },
                     self.weight,
@@ -393,7 +405,7 @@ impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for AR
         match self.public_key != other.public_key
             || self.l != other.l
             || self.r != other.r
-            || self.is_temporary != other.is_temporary
+            || self.is_blank != other.is_blank
             || self.weight != other.weight
         {
             true => false,

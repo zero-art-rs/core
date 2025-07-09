@@ -1,4 +1,9 @@
-use crate::{ARTError, ARTNode, ARTPublicView, ARTRootKey, PublicART, ark_de, ark_se};
+use crate::{
+    errors::ARTError,
+    helper_tools::{ark_de, ark_se},
+    traits::{ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    types::{ARTNode, ARTRootKey, NodeIndex, PublicART},
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -16,6 +21,7 @@ where
     pub generator: G,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub secret_key: G::ScalarField,
+    pub node_index: NodeIndex,
 }
 
 impl<G> PrivateART<G>
@@ -30,22 +36,21 @@ where
         let secret_key = secrets[0].clone();
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
-        Ok((
-            Self {
-                root: art.root,
-                generator: art.generator,
-                secret_key,
-            },
-            root_key,
-        ))
+        Ok((Self::from_public_art(art, secret_key)?, root_key))
     }
 
-    pub fn from_public_art(public_art: &PublicART<G>, secret_key: &G::ScalarField) -> Self {
-        Self {
-            root: public_art.get_root().clone(),
-            generator: public_art.get_generator().clone(),
-            secret_key: secret_key.clone(),
-        }
+    pub fn from_public_art(
+        public_art: PublicART<G>,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError> {
+        let node_index = public_art.get_leaf_index(&public_art.public_key_of(&secret_key))?;
+
+        Ok(Self {
+            root: public_art.root,
+            generator: public_art.generator,
+            secret_key,
+            node_index: NodeIndex::Index(node_index),
+        })
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
@@ -66,9 +71,9 @@ where
 
     pub fn deserialize(bytes: &Vec<u8>, secret_key: &G::ScalarField) -> Result<Self, ARTError> {
         Ok(Self::from_public_art(
-            &from_bytes::<PublicART<G>>(bytes).map_err(|e| ARTError::Postcard(e))?,
-            secret_key,
-        ))
+            from_bytes::<PublicART<G>>(bytes).map_err(|e| ARTError::Postcard(e))?,
+            *secret_key,
+        )?)
     }
 
     pub fn from_string(
@@ -76,9 +81,9 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
         Ok(Self::from_public_art(
-            &serde_json::from_str::<PublicART<G>>(canonical_json)
+            serde_json::from_str::<PublicART<G>>(canonical_json)
                 .map_err(|e| ARTError::SerdeJson(e))?,
-            secret_key,
-        ))
+            *secret_key,
+        )?)
     }
 }

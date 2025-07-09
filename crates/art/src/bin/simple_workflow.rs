@@ -3,8 +3,10 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
-use art::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView};
-use art::{PrivateART, PublicART};
+use art::{
+    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    types::{PrivateART, PublicART},
+};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
@@ -49,7 +51,7 @@ fn private_example() {
     let (tk_1, changes_1) = art_1.update_key(&new_secret_key_1).unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_art(&changes_1).unwrap();
+    art_0.update_public_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
     let tk_0 = art_0.recompute_root_key().unwrap();
 
@@ -70,10 +72,10 @@ fn private_example() {
     let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
 
     // Other users will update their trees correspondingly.
-    art_0.update_art(&changes_2).unwrap();
-    art_0.update_art(&changes_3).unwrap();
-    art_0.update_art(&changes_4).unwrap();
-    art_0.update_art(&changes_5).unwrap();
+    art_0.update_public_art(&changes_2).unwrap();
+    art_0.update_public_art(&changes_3).unwrap();
+    art_0.update_public_art(&changes_4).unwrap();
+    art_0.update_public_art(&changes_5).unwrap();
     let tk_0 = art_0.recompute_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
@@ -145,13 +147,15 @@ fn public_example() {
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
     let (tk_1, changes_1) = art_1
-        .update_key_public(&secrets[0], &new_secret_key_1)
+        .update_key_with_secret_key(&secrets[0], &new_secret_key_1)
         .unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_art(&changes_1).unwrap();
+    art_0.update_public_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
-    let tk_0 = art_0.recompute_root_key_public(new_secret_key_1).unwrap();
+    let tk_0 = art_0
+        .recompute_root_key_using_secret_key(new_secret_key_1, None)
+        .unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
@@ -162,7 +166,7 @@ fn public_example() {
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
     let (_, changes_3) = art_1
-        .update_key_public(&secrets[1], &some_secret_key2)
+        .update_key_with_secret_key(&secrets[1], &some_secret_key2)
         .unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
@@ -172,11 +176,13 @@ fn public_example() {
     let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
 
     // Other users will update their trees correspondingly.
-    art_0.update_art(&changes_2).unwrap();
-    art_0.update_art(&changes_3).unwrap();
-    art_0.update_art(&changes_4).unwrap();
-    art_0.update_art(&changes_5).unwrap();
-    let tk_0 = art_0.recompute_root_key_public(new_secret_key_1).unwrap();
+    art_0.update_public_art(&changes_2).unwrap();
+    art_0.update_public_art(&changes_3).unwrap();
+    art_0.update_public_art(&changes_4).unwrap();
+    art_0.update_public_art(&changes_5).unwrap();
+    let tk_0 = art_0
+        .recompute_root_key_using_secret_key(new_secret_key_1, None)
+        .unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 }

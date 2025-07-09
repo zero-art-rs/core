@@ -5,7 +5,11 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use ark_std::{One, UniformRand, Zero};
-    use art::{ARTError, ARTPrivateAPI, ARTPublicAPI, ARTPublicView, Direction, PrivateART};
+    use art::{
+        errors::ARTError,
+        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
+        types::{Direction, PrivateART, PublicART},
+    };
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
@@ -17,14 +21,12 @@ mod tests {
         let main_user_id = rng().random_range(0..number_of_users);
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, root_key) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (public_art, root_key) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for i in 0..number_of_users {
-            let mut private_art = tree.clone();
-            private_art.secret_key = secrets[i];
-            users_arts.push(private_art);
+            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
         for i in 0..number_of_users {
@@ -46,7 +48,7 @@ mod tests {
 
         for i in 0..number_of_users {
             if i != main_user_id {
-                users_arts[i].update_art(&changes).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
                 assert_eq!(users_arts[i].recompute_root_key().unwrap().key, new_key.key);
             }
         }
@@ -57,7 +59,7 @@ mod tests {
 
         for i in 0..number_of_users {
             if i != main_user_id {
-                users_arts[i].update_art(&changes).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
                 assert_eq!(
                     users_arts[i].recompute_root_key().unwrap().key,
                     recomputed_old_key.key
@@ -91,7 +93,7 @@ mod tests {
                     last_node.get_left().unwrap().weight + last_node.get_right().unwrap().weight
                 );
             } else {
-                if last_node.is_temporary {
+                if last_node.is_blank {
                     assert_eq!(last_node.weight, 0);
                 } else {
                     assert_eq!(last_node.weight, 1);
@@ -131,9 +133,8 @@ mod tests {
         let (tree, _) = PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let serialized = tree.serialize().unwrap();
-        let secret = ARTScalarField::rand(&mut StdRng::seed_from_u64(rand::random()));
         let deserialized: PrivateART<ARTGroup> =
-            PrivateART::deserialize(&serialized, &secret).unwrap();
+            PrivateART::deserialize(&serialized, &secrets[1]).unwrap();
 
         assert!(
             deserialized
@@ -157,14 +158,12 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(rand::random());
 
-        let (tree, root_key) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (public_art, root_key) =
+            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for i in 0..number_of_users {
-            let mut private_art = tree.clone();
-            private_art.secret_key = secrets[i];
-            users_arts.push(private_art);
+            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
         for i in 0..number_of_users {
@@ -197,7 +196,7 @@ mod tests {
                     root_key.key
                 );
 
-                users_arts[i].update_art(&changes).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
                 let user_root_key = users_arts[i].recompute_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
@@ -213,7 +212,8 @@ mod tests {
 
         for i in 0..number_of_users {
             if i != main_user_id && i != temporary_user_id {
-                users_arts[i].update_art(&changes2).unwrap();
+                users_arts[i].update_private_art(&changes2).unwrap();
+                // users_arts[i].update_node_index().unwrap();
 
                 assert_eq!(
                     users_arts[i].recompute_root_key().unwrap().key,

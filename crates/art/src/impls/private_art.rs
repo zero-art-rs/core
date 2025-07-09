@@ -1,4 +1,8 @@
-use crate::{ARTNode, ARTPrivateView, ARTPublicView, PrivateART};
+use crate::{
+    errors::ARTError,
+    traits::{ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    types::{ARTNode, NodeIndex, PrivateART, PublicART},
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -38,11 +42,28 @@ where
         self.secret_key = secret_key.clone();
     }
 
-    fn new(root: Box<ARTNode<G>>, generator: G, secret_key: G::ScalarField) -> Self {
-        Self {
-            root,
-            generator,
-            secret_key,
-        }
+    fn get_node_index(&self) -> &NodeIndex {
+        &self.node_index
+    }
+
+    fn set_node_index(&mut self, node_index: NodeIndex) {
+        self.node_index = node_index
+    }
+
+    fn update_node_index(&mut self) -> Result<(), ARTError> {
+        let path = self.get_path_to_leaf(&self.public_key_of(&self.get_secret_key()))?;
+        self.set_node_index(NodeIndex::Direction(path));
+
+        Ok(())
+    }
+
+    fn new(
+        root: Box<ARTNode<G>>,
+        generator: G,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError> {
+        let public_art = PublicART { root, generator };
+
+        Self::from_public_art(public_art, secret_key)
     }
 }

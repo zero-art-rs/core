@@ -1,4 +1,4 @@
-use crate::ARTNode;
+use crate::types::ARTNode;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -15,7 +15,7 @@ where
 
     /// changes the root node with the given one. Old root node is returned.
     fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>>;
-    
+
     fn print_as_formated_tree(&self) {
         self.get_root().print_as_formated_tree()
     }

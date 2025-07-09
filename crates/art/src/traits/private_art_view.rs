@@ -1,5 +1,8 @@
-use crate::ARTNode;
-use crate::ARTPublicView;
+use crate::{
+    errors::ARTError,
+    traits::{ARTPublicAPI, ARTPublicView},
+    types::{ARTNode, Direction, NodeIndex},
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -11,5 +14,14 @@ where
 {
     fn get_secret_key(&self) -> G::ScalarField;
     fn set_secret_key(&mut self, secret_key: &G::ScalarField);
-    fn new(root: Box<ARTNode<G>>, generator: G, secret_key: G::ScalarField) -> Self;
+    fn get_node_index(&self) -> &NodeIndex;
+    fn set_node_index(&mut self, node_index: NodeIndex);
+
+    fn update_node_index(&mut self) -> Result<(), ARTError>;
+
+    fn new(
+        root: Box<ARTNode<G>>,
+        generator: G,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError>;
 }

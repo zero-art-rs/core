@@ -1,11 +1,11 @@
-use crate::{ARTNode, Direction};
-use crate::{ARTRootKey, BranchChanges};
+use crate::{
+    errors::ARTError,
+    types::{ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex},
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
-
-use crate::{ARTError, NodeIndex};
 
 pub trait ARTPublicAPI<G>
 where
@@ -14,32 +14,31 @@ where
     Self: Sized,
 {
     /// Returns a co-path to the leaf with a given public key.
-    fn get_co_path_values(&self, user_public_key: &G) -> Result<Vec<G>, ARTError>;
+    fn get_co_path_values(&self, path: &Vec<Direction>) -> Result<Vec<G>, ARTError>;
 
-    /// Searches the tree for a leaf node that matches the given public key, and returns the
-    /// path taken to reach it. Search approach used is depth-first search.
-    fn get_path_to_leaf(
-        &self,
-        user_val: &G,
-    ) -> Result<(Vec<&ARTNode<G>>, Vec<Direction>), ARTError>;
+    /// Brute-force depth-first search in a tree for a leaf node that matches the given public key. Returns the
+    /// path from root to the node.
+    fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError>;
 
     /// Searches the tree for a leaf node that matches the given public key, and returns the
     /// index of a node. Searching algorithm is depth-first search.
     fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key.
-    fn recompute_root_key_public(
+    fn recompute_root_key_using_secret_key(
         &self,
         secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
     ) -> Result<ARTRootKey<G>, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key.
-    fn recompute_root_key_with_artefacts_public(
+    fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
     ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError>;
 
-    /// Shorthand for computing public key.
+    /// Shorthand for computing public key to given secret.
     fn public_key_of(&self, secret: &G::ScalarField) -> G;
 
     /// Update all public keys on path from the root to node, corresponding to the given secret
@@ -47,10 +46,11 @@ where
     fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
+        path: &Vec<Direction>,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
-    fn update_key_public(
+    fn update_key_with_secret_key(
         &mut self,
         old_secret_key: &G::ScalarField,
         new_secret_key: &G::ScalarField,
@@ -67,7 +67,7 @@ where
         &mut self,
         node: ARTNode<G>,
         path: &Vec<Direction>,
-    ) -> Result<(), ARTError>;
+    ) -> Result<Direction, ARTError>;
 
     /// Extends the leaf on a path with new node. New node contains public key corresponding to a
     /// given secret key. Then it updates necessary public keys on a path to root using new
@@ -109,7 +109,7 @@ where
     ) -> Result<(), ARTError>;
 
     /// Returns mutable node by the given path to it
-    fn get_node_by_path(&mut self, next: Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError>;
+    fn get_node_by_path(&mut self, next: &Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// Returns mutable node by the given coordinate of a node. For example, the root is (l:0, p:0),
     /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
@@ -146,5 +146,5 @@ where
     fn get_disbalance(&self) -> Result<u32, ARTError>;
 
     /// Updates art with given changes.
-    fn update_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
+    fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 }
