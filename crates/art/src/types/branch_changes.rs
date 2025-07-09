@@ -1,4 +1,8 @@
-use crate::{ARTError, ARTNode, Direction, ark_de, ark_se};
+use crate::{
+    errors::ARTError,
+    helper_tools::{ark_de, ark_se},
+    types::{ARTNode, Direction, NodeIndex},
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
@@ -12,7 +16,7 @@ pub enum BranchChangesType<G: AffineRepr + CanonicalSerialize + CanonicalDeseria
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G::ScalarField,
     ),
     AppendNode(ARTNode<G>),
-    UpdateKeys,
+    UpdateKey,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     RemoveNode(G),
 }
@@ -23,7 +27,7 @@ pub struct BranchChanges<G: AffineRepr + CanonicalSerialize + CanonicalDeseriali
     pub change_type: BranchChangesType<G>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_keys: Vec<G>,
-    pub next: Vec<Direction>,
+    pub node_index: NodeIndex,
 }
 
 impl<G> BranchChanges<G>

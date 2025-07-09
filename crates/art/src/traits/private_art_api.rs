@@ -1,10 +1,12 @@
-use crate::{ARTPublicAPI, ARTRootKey, BranchChanges};
+use crate::{
+    errors::ARTError,
+    traits::ARTPublicAPI,
+    types::{ARTRootKey, BranchChanges},
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
-
-use crate::ARTError;
 
 pub trait ARTPrivateAPI<G>: ARTPublicAPI<G>
 where
@@ -25,4 +27,6 @@ where
         &mut self,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
+
+    fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 }

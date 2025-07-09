@@ -1,4 +1,8 @@
-use crate::{ARTError, ARTNode, ARTRootKey, ark_de, ark_se, iota_function};
+use crate::{
+    errors::ARTError,
+    helper_tools::{ark_de, ark_se, iota_function},
+    types::{ARTNode, ARTRootKey},
+};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

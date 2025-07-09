@@ -5,8 +5,11 @@ mod tests {
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
-    // use art::{ART, ARTError, Direction};
-    use art::{ARTError, ARTPublicAPI, ARTPublicView, Direction, PublicART};
+    use art::{
+        ARTError,
+        traits::{ARTPublicAPI, ARTPublicView},
+        types::{Direction, PublicART},
+    };
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
@@ -30,7 +33,7 @@ mod tests {
             // Assert creator and users computed the same tree key.
             assert_eq!(
                 users_arts[i]
-                    .recompute_root_key_public(secrets[i])
+                    .recompute_root_key_using_secret_key(secrets[i], None)
                     .unwrap()
                     .key,
                 root_key.key
@@ -43,17 +46,17 @@ mod tests {
         let main_old_key = secrets[main_user_id];
         let main_new_key = get_random_scalar();
         let (new_key, changes) = main_user_art
-            .update_key_public(&secrets[main_user_id], &main_new_key)
+            .update_key_with_secret_key(&secrets[main_user_id], &main_new_key)
             .unwrap();
 
         assert_ne!(new_key.key, main_old_key);
 
         for i in 0..number_of_users {
             if i != main_user_id {
-                users_arts[i].update_art(&changes).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
                 assert_eq!(
                     users_arts[i]
-                        .recompute_root_key_public(secrets[i])
+                        .recompute_root_key_using_secret_key(secrets[i], None)
                         .unwrap()
                         .key,
                     new_key.key
@@ -62,17 +65,17 @@ mod tests {
         }
 
         let (recomputed_old_key, changes) = main_user_art
-            .update_key_public(&main_new_key, &main_old_key)
+            .update_key_with_secret_key(&main_new_key, &main_old_key)
             .unwrap();
 
         assert_eq!(root_key.key, recomputed_old_key.key);
 
         for i in 0..number_of_users {
             if i != main_user_id {
-                users_arts[i].update_art(&changes).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
                 assert_eq!(
                     users_arts[i]
-                        .recompute_root_key_public(secrets[i])
+                        .recompute_root_key_using_secret_key(secrets[i], None)
                         .unwrap()
                         .key,
                     recomputed_old_key.key
@@ -106,7 +109,7 @@ mod tests {
                     last_node.get_left().unwrap().weight + last_node.get_right().unwrap().weight
                 );
             } else {
-                if last_node.is_temporary {
+                if last_node.is_blank {
                     assert_eq!(last_node.weight, 0);
                 } else {
                     assert_eq!(last_node.weight, 1);
@@ -182,7 +185,7 @@ mod tests {
             // Assert all the users computed the same tree key.
             assert_eq!(
                 users_arts[i]
-                    .recompute_root_key_public(secrets[i])
+                    .recompute_root_key_using_secret_key(secrets[i], None)
                     .unwrap()
                     .key,
                 root_key.key
@@ -201,7 +204,7 @@ mod tests {
 
         assert_eq!(
             main_user_art
-                .recompute_root_key_public(secrets[main_user_id])
+                .recompute_root_key_using_secret_key(secrets[main_user_id], None)
                 .unwrap()
                 .key,
             root_key.key
@@ -211,14 +214,16 @@ mod tests {
             if i != temporary_user_id && i != main_user_id {
                 assert_ne!(
                     users_arts[i]
-                        .recompute_root_key_public(secrets[i])
+                        .recompute_root_key_using_secret_key(secrets[i], None)
                         .unwrap()
                         .key,
                     root_key.key
                 );
 
-                users_arts[i].update_art(&changes).unwrap();
-                let user_root_key = users_arts[i].recompute_root_key_public(secrets[i]).unwrap();
+                users_arts[i].update_public_art(&changes).unwrap();
+                let user_root_key = users_arts[i]
+                    .recompute_root_key_using_secret_key(secrets[i], None)
+                    .unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().weight, (number_of_users - 1));
@@ -233,11 +238,11 @@ mod tests {
 
         for i in 0..number_of_users {
             if i != main_user_id && i != temporary_user_id {
-                users_arts[i].update_art(&changes2).unwrap();
+                users_arts[i].update_public_art(&changes2).unwrap();
 
                 assert_eq!(
                     users_arts[i]
-                        .recompute_root_key_public(secrets[i])
+                        .recompute_root_key_using_secret_key(secrets[i], None)
                         .unwrap()
                         .key,
                     root_key2.key
