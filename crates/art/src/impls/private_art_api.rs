@@ -39,7 +39,10 @@ where
         let old_key = self.get_secret_key();
         self.set_secret_key(new_secret_key);
 
-        self.update_key_with_secret_key(&old_key, new_secret_key)
+        let result = self.update_key_with_secret_key(&old_key, new_secret_key);
+        self.update_node_index()?;
+
+        result
     }
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
