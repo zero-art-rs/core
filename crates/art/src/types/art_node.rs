@@ -1,28 +1,13 @@
-use crate::helper_tools::{ark_de, ark_se};
+use crate::{
+    errors::ARTNodeError,
+    helper_tools::{ark_de, ark_se},
+    types::Direction,
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::fmt::Debug;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum ARTNodeError {
-    #[error("given parameters are invalid: {0}")]
-    InvalidParameters(String),
-    #[error("the method is callable only for leaves: {0}")]
-    LeafOnly(String),
-    #[error("the method is callable only for internal nodes: {0}")]
-    InternalNodeOnly(String),
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
-pub enum Direction {
-    NoDirection,
-    Left,
-    Right,
-}
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {
@@ -47,8 +32,9 @@ pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     pub public_key: G,
     pub l: Option<Box<Self>>,
     pub r: Option<Box<Self>>,
-    pub is_temporal: bool,
+    pub is_blank: bool,
     pub weight: usize,
+    pub metadata: Option<Vec<u8>>,
 }
 
 impl<G: AffineRepr> ARTNode<G> {
@@ -61,9 +47,9 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Any other combination (e.g., only one child provided) is invalid and will return an error.
     pub fn new(
         public_key: G,
-        l: Option<Box<ARTNode<G>>>,
-        r: Option<Box<ARTNode<G>>>,
-    ) -> Result<ARTNode<G>, ARTNodeError> {
+        l: Option<Box<Self>>,
+        r: Option<Box<Self>>,
+    ) -> Result<Self, ARTNodeError> {
         let weight = match (&l, &r) {
             (Some(l), Some(r)) => l.weight + r.weight, //internal node
             (None, None) => 1,                         // leaf node
@@ -74,36 +60,39 @@ impl<G: AffineRepr> ARTNode<G> {
             }
         };
 
-        Ok(ARTNode {
+        Ok(Self {
             public_key,
             l,
             r,
-            is_temporal: false,
+            is_blank: false,
             weight,
+            metadata: None,
         })
     }
 
     /// Creates a new ARTNode internal node with the given public key.
-    pub fn new_internal_node(public_key: G, l: Box<ARTNode<G>>, r: Box<ARTNode<G>>) -> ARTNode<G> {
+    pub fn new_internal_node(public_key: G, l: Box<Self>, r: Box<Self>) -> Self {
         let weight = l.weight + r.weight;
 
-        ARTNode {
+        Self {
             public_key,
             l: Some(l),
             r: Some(r),
-            is_temporal: false,
+            is_blank: false,
             weight,
+            metadata: None,
         }
     }
 
     /// Creates a new ARTNode leaf with the given public key.
-    pub fn new_leaf(public_key: G) -> ARTNode<G> {
-        ARTNode {
+    pub fn new_leaf(public_key: G) -> Self {
+        Self {
             public_key,
             l: None,
             r: None,
-            is_temporal: false,
+            is_blank: false,
             weight: 1,
+            metadata: None,
         }
     }
 
@@ -113,7 +102,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference to the left child node.
-    pub fn get_left(&self) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_left(&self) -> Result<&Box<Self>, ARTNodeError> {
         match &self.l {
             Some(l) => Ok(l),
             None => Err(ARTNodeError::InternalNodeOnly(
@@ -122,22 +111,22 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
-    /// If the node is a leaf node, converts the node to temporal, else return error
-    pub fn make_temporal(&mut self, temporal_public_key: &G) -> Result<(), ARTNodeError> {
+    /// If the node is a leaf node, converts the node to blank, else return error
+    pub fn make_blank(&mut self, temporary_public_key: &G) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            self.set_public_key(temporal_public_key.clone());
-            self.is_temporal = true;
+            self.set_public_key(temporary_public_key.clone());
+            self.is_blank = true;
             self.weight = 0;
             Ok(())
         } else {
             Err(ARTNodeError::LeafOnly(
-                "Cannot convert internal node to temporal one.".to_string(),
+                "Cannot convert internal node to blank one.".to_string(),
             ))
         }
     }
 
     /// Returns a mutable reference to the left child node.
-    pub fn get_mut_left(&mut self) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
         match &mut self.l {
             Some(l) => Ok(l),
             None => Err(ARTNodeError::InternalNodeOnly(
@@ -147,7 +136,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference to the right child node.
-    pub fn get_right(&self) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_right(&self) -> Result<&Box<Self>, ARTNodeError> {
         match &self.r {
             Some(r) => Ok(r),
             None => Err(ARTNodeError::InternalNodeOnly(
@@ -157,7 +146,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a mutable reference to the right child node.
-    pub fn get_mut_right(&mut self) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
         match &mut self.r {
             Some(r) => Ok(r),
             None => Err(ARTNodeError::InternalNodeOnly(
@@ -167,7 +156,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Changes left child of inner node with a given one
-    pub fn set_left(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
+    pub fn set_left(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "Cant set left node for leaf. To append node use extend instead.".to_string(),
@@ -181,7 +170,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Changes right child of inner node with a given one
-    pub fn set_right(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
+    pub fn set_right(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "Cant set left node for leaf. To append node use extend instead.".to_string(),
@@ -204,7 +193,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference on a child of a given inner node by a given direction to the child.
-    pub fn get_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "leaf node have no children.".to_string(),
@@ -222,10 +211,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// Returns a mutable reference on a child of a given inner node by a given direction to
     /// the child.
-    pub fn get_mut_child(
-        &mut self,
-        child: &Direction,
-    ) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "leaf node have no children.".to_string(),
@@ -243,7 +229,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// Returns a reference on a child of a given inner node, which is located on the opposite
     /// side to the given direction.
-    pub fn get_other_child(&self, child: &Direction) -> Result<&Box<ARTNode<G>>, ARTNodeError> {
+    pub fn get_other_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "leaf node have no children.".to_string(),
@@ -264,7 +250,7 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn get_mut_other_child(
         &mut self,
         child: &Direction,
-    ) -> Result<&mut Box<ARTNode<G>>, ARTNodeError> {
+    ) -> Result<&mut Box<Self>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "leaf node have no children.".to_string(),
@@ -282,41 +268,44 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
-    pub fn extend(&mut self, other: ARTNode<G>) {
+    pub fn extend(&mut self, other: Self) {
         let weight = other.weight + self.weight;
 
-        let new_self = ARTNode {
+        let new_self = Self {
             public_key: self.public_key.clone(),
             l: self.l.take(),
             r: self.r.take(),
-            is_temporal: false,
+            is_blank: false,
             weight,
+            metadata: self.metadata.clone(),
         };
 
         self.weight = other.weight + new_self.weight;
         self.l = Some(Box::new(new_self));
         self.r = Some(Box::new(other));
+        self.metadata = None
     }
 
     /// Changes values of the node with the values of the given one.
-    pub fn replace_with(&mut self, other: ARTNode<G>) {
+    pub fn replace_with(&mut self, other: Self) {
         self.set_public_key(other.get_public_key());
         self.l = other.l;
         self.r = other.r;
-        self.is_temporal = other.is_temporal;
+        self.is_blank = other.is_blank;
         self.weight = other.weight;
+        self.metadata = other.metadata;
     }
 
-    /// If the node is temporal, replace the node, else moves current node down to left,
+    /// If the node is temporary, replace the node, else moves current node down to left,
     /// and append other node to the right.
-    pub fn extend_or_replace(&mut self, other: ARTNode<G>) -> Result<(), ARTNodeError> {
+    pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if !self.is_leaf() {
             return Err(ARTNodeError::LeafOnly(
                 "Cannot extend an internal node.".to_string(),
             ));
         }
 
-        match self.is_temporal {
+        match self.is_blank {
             true => self.replace_with(other),
             false => self.extend(other),
         }
@@ -325,7 +314,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Change current node with its child. Other child is removed and returned.
-    pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<ARTNode<G>>>, ARTNodeError> {
+    pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<Self>>, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly(
                 "Cannot shrink a leaf node.".to_string(),
@@ -348,6 +337,8 @@ impl<G: AffineRepr> ARTNode<G> {
         self.public_key = new_self.public_key.clone();
         self.l = new_self.l.take();
         self.r = new_self.r.take();
+        self.is_blank = new_self.is_blank;
+        self.metadata = new_self.metadata.clone();
 
         Ok(other_child)
     }
@@ -357,7 +348,7 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn shrink_to_other(
         &mut self,
         for_removal: Direction,
-    ) -> Result<Option<Box<ARTNode<G>>>, ARTNodeError> {
+    ) -> Result<Option<Box<Self>>, ARTNodeError> {
         match for_removal {
             Direction::Left => self.shrink_to(Direction::Right),
             Direction::Right => self.shrink_to(Direction::Left),
@@ -372,8 +363,8 @@ impl<G: AffineRepr> ARTNode<G> {
             true => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{}leaf of weight: {}, x: {}",
-                    match self.is_temporal {
-                        true => "temporal ",
+                    match self.is_blank {
+                        true => "temporary ",
                         false => "",
                     },
                     self.weight,
@@ -383,8 +374,8 @@ impl<G: AffineRepr> ARTNode<G> {
             false => ARTDisplayTree::Inner {
                 public_key: format!(
                     "{}node of weight: {}, x: {}",
-                    match self.is_temporal {
-                        true => "temporal ",
+                    match self.is_blank {
+                        true => "blank ",
                         false => "",
                     },
                     self.weight,
@@ -414,7 +405,7 @@ impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for AR
         match self.public_key != other.public_key
             || self.l != other.l
             || self.r != other.r
-            || self.is_temporal != other.is_temporal
+            || self.is_blank != other.is_blank
             || self.weight != other.weight
         {
             true => false,

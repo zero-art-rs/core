@@ -1,18 +1,22 @@
-use crate::{ARTNode, Direction, ark_de, ark_se, ARTError};
+use crate::{
+    errors::ARTError,
+    helper_tools::{ark_de, ark_se},
+    types::{ARTNode, NodeIndex},
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::{Deserialize, Serialize};
 use postcard::{from_bytes, to_allocvec};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub enum BranchChangesType<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
-    MakeTemporal(
+    MakeBlank(
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G,
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G::ScalarField,
     ),
     AppendNode(ARTNode<G>),
-    UpdateKeys,
+    UpdateKey,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     RemoveNode(G),
 }
@@ -23,21 +27,18 @@ pub struct BranchChanges<G: AffineRepr + CanonicalSerialize + CanonicalDeseriali
     pub change_type: BranchChangesType<G>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_keys: Vec<G>,
-    pub next: Vec<Direction>,
+    pub node_index: NodeIndex,
 }
 
-impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> BranchChanges<G> {
+impl<G> BranchChanges<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
     pub fn serialze(&self) -> Result<Vec<u8>, ARTError> {
-        match to_allocvec(self) {
-            Ok(output) => Ok(output),
-            Err(e) => Err(ARTError::SerialisationError(format!(
-                "Failed to serialise: {:?}",
-                e
-            ))),
-        }
+        to_allocvec(self).map_err(ARTError::Postcard)
     }
 
     pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
-        from_bytes(bytes).map_err(|e| ARTError::SerialisationError(e.to_string()))
+        from_bytes(bytes).map_err(ARTError::Postcard)
     }
 }
