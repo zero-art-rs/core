@@ -52,7 +52,7 @@ where
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
     fn update_key_with_secret_key(
         &mut self,
-        old_secret_key: &G::ScalarField,
+        path: &Vec<Direction>,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 

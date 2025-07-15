@@ -1,6 +1,6 @@
 use crate::{
     errors::ARTError,
-    traits::{ARTPublicView},
+    traits::ARTPublicView,
     types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;

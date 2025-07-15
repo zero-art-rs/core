@@ -209,16 +209,15 @@ where
 
     fn update_key_with_secret_key(
         &mut self,
-        old_secret_key: &G::ScalarField,
+        path: &Vec<Direction>,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        let next = self.get_path_to_leaf(&self.public_key_of(old_secret_key))?;
         let new_public_key = self.public_key_of(new_secret_key);
 
-        let user_node = self.get_node_by_path(&next)?;
+        let user_node = self.get_node_by_path(path)?;
         user_node.set_public_key(new_public_key);
 
-        self.update_art_with_secret_key(&new_secret_key, &next)
+        self.update_art_with_secret_key(&new_secret_key, path)
     }
 
     fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {

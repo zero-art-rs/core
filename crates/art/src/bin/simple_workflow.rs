@@ -4,16 +4,16 @@ use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use art::{
-    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
+    traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
     types::{PrivateART, PublicART},
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
 use cortado::{self, CortadoAffine, Fr as ScalarField};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
-use zk::art::{art_prove, art_verify, random_witness_gen};
-use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
-use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
+use zk::art::{art_prove, art_verify};
+use zkp::toolbox::cross_dleq::PedersenBasis;
+use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
 /// PrivateART usage example. PrivateART contain handle key management, while ART isn't.
 fn private_example() {
@@ -154,7 +154,12 @@ fn public_example() {
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
     let (tk_1, changes_1) = art_1
-        .update_key_with_secret_key(&secrets[0], &new_secret_key_1)
+        .update_key_with_secret_key(
+            &art_1
+                .get_path_to_leaf(&art_1.public_key_of(&secrets[0]))
+                .unwrap(),
+            &new_secret_key_1,
+        )
         .unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
@@ -173,7 +178,12 @@ fn public_example() {
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
     let (_, changes_3) = art_1
-        .update_key_with_secret_key(&secrets[1], &some_secret_key2)
+        .update_key_with_secret_key(
+            &art_1
+                .get_path_to_leaf(&art_1.public_key_of(&secrets[1]))
+                .unwrap(),
+            &some_secret_key2,
+        )
         .unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);

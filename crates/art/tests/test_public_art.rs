@@ -46,7 +46,12 @@ mod tests {
         let main_old_key = secrets[main_user_id];
         let main_new_key = get_random_scalar();
         let (new_key, changes) = main_user_art
-            .update_key_with_secret_key(&secrets[main_user_id], &main_new_key)
+            .update_key_with_secret_key(
+                &main_user_art
+                    .get_path_to_leaf(&main_user_art.public_key_of(&secrets[main_user_id]))
+                    .unwrap(),
+                &main_new_key,
+            )
             .unwrap();
 
         assert_ne!(new_key.key, main_old_key);
@@ -65,7 +70,12 @@ mod tests {
         }
 
         let (recomputed_old_key, changes) = main_user_art
-            .update_key_with_secret_key(&main_new_key, &main_old_key)
+            .update_key_with_secret_key(
+                &main_user_art
+                    .get_path_to_leaf(&main_user_art.public_key_of(&main_new_key))
+                    .unwrap(),
+                &main_old_key,
+            )
             .unwrap();
 
         assert_eq!(root_key.key, recomputed_old_key.key);
