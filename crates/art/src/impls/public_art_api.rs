@@ -2,7 +2,10 @@ use crate::{
     errors::ARTError,
     helper_tools::iota_function,
     traits::{ARTPublicAPI, ARTPublicView},
-    types::{ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex},
+    types::{
+        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex,
+        NodeIterWithPath,
+    },
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
@@ -43,40 +46,12 @@ where
     }
 
     fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError> {
-        let root = self.get_root();
-
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                if last_node.public_key.eq(user_val) {
-                    next.pop();
-                    return Ok(next);
-                } else {
-                    path.pop();
-                    next.pop();
-                }
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
+        for (node, path) in NodeIterWithPath::new(self.get_root()) {
+            if node.public_key.eq(user_val) {
+                return Ok(path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>());
             }
         }
 

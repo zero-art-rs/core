@@ -1,5 +1,5 @@
 use crate::errors::ARTNodeError;
-use crate::types::{ARTDisplayTree, ARTNode, Direction, LeafIter, NodeIter};
+use crate::types::{ARTDisplayTree, ARTNode, Direction, LeafIter, NodeIter, NodeIterWithPath};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
@@ -351,14 +351,66 @@ impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for AR
 }
 
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
+impl<'a, G> NodeIterWithPath<'a, G>
+where
+    G: AffineRepr,
+{
+    pub fn new(root: &'a ARTNode<G>) -> Self {
+        NodeIterWithPath {
+            current_node: Some(root),
+            path: vec![],
+        }
+    }
+}
+
+impl<'a, G> Iterator for NodeIterWithPath<'a, G>
+where
+    G: AffineRepr,
+{
+    type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(current_node) = self.current_node {
+            let return_item = (current_node, self.path.clone());
+
+            if current_node.is_leaf() {
+                loop {
+                    match self.path.pop() {
+                        Some((parent, last_direction)) => {
+                            if last_direction == Direction::Right {
+                                self.current_node = Some(parent);
+                            } else if last_direction == Direction::Left {
+                                self.path.push((parent, Direction::Right));
+                                self.current_node =
+                                    parent.get_right().map(|item| item.as_ref()).ok();
+                                break;
+                            }
+                        }
+                        None => {
+                            self.current_node = None;
+                            return Some(return_item);
+                        }
+                    }
+                }
+            } else {
+                self.path.push((current_node, Direction::Left));
+                self.current_node = current_node.get_left().map(|item| item.as_ref()).ok();
+            }
+
+            return Some(return_item);
+        }
+
+        None
+    }
+}
+
+/// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, G> NodeIter<'a, G>
 where
     G: AffineRepr,
 {
     pub fn new(root: &'a ARTNode<G>) -> Self {
-        NodeIter {
-            stack: vec![root],
-        }
+        NodeIter { stack: vec![root] }
     }
 }
 

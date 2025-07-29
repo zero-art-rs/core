@@ -6,7 +6,7 @@ mod node_index;
 mod private_art;
 mod public_art;
 
-pub use art_node::{ARTDisplayTree, ARTNode, LeafIter, NodeIter};
+pub use art_node::{ARTDisplayTree, ARTNode, LeafIter, NodeIter, NodeIterWithPath};
 pub use art_root_key::ARTRootKey;
 pub use branch_changes::{BranchChanges, BranchChangesType};
 pub use direction::Direction;

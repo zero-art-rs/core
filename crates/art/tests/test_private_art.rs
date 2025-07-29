@@ -5,7 +5,7 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use ark_std::{One, UniformRand, Zero};
-    use art::types::NodeIndex;
+    use art::types::{NodeIndex, NodeIterWithPath};
     use art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
@@ -388,6 +388,7 @@ mod tests {
             assert!(get_disbalance(&art).unwrap() < 2);
         }
     }
+
 
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
