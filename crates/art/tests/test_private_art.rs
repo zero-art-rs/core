@@ -5,6 +5,7 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use ark_std::{One, UniformRand, Zero};
+    use art::types::NodeIndex;
     use art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
@@ -232,19 +233,31 @@ mod tests {
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
-        let node_pk = tree.get_node_by_coordinate(0, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(0, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(1, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(1, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_left().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(1, 1).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(1, 1))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_right().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_left()
@@ -258,7 +271,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 11).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 11))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -272,7 +288,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 15).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 15))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -286,7 +305,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(5, 31).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(5, 31))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -310,19 +332,31 @@ mod tests {
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
-        let node_pk = tree.get_node_by_index(1).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(1))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(2).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(2))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_left().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(3).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(3))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_right().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(27).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(27))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -338,7 +372,10 @@ mod tests {
 
         let node_pk = ARTGroup::generator().mul(&secrets[2]).into_affine();
         let node_index = tree.get_leaf_index(&node_pk).unwrap();
-        let rec_node_pk = tree.get_node_by_index(node_index).unwrap().get_public_key();
+        let rec_node_pk = tree
+            .get_node(&NodeIndex::Index(node_index))
+            .unwrap()
+            .get_public_key();
         assert!(node_pk.eq(&rec_node_pk));
     }
 

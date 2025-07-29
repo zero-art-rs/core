@@ -52,7 +52,7 @@ where
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
     fn update_key_with_secret_key(
         &mut self,
-        path: &Vec<Direction>,
+        node_index: &NodeIndex,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
@@ -108,23 +108,11 @@ where
         path: &Vec<Direction>,
     ) -> Result<(), ARTError>;
 
-    /// Returns mutable node by the given path to it
-    fn get_node_by_path(&mut self, next: &Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError>;
-
-    /// Returns mutable node by the given coordinate of a node. For example, the root is (l:0, p:0),
-    /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
-    fn get_node_by_coordinate(
-        &mut self,
-        level: u32,
-        position: u32,
-    ) -> Result<&mut ARTNode<G>, ARTError>;
-
-    /// Returns mutable node by the given index of a node. For example, root have index 0, its
-    /// children are 1 and 2.
-    fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError>;
+    /// Returns node by the given ARTNodeIndex
+    fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
     /// Returns mutable node by the given ARTNodeIndex
-    fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
+    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
     /// specific, so in general don't remove nodes and make them temporary instead

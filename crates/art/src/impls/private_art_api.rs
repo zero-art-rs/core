@@ -39,7 +39,7 @@ where
         self.set_secret_key(new_secret_key);
 
         let result =
-            self.update_key_with_secret_key(&self.get_node_index().get_path()?, new_secret_key);
+            self.update_key_with_secret_key(&self.get_node_index().clone(), new_secret_key);
         self.update_node_index()?;
 
         result

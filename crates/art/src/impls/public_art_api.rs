@@ -209,15 +209,15 @@ where
 
     fn update_key_with_secret_key(
         &mut self,
-        path: &Vec<Direction>,
+        node_index: &NodeIndex,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let new_public_key = self.public_key_of(new_secret_key);
 
-        let user_node = self.get_node_by_path(path)?;
+        let user_node = self.get_mut_node(node_index)?;
         user_node.set_public_key(new_public_key);
 
-        self.update_art_with_secret_key(&new_secret_key, path)
+        self.update_art_with_secret_key(&new_secret_key, &node_index.get_path()?)
     }
 
     fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
@@ -360,77 +360,22 @@ where
         Ok(())
     }
 
-    fn get_node_by_path(&mut self, next: &Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError> {
-        let mut target_node = self.get_mut_root();
-        for direction in next {
-            target_node = target_node.get_mut_child(direction)?;
+    fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        let mut node = self.get_root();
+        for direction in &index.get_path()? {
+            node = node.get_child(direction)?;
         }
 
-        Ok(target_node)
+        Ok(node)
     }
 
-    fn get_node_by_coordinate(
-        &mut self,
-        level: u32,
-        position: u32,
-    ) -> Result<&mut ARTNode<G>, ARTError> {
-        if position >= (2 << level) {
-            return Err(ARTError::InvalidInput);
+    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        let mut node = self.get_mut_root();
+        for direction in &index.get_path()? {
+            node = node.get_mut_child(direction)?;
         }
 
-        let mut target_node = self.get_mut_root();
-        let mut l = level;
-        let mut p = position;
-        while l != 0 {
-            // max number of leaves on level l in a subtree divided by 2
-            let relative_center_index = 1 << (l - 1);
-            if p < relative_center_index {
-                // node is on the left form target_node
-                target_node = target_node.get_mut_left()?;
-            } else {
-                // node is on the right from target_node
-                target_node = target_node.get_mut_right()?;
-                p = p - relative_center_index;
-            }
-
-            l -= 1;
-        }
-
-        Ok(target_node)
-    }
-
-    fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError> {
-        if index == 0 {
-            return Err(ARTError::InvalidInput);
-        }
-
-        let mut i = index;
-
-        let mut path = Vec::new();
-        while i > 1 {
-            if (i & 1) == 0 {
-                path.push(Direction::Left);
-            } else {
-                path.push(Direction::Right);
-            }
-
-            i = i >> 1;
-        }
-
-        let mut target_node = self.get_mut_root();
-        for direction in path.iter().rev() {
-            target_node = target_node.get_mut_child(direction)?;
-        }
-
-        Ok(target_node)
-    }
-
-    fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
-        match index {
-            NodeIndex::Index(index) => self.get_node_by_index(index),
-            NodeIndex::Coordinate(level, position) => self.get_node_by_coordinate(level, position),
-            NodeIndex::Direction(path) => self.get_node_by_path(&path),
-        }
+        Ok(node)
     }
 
     fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {

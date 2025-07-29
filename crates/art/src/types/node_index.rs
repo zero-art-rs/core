@@ -1,5 +1,6 @@
 use crate::{errors::ARTError, types::Direction};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum NodeIndex {
@@ -14,6 +15,37 @@ pub enum NodeIndex {
 }
 
 impl NodeIndex {
+    pub fn as_path(&self) -> Result<Self, ARTError> {
+        Ok(Self::Direction(self.get_path()?))
+    }
+
+    pub fn as_index(&self) -> Result<Self, ARTError> {
+        Ok(Self::Index(self.get_index()?))
+    }
+
+    pub fn as_coordinate(&self) -> Result<Self, ARTError> {
+        let (level, position) = self.get_coordinate()?;
+        Ok(Self::Coordinate(level, position))
+    }
+
+    pub fn get_index(&self) -> Result<u32, ARTError> {
+        match self {
+            NodeIndex::Index(index) => Ok(*index),
+            NodeIndex::Coordinate(level, position) => {
+                Self::get_index_from_path(&Self::get_path_from_coordinate(*level, *position)?)
+            }
+            NodeIndex::Direction(path) => Self::get_index_from_path(path),
+        }
+    }
+
+    pub fn get_coordinate(&self) -> Result<(u32, u32), ARTError> {
+        match self {
+            NodeIndex::Coordinate(level, position) => Ok((*level, *position)),
+            NodeIndex::Index(index) => Self::get_coordinate_from_index(*index),
+            NodeIndex::Direction(path) => Self::get_coordinate_from_path(path),
+        }
+    }
+
     pub fn get_path(&self) -> Result<Vec<Direction>, ARTError> {
         match self {
             Self::Index(index) => Self::get_path_from_index(*index),
@@ -81,5 +113,33 @@ impl NodeIndex {
         }
 
         Ok(path)
+    }
+
+    fn get_coordinate_from_index(index: u32) -> Result<(u32, u32), ARTError> {
+        let mut level = 0u32;
+        let mut position = index;
+
+        let mut level_max_width = 1;
+        while position > level_max_width {
+            position -= level_max_width;
+            level_max_width = level_max_width << 1;
+            level += 1;
+        }
+
+        Ok((level, position))
+    }
+
+    fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u32, u32), ARTError> {
+        let mut position = 0u32;
+
+        for next in path {
+            match next {
+                Direction::Left => position = position * 2,
+                Direction::Right => position = position * 2 + 1,
+                Direction::NoDirection => return Err(ARTError::InvalidInput),
+            }
+        }
+
+        Ok((path.len() as u32 - 1, position))
     }
 }
