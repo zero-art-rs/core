@@ -410,7 +410,7 @@ where
     G: AffineRepr,
 {
     pub fn new(root: &'a ARTNode<G>) -> Self {
-        NodeIter { stack: vec![root] }
+        NodeIter { inner_iter: NodeIterWithPath::new(root) }
     }
 }
 
@@ -421,19 +421,7 @@ where
     type Item = &'a ARTNode<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(node) = self.stack.pop() {
-            if let Ok(right) = node.get_right() {
-                self.stack.push(right);
-            }
-
-            if let Ok(left) = node.get_left() {
-                self.stack.push(left);
-            }
-
-            Some(node)
-        } else {
-            None
-        }
+        self.inner_iter.next().map(|item| item.0)
     }
 }
 
@@ -443,7 +431,7 @@ where
     G: AffineRepr,
 {
     pub fn new(root: &'a ARTNode<G>) -> Self {
-        LeafIter { stack: vec![root] }
+        LeafIter { inner_iter: NodeIterWithPath::new(root) }
     }
 }
 
@@ -454,22 +442,12 @@ where
     type Item = &'a ARTNode<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.stack.len() != 0 {
-            if let Some(node) = self.stack.pop() {
-                if let Ok(right) = node.get_right() {
-                    self.stack.push(right);
-                }
-
-                if let Ok(left) = node.get_left() {
-                    self.stack.push(left);
-                }
-
-                if node.is_leaf() {
-                    return Some(node);
-                }
+        while let Some((item, _)) = self.inner_iter.next() {
+            if item.is_leaf() {
+                return Some(item);
             }
         }
-
+        
         None
     }
 }

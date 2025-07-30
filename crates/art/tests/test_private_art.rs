@@ -389,7 +389,6 @@ mod tests {
         }
     }
 
-
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 

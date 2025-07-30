@@ -34,13 +34,6 @@ pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     pub metadata: Option<Vec<u8>>,
 }
 
-pub struct NodeIter<'a, G>
-where
-    G: AffineRepr,
-{
-    pub stack: Vec<&'a ARTNode<G>>,
-}
-
 pub struct NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
@@ -49,9 +42,16 @@ where
     pub path: Vec<(&'a ARTNode<G>, Direction)>,
 }
 
+pub struct NodeIter<'a, G>
+where
+    G: AffineRepr,
+{
+    pub inner_iter: NodeIterWithPath<'a, G>,
+}
+
 pub struct LeafIter<'a, G>
 where
     G: AffineRepr,
 {
-    pub stack: Vec<&'a ARTNode<G>>,
+    pub inner_iter: NodeIterWithPath<'a, G>,
 }
