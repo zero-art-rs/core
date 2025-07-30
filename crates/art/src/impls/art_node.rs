@@ -1,5 +1,7 @@
 use crate::errors::ARTNodeError;
-use crate::types::{ARTDisplayTree, ARTNode, Direction, LeafIter, NodeIter, NodeIterWithPath};
+use crate::types::{
+    ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
@@ -41,9 +43,7 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn get_left(&self) -> Result<&Box<Self>, ARTNodeError> {
         match &self.l {
             Some(l) => Ok(l),
-            None => Err(ARTNodeError::InternalNodeOnly(
-                "Leaf doesn't have a left child.".to_string(),
-            )),
+            None => Err(ARTNodeError::InternalNodeOnly),
         }
     }
 
@@ -55,9 +55,7 @@ impl<G: AffineRepr> ARTNode<G> {
             self.weight = 0;
             Ok(())
         } else {
-            Err(ARTNodeError::LeafOnly(
-                "Cannot convert internal node to blank one.".to_string(),
-            ))
+            Err(ARTNodeError::LeafOnly)
         }
     }
 
@@ -65,9 +63,7 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
         match &mut self.l {
             Some(l) => Ok(l),
-            None => Err(ARTNodeError::InternalNodeOnly(
-                "Leaf doesn't have a left child.".to_string(),
-            )),
+            None => Err(ARTNodeError::InternalNodeOnly),
         }
     }
 
@@ -75,9 +71,7 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn get_right(&self) -> Result<&Box<Self>, ARTNodeError> {
         match &self.r {
             Some(r) => Ok(r),
-            None => Err(ARTNodeError::InternalNodeOnly(
-                "Leaf doesn't have a right child.".to_string(),
-            )),
+            None => Err(ARTNodeError::InternalNodeOnly),
         }
     }
 
@@ -85,18 +79,14 @@ impl<G: AffineRepr> ARTNode<G> {
     pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
         match &mut self.r {
             Some(r) => Ok(r),
-            None => Err(ARTNodeError::InternalNodeOnly(
-                "Leaf doesn't have a right child.".to_string(),
-            )),
+            None => Err(ARTNodeError::InternalNodeOnly),
         }
     }
 
     /// Changes left child of inner node with a given one
     pub fn set_left(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "Cant set left node for leaf. To append node use extend instead.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         self.l = Some(Box::new(other));
@@ -108,9 +98,7 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Changes right child of inner node with a given one
     pub fn set_right(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "Cant set left node for leaf. To append node use extend instead.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         self.r = Some(Box::new(other));
@@ -131,17 +119,12 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Returns a reference on a child of a given inner node by a given direction to the child.
     pub fn get_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "leaf node have no children.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         match child {
             Direction::Left => Ok(self.get_left()?),
             Direction::Right => Ok(self.get_right()?),
-            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
-                "Unexpected direction".to_string(),
-            )),
         }
     }
 
@@ -149,17 +132,12 @@ impl<G: AffineRepr> ARTNode<G> {
     /// the child.
     pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "leaf node have no children.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         match child {
             Direction::Left => Ok(self.get_mut_left()?),
             Direction::Right => Ok(self.get_mut_right()?),
-            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
-                "Unexpected direction".to_string(),
-            )),
         }
     }
 
@@ -167,17 +145,12 @@ impl<G: AffineRepr> ARTNode<G> {
     /// side to the given direction.
     pub fn get_other_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "leaf node have no children.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         match child {
             Direction::Left => Ok(self.get_right()?),
             Direction::Right => Ok(self.get_left()?),
-            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
-                "unexpected direction".into(),
-            )),
         }
     }
 
@@ -188,17 +161,12 @@ impl<G: AffineRepr> ARTNode<G> {
         child: &Direction,
     ) -> Result<&mut Box<Self>, ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "leaf node have no children.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         match child {
             Direction::Left => Ok(self.r.as_mut().unwrap()),
             Direction::Right => Ok(self.l.as_mut().unwrap()),
-            Direction::NoDirection => Err(ARTNodeError::InvalidParameters(
-                "Unexpected direction".to_string(),
-            )),
         }
     }
 
@@ -236,9 +204,7 @@ impl<G: AffineRepr> ARTNode<G> {
     /// and append other node to the right.
     pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTNodeError> {
         if !self.is_leaf() {
-            return Err(ARTNodeError::LeafOnly(
-                "Cannot extend an internal node.".to_string(),
-            ));
+            return Err(ARTNodeError::LeafOnly);
         }
 
         match self.is_blank {
@@ -252,19 +218,12 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Change current node with its child. Other child is removed and returned.
     pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<Self>>, ARTNodeError> {
         if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly(
-                "Cannot shrink a leaf node.".to_string(),
-            ));
+            return Err(ARTNodeError::InternalNodeOnly);
         }
 
         let (new_self, other_child) = match child {
             Direction::Left => (self.l.take(), self.r.take()),
             Direction::Right => (self.r.take(), self.l.take()),
-            _ => {
-                return Err(ARTNodeError::InvalidParameters(
-                    "Unexpected direction".into(),
-                ));
-            }
         };
 
         let mut new_self = new_self.unwrap();
@@ -288,9 +247,6 @@ impl<G: AffineRepr> ARTNode<G> {
         match for_removal {
             Direction::Left => self.shrink_to(Direction::Right),
             Direction::Right => self.shrink_to(Direction::Left),
-            _ => Err(ARTNodeError::InvalidParameters(
-                "Unexpected direction".into(),
-            )),
         }
     }
 
@@ -404,13 +360,44 @@ where
     }
 }
 
+/// LeafIterWithPath iterates ove leaves from left most to right most
+impl<'a, G> LeafIterWithPath<'a, G>
+where
+    G: AffineRepr,
+{
+    pub fn new(root: &'a ARTNode<G>) -> Self {
+        LeafIterWithPath {
+            inner_iter: NodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, G> Iterator for LeafIterWithPath<'a, G>
+where
+    G: AffineRepr,
+{
+    type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((item, path)) = self.inner_iter.next() {
+            if item.is_leaf() {
+                return Some((item, path));
+            }
+        }
+
+        None
+    }
+}
+
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, G> NodeIter<'a, G>
 where
     G: AffineRepr,
 {
     pub fn new(root: &'a ARTNode<G>) -> Self {
-        NodeIter { inner_iter: NodeIterWithPath::new(root) }
+        NodeIter {
+            inner_iter: NodeIterWithPath::new(root),
+        }
     }
 }
 
@@ -431,7 +418,9 @@ where
     G: AffineRepr,
 {
     pub fn new(root: &'a ARTNode<G>) -> Self {
-        LeafIter { inner_iter: NodeIterWithPath::new(root) }
+        LeafIter {
+            inner_iter: NodeIterWithPath::new(root),
+        }
     }
 }
 
@@ -447,7 +436,7 @@ where
                 return Some(item);
             }
         }
-        
+
         None
     }
 }

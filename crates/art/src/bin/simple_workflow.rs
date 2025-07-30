@@ -4,8 +4,8 @@ use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use art::{
-    traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-    types::{PrivateART, PublicART},
+    traits::{ARTPrivateAPI, ARTPublicAPI},
+    types::PrivateART,
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
 use cortado::{self, CortadoAffine, Fr as ScalarField};

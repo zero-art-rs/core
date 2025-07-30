@@ -38,7 +38,7 @@ where
         to_allocvec(self).map_err(ARTError::Postcard)
     }
 
-    pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
         from_bytes(bytes).map_err(ARTError::Postcard)
     }
 }

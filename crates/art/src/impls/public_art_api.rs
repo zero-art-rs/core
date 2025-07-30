@@ -1,3 +1,4 @@
+use crate::types::LeafIterWithPath;
 use crate::{
     errors::ARTError,
     helper_tools::iota_function,
@@ -10,7 +11,6 @@ use crate::{
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::iterable::Iterable;
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -23,7 +23,7 @@ where
     G::BaseField: PrimeField,
     PublicART: ARTPublicView<G>,
 {
-    fn get_co_path_values(&self, path: &Vec<Direction>) -> Result<Vec<G>, ARTError> {
+    fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
 
         let mut parent = self.get_root();
@@ -37,7 +37,6 @@ where
                     co_path_values.push(parent.get_left()?.public_key);
                     parent = parent.get_right()?;
                 }
-                _ => return Err(ARTError::InvalidInput),
             }
         }
 
@@ -129,10 +128,9 @@ where
     fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        // let mut next = self.get_path_to_leaf(&self.public_key_of(secret_key))?;
-        let mut next = path.clone();
+        let mut next = path.to_vec();
 
         let mut changes = BranchChanges {
             change_type: BranchChangesType::UpdateKey,
@@ -221,8 +219,8 @@ where
     fn append_node_without_changes(
         &mut self,
         node: ARTNode<G>,
-        path: &Vec<Direction>,
-    ) -> Result<Direction, ARTError> {
+        path: &[Direction],
+    ) -> Result<Option<Direction>, ARTError> {
         let mut node_for_extension = self.get_mut_root();
         for direction in path {
             node_for_extension.weight += 1; // The weight of every node is increased by 1
@@ -232,8 +230,8 @@ where
         // The last node weight is done automatically through the extension methods
         node_for_extension.weight -= 1;
         let next_node_direction = match !node_for_extension.is_blank {
-            true => Direction::Right,
-            false => Direction::NoDirection,
+            true => Some(Direction::Right),
+            false => None,
         };
         node_for_extension.extend_or_replace(node)?;
 
@@ -245,13 +243,14 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let mut path = self.find_path_to_possible_leaf_for_insertion()?;
-        let node = ARTNode::new_leaf(self.public_key_of(&secret_key));
+        let node = ARTNode::new_leaf(self.public_key_of(secret_key));
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
 
         let next = self.append_node_without_changes(node.clone(), &path)?;
         match next {
-            Direction::Right => path.push(Direction::Right),
-            _ => {}
+            Some(Direction::Right) => path.push(Direction::Right),
+            Some(Direction::Left) => return Err(ARTError::ARTLogicError),
+            None => {}
         }
 
         self.update_art_with_secret_key(secret_key, &path)
@@ -264,7 +263,7 @@ where
 
     fn make_blank_without_changes(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_public_key: &G,
     ) -> Result<(), ARTError> {
         let mut target_node = self.get_mut_root();
@@ -292,8 +291,7 @@ where
             &self.get_path_to_leaf(&new_public_key)?,
         )
         .map(|(root_key, mut changes)| {
-            changes.change_type =
-                BranchChangesType::MakeBlank(public_key.clone(), temporary_secret_key.clone());
+            changes.change_type = BranchChangesType::MakeBlank(*public_key, *temporary_secret_key);
             (root_key, changes)
         })
     }
@@ -301,7 +299,7 @@ where
     fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
-            current_node.set_public_key(changes.public_keys[i].clone());
+            current_node.set_public_key(changes.public_keys[i]);
             current_node = current_node.get_mut_child(
                 changes
                     .node_index
@@ -311,7 +309,7 @@ where
             )?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
 
         Ok(())
     }
@@ -319,18 +317,18 @@ where
     fn update_art_with_changes_and_path(
         &mut self,
         changes: &BranchChanges<G>,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(), ARTError> {
         let mut current_node = self.get_mut_root();
         for (next, public_key) in path
             .iter()
             .zip(changes.public_keys[..changes.public_keys.len() - 1].iter())
         {
-            current_node.set_public_key(public_key.clone());
+            current_node.set_public_key(*public_key);
             current_node = current_node.get_mut_child(next)?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
 
         Ok(())
     }
@@ -376,7 +374,7 @@ where
         true
     }
 
-    fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), ARTError> {
+    fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
         let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
@@ -402,7 +400,7 @@ where
 
         match self.update_art_with_secret_key(lambda, &path) {
             Ok((root_key, mut changes)) => {
-                changes.change_type = BranchChangesType::RemoveNode(public_key.clone());
+                changes.change_type = BranchChangesType::RemoveNode(*public_key);
 
                 Ok((root_key, changes))
             }
@@ -415,37 +413,9 @@ where
         let mut max_height = u32::MIN;
         let root = self.get_root();
 
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                min_height = min(min_height, path.len() as u32);
-                max_height = max(max_height, path.len() as u32);
-
-                path.pop();
-                next.pop();
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
-            }
+        for (_, path) in LeafIterWithPath::new(root) {
+            min_height = min(min_height, path.len() as u32);
+            max_height = max(max_height, path.len() as u32);
         }
 
         Ok((min_height, max_height))

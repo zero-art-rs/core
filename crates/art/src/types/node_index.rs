@@ -1,6 +1,5 @@
 use crate::{errors::ARTError, types::Direction};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum NodeIndex {
@@ -54,13 +53,12 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_index_from_path(path: &Vec<Direction>) -> Result<u32, ARTError> {
+    pub fn get_index_from_path(path: &[Direction]) -> Result<u32, ARTError> {
         let mut index = 1u32;
         for direction in path {
             match direction {
-                Direction::Left => index = index << 1,
+                Direction::Left => index <<= 1,
                 Direction::Right => index = (index << 1) + 1,
-                _ => return Err(ARTError::PathNotExists),
             }
         }
 
@@ -83,7 +81,7 @@ impl NodeIndex {
                 path.push(Direction::Right);
             }
 
-            i = i >> 1;
+            i >>= 1;
         }
 
         path.reverse();
@@ -106,7 +104,7 @@ impl NodeIndex {
                 path.push(Direction::Left);
             } else {
                 path.push(Direction::Right);
-                p = p - relative_center;
+                p -= relative_center;
             }
 
             l -= 1;
@@ -122,7 +120,7 @@ impl NodeIndex {
         let mut level_max_width = 1;
         while position > level_max_width {
             position -= level_max_width;
-            level_max_width = level_max_width << 1;
+            level_max_width <<= 1;
             level += 1;
         }
 
@@ -134,9 +132,8 @@ impl NodeIndex {
 
         for next in path {
             match next {
-                Direction::Left => position = position * 2,
+                Direction::Left => position *= 2,
                 Direction::Right => position = position * 2 + 1,
-                Direction::NoDirection => return Err(ARTError::InvalidInput),
             }
         }
 

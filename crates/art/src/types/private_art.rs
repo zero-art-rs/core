@@ -33,7 +33,7 @@ where
         secrets: &Vec<G::ScalarField>,
         generator: &G,
     ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        let secret_key = secrets[0].clone();
+        let secret_key = secrets[0];
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
         Ok((Self::from_public_art(art, secret_key)?, root_key))
@@ -56,7 +56,7 @@ where
     pub fn to_string(&self) -> Result<String, ARTError> {
         serde_json::to_string(&PublicART {
             root: self.root.clone(),
-            generator: self.generator.clone(),
+            generator: self.generator,
         })
         .map_err(ARTError::SerdeJson)
     }
@@ -64,26 +64,25 @@ where
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
         to_allocvec(&PublicART {
             root: self.root.clone(),
-            generator: self.generator.clone(),
+            generator: self.generator,
         })
         .map_err(ARTError::Postcard)
     }
 
-    pub fn deserialize(bytes: &Vec<u8>, secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Ok(Self::from_public_art(
-            from_bytes::<PublicART<G>>(bytes).map_err(|e| ARTError::Postcard(e))?,
+    pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
+        Self::from_public_art(
+            from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
             *secret_key,
-        )?)
+        )
     }
 
     pub fn from_string(
-        canonical_json: &String,
+        canonical_json: &str,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        Ok(Self::from_public_art(
-            serde_json::from_str::<PublicART<G>>(canonical_json)
-                .map_err(|e| ARTError::SerdeJson(e))?,
+        Self::from_public_art(
+            serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
-        )?)
+        )
     }
 }

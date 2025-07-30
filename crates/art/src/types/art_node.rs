@@ -42,6 +42,13 @@ where
     pub path: Vec<(&'a ARTNode<G>, Direction)>,
 }
 
+pub struct LeafIterWithPath<'a, G>
+where
+    G: AffineRepr,
+{
+    pub inner_iter: NodeIterWithPath<'a, G>,
+}
+
 pub struct NodeIter<'a, G>
 where
     G: AffineRepr,

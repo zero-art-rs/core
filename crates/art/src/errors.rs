@@ -2,12 +2,12 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ARTNodeError {
-    #[error("given parameters are invalid: {0}")]
-    InvalidParameters(String),
-    #[error("the method is callable only for leaves: {0}")]
-    LeafOnly(String),
-    #[error("the method is callable only for internal nodes: {0}")]
-    InternalNodeOnly(String),
+    #[error("Given parameters are invalid")]
+    InvalidParameters,
+    #[error("The method is callable only for leaves")]
+    LeafOnly,
+    #[error("The method is callable only for internal nodes")]
+    InternalNodeOnly,
 }
 
 #[derive(Error, Debug)]
