@@ -4,8 +4,8 @@ use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
 use art::{
-    traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-    types::{PrivateART, PublicART},
+    traits::{ARTPrivateAPI, ARTPublicAPI},
+    types::PrivateART,
 };
 use bulletproofs::{BulletproofGens, PedersenGens};
 use cortado::{self, CortadoAffine, Fr as ScalarField};
@@ -123,88 +123,6 @@ fn private_example() {
     assert!(verification_result.is_ok());
 }
 
-/// Usage example for usual ART
-fn public_example() {
-    let number_of_users = 100;
-    let generator = CortadoAffine::generator();
-    let mut rng = StdRng::seed_from_u64(rand::random());
-
-    // To create a new tree, the creator of a group will firstly create a set of invitations.
-    // Those invitations contain leaf secret keys, which are scalars for the scalar field of the
-    // curve. Note, that the first secret in a set, must be a creators secret key, because the
-    // owner of group is defined as a left most node in a tree.
-    let secrets = (0..number_of_users)
-        .map(|_| ScalarField::rand(&mut rng))
-        .collect::<Vec<_>>();
-
-    // For new art, creator provides the next method with set of secrets and some generator.
-    let (art, _) = PublicART::new_art_from_secrets(&secrets, &generator).unwrap();
-
-    // This art can be converted to string using serde serialize as serde_json::to_string(&art)
-    // or using build in method.
-
-    let string_representation = art.serialize().unwrap();
-    let recovered_art = PublicART::<CortadoAffine>::deserialize(&string_representation).unwrap();
-
-    assert_eq!(recovered_art.get_root(), art.get_root());
-
-    // Assume art_i is i-th user art. i-th user knows i-th secret key
-    let mut art_0 = art.clone();
-    let mut art_1 = art.clone();
-    let new_secret_key_1 = ScalarField::rand(&mut rng);
-    // Every user will update his leaf secret key after receival.
-    let (tk_1, changes_1) = art_1
-        .update_key_with_secret_key(
-            &art_1
-                .get_path_to_leaf(&art_1.public_key_of(&secrets[0]))
-                .unwrap(),
-            &new_secret_key_1,
-        )
-        .unwrap();
-
-    // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_public_art(&changes_1).unwrap();
-    // Now, to get common secret, usr can call the next
-    let tk_0 = art_0
-        .recompute_root_key_using_secret_key(new_secret_key_1, None)
-        .unwrap();
-
-    assert_eq!(tk_0.key, tk_1.key);
-
-    // Users can further modify art as next.
-    // Upend new node for new member.
-    let some_secret_key1 = ScalarField::rand(&mut rng);
-    let (_, changes_2) = art_1.append_node(&some_secret_key1).unwrap();
-    // Update secret key
-    let some_secret_key2 = ScalarField::rand(&mut rng);
-    let (_, changes_3) = art_1
-        .update_key_with_secret_key(
-            &art_1
-                .get_path_to_leaf(&art_1.public_key_of(&secrets[1]))
-                .unwrap(),
-            &some_secret_key2,
-        )
-        .unwrap();
-    // Upend new node for new member.
-    let some_secret_key3 = ScalarField::rand(&mut rng);
-    let (_, changes_4) = art_1.append_node(&some_secret_key3).unwrap();
-    // Remove member from the tree, by making his node temporary.
-    let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
-
-    // Other users will update their trees correspondingly.
-    art_0.update_public_art(&changes_2).unwrap();
-    art_0.update_public_art(&changes_3).unwrap();
-    art_0.update_public_art(&changes_4).unwrap();
-    art_0.update_public_art(&changes_5).unwrap();
-    let tk_0 = art_0
-        .recompute_root_key_using_secret_key(new_secret_key_1, None)
-        .unwrap();
-
-    assert_eq!(tk_0.key, tk_1.key);
-}
-
 fn main() {
-    public_example();
     private_example();
 }

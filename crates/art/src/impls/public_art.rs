@@ -12,7 +12,7 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    fn get_root(&self) -> &Box<ARTNode<G>> {
+    fn get_root(&self) -> &ARTNode<G> {
         &self.root
     }
 

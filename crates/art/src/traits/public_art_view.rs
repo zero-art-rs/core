@@ -9,7 +9,7 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    fn get_root(&self) -> &Box<ARTNode<G>>;
+    fn get_root(&self) -> &ARTNode<G>;
     fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>>;
     fn get_generator(&self) -> G;
 

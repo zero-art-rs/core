@@ -1,13 +1,16 @@
+use crate::types::LeafIterWithPath;
 use crate::{
     errors::ARTError,
     helper_tools::iota_function,
     traits::{ARTPublicAPI, ARTPublicView},
-    types::{ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex},
+    types::{
+        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex,
+        NodeIterWithPath,
+    },
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::iterable::Iterable;
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -20,7 +23,7 @@ where
     G::BaseField: PrimeField,
     PublicART: ARTPublicView<G>,
 {
-    fn get_co_path_values(&self, path: &Vec<Direction>) -> Result<Vec<G>, ARTError> {
+    fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
 
         let mut parent = self.get_root();
@@ -34,7 +37,6 @@ where
                     co_path_values.push(parent.get_left()?.public_key);
                     parent = parent.get_right()?;
                 }
-                _ => return Err(ARTError::InvalidInput),
             }
         }
 
@@ -43,40 +45,12 @@ where
     }
 
     fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError> {
-        let root = self.get_root();
-
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                if last_node.public_key.eq(user_val) {
-                    next.pop();
-                    return Ok(next);
-                } else {
-                    path.pop();
-                    next.pop();
-                }
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
+        for (node, path) in NodeIterWithPath::new(self.get_root()) {
+            if node.public_key.eq(user_val) {
+                return Ok(path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>());
             }
         }
 
@@ -103,7 +77,7 @@ where
 
         let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
@@ -128,11 +102,10 @@ where
         let mut ark_secret = secret_key.clone();
         let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order(
             (&secret_key.clone().into_bigint().to_bytes_le()[..])
-                .try_into()
-                .unwrap(),
+                .try_into()?,
         )];
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
             secrets.push(secret.clone());
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
@@ -154,10 +127,9 @@ where
     fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        // let mut next = self.get_path_to_leaf(&self.public_key_of(secret_key))?;
-        let mut next = path.clone();
+        let mut next = path.to_vec();
 
         let mut changes = BranchChanges {
             change_type: BranchChangesType::UpdateKey,
@@ -168,9 +140,7 @@ where
         let mut public_key = self.public_key_of(secret_key);
 
         let mut ark_level_secret_key = secret_key.clone();
-        while !next.is_empty() {
-            let next_child = next.pop().unwrap();
-
+        while let Some(next_child) =  next.pop() {
             let mut parent = self.get_mut_root();
             for direction in &next {
                 parent = parent.get_mut_child(direction)?;
@@ -186,7 +156,7 @@ where
             let common_secret = other_child_public_key
                 .mul(ark_level_secret_key)
                 .into_affine();
-            let level_secret_key = iota_function(&common_secret);
+            let level_secret_key = iota_function(&common_secret)?;
             ark_level_secret_key =
                 G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
             public_key = self
@@ -209,15 +179,15 @@ where
 
     fn update_key_with_secret_key(
         &mut self,
-        path: &Vec<Direction>,
+        node_index: &NodeIndex,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let new_public_key = self.public_key_of(new_secret_key);
 
-        let user_node = self.get_node_by_path(path)?;
+        let user_node = self.get_mut_node(node_index)?;
         user_node.set_public_key(new_public_key);
 
-        self.update_art_with_secret_key(&new_secret_key, path)
+        self.update_art_with_secret_key(&new_secret_key, &node_index.get_path()?)
     }
 
     fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
@@ -246,8 +216,8 @@ where
     fn append_node_without_changes(
         &mut self,
         node: ARTNode<G>,
-        path: &Vec<Direction>,
-    ) -> Result<Direction, ARTError> {
+        path: &[Direction],
+    ) -> Result<Option<Direction>, ARTError> {
         let mut node_for_extension = self.get_mut_root();
         for direction in path {
             node_for_extension.weight += 1; // The weight of every node is increased by 1
@@ -257,8 +227,8 @@ where
         // The last node weight is done automatically through the extension methods
         node_for_extension.weight -= 1;
         let next_node_direction = match !node_for_extension.is_blank {
-            true => Direction::Right,
-            false => Direction::NoDirection,
+            true => Some(Direction::Right),
+            false => None,
         };
         node_for_extension.extend_or_replace(node)?;
 
@@ -270,13 +240,14 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let mut path = self.find_path_to_possible_leaf_for_insertion()?;
-        let node = ARTNode::new_leaf(self.public_key_of(&secret_key));
+        let node = ARTNode::new_leaf(self.public_key_of(secret_key));
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
 
         let next = self.append_node_without_changes(node.clone(), &path)?;
         match next {
-            Direction::Right => path.push(Direction::Right),
-            _ => {}
+            Some(Direction::Right) => path.push(Direction::Right),
+            Some(Direction::Left) => return Err(ARTError::ARTLogicError),
+            None => {}
         }
 
         self.update_art_with_secret_key(secret_key, &path)
@@ -289,7 +260,7 @@ where
 
     fn make_blank_without_changes(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_public_key: &G,
     ) -> Result<(), ARTError> {
         let mut target_node = self.get_mut_root();
@@ -317,8 +288,7 @@ where
             &self.get_path_to_leaf(&new_public_key)?,
         )
         .map(|(root_key, mut changes)| {
-            changes.change_type =
-                BranchChangesType::MakeBlank(public_key.clone(), temporary_secret_key.clone());
+            changes.change_type = BranchChangesType::MakeBlank(*public_key, *temporary_secret_key);
             (root_key, changes)
         })
     }
@@ -326,7 +296,7 @@ where
     fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
-            current_node.set_public_key(changes.public_keys[i].clone());
+            current_node.set_public_key(changes.public_keys[i]);
             current_node = current_node.get_mut_child(
                 changes
                     .node_index
@@ -336,7 +306,7 @@ where
             )?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
 
         Ok(())
     }
@@ -344,119 +314,64 @@ where
     fn update_art_with_changes_and_path(
         &mut self,
         changes: &BranchChanges<G>,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(), ARTError> {
         let mut current_node = self.get_mut_root();
         for (next, public_key) in path
             .iter()
             .zip(changes.public_keys[..changes.public_keys.len() - 1].iter())
         {
-            current_node.set_public_key(public_key.clone());
+            current_node.set_public_key(*public_key);
             current_node = current_node.get_mut_child(next)?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1].clone());
+        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
 
         Ok(())
     }
 
-    fn get_node_by_path(&mut self, next: &Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError> {
-        let mut target_node = self.get_mut_root();
-        for direction in next {
-            target_node = target_node.get_mut_child(direction)?;
+    fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        let mut node = self.get_root();
+        for direction in &index.get_path()? {
+            node = node.get_child(direction)?;
         }
 
-        Ok(target_node)
+        Ok(node)
     }
 
-    fn get_node_by_coordinate(
-        &mut self,
-        level: u32,
-        position: u32,
-    ) -> Result<&mut ARTNode<G>, ARTError> {
-        if position >= (2 << level) {
-            return Err(ARTError::InvalidInput);
+    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        let mut node = self.get_mut_root();
+        for direction in &index.get_path()? {
+            node = node.get_mut_child(direction)?;
         }
 
-        let mut target_node = self.get_mut_root();
-        let mut l = level;
-        let mut p = position;
-        while l != 0 {
-            // max number of leaves on level l in a subtree divided by 2
-            let relative_center_index = 1 << (l - 1);
-            if p < relative_center_index {
-                // node is on the left form target_node
-                target_node = target_node.get_mut_left()?;
-            } else {
-                // node is on the right from target_node
-                target_node = target_node.get_mut_right()?;
-                p = p - relative_center_index;
-            }
-
-            l -= 1;
-        }
-
-        Ok(target_node)
+        Ok(node)
     }
 
-    fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError> {
-        if index == 0 {
-            return Err(ARTError::InvalidInput);
-        }
-
-        let mut i = index;
-
-        let mut path = Vec::new();
-        while i > 1 {
-            if (i & 1) == 0 {
-                path.push(Direction::Left);
-            } else {
-                path.push(Direction::Right);
-            }
-
-            i = i >> 1;
-        }
-
-        let mut target_node = self.get_mut_root();
-        for direction in path.iter().rev() {
-            target_node = target_node.get_mut_child(direction)?;
-        }
-
-        Ok(target_node)
-    }
-
-    fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
-        match index {
-            NodeIndex::Index(index) => self.get_node_by_index(index),
-            NodeIndex::Coordinate(level, position) => self.get_node_by_coordinate(level, position),
-            NodeIndex::Direction(path) => self.get_node_by_path(&path),
-        }
-    }
-
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {
+    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError> {
         let users_public_key = self.public_key_of(lambda);
 
         if users_public_key.eq(public_key) {
-            return false;
+            return Ok(false);
         }
 
-        let path_to_other = self.get_path_to_leaf(public_key).unwrap();
-        let path_to_self = self.get_path_to_leaf(&users_public_key).unwrap();
+        let path_to_other = self.get_path_to_leaf(public_key)?;
+        let path_to_self = self.get_path_to_leaf(&users_public_key)?;
 
         if path_to_other.len().abs_diff(path_to_self.len()) > 1 {
-            return false;
+            return Ok(false);
         }
 
         for i in 0..(max(path_to_self.len(), path_to_other.len()) - 2) {
             if path_to_self[i] != path_to_other[i] {
-                return false;
+                return Ok(false);
             }
         }
 
-        true
+        Ok(true)
     }
 
-    fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), ARTError> {
+    fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
         let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
@@ -473,7 +388,7 @@ where
         lambda: &G::ScalarField,
         public_key: &G,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        if !self.can_remove(lambda, public_key) {
+        if !self.can_remove(lambda, public_key)? {
             return Err(ARTError::RemoveError);
         }
 
@@ -482,7 +397,7 @@ where
 
         match self.update_art_with_secret_key(lambda, &path) {
             Ok((root_key, mut changes)) => {
-                changes.change_type = BranchChangesType::RemoveNode(public_key.clone());
+                changes.change_type = BranchChangesType::RemoveNode(*public_key);
 
                 Ok((root_key, changes))
             }
@@ -495,37 +410,9 @@ where
         let mut max_height = u32::MIN;
         let root = self.get_root();
 
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                min_height = min(min_height, path.len() as u32);
-                max_height = max(max_height, path.len() as u32);
-
-                path.pop();
-                next.pop();
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
-            }
+        for (_, path) in LeafIterWithPath::new(root) {
+            min_height = min(min_height, path.len() as u32);
+            max_height = max(max_height, path.len() as u32);
         }
 
         Ok((min_height, max_height))

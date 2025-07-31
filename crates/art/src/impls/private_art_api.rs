@@ -3,12 +3,11 @@
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
-    types::{ARTRootKey, BranchChanges, BranchChangesType},
+    types::{ARTRootKey, ARTUpdateArtefacts, BranchChanges, BranchChangesType},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -23,9 +22,7 @@ where
         self.recompute_root_key_using_secret_key(self.get_secret_key(), Some(self.get_node_index()))
     }
 
-    fn recompute_root_key_with_artefacts(
-        &self,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
+    fn recompute_root_key_with_artefacts(&self) -> Result<ARTUpdateArtefacts<G>, ARTError> {
         self.recompute_root_key_with_artefacts_using_secret_key(
             self.get_secret_key(),
             Some(self.get_node_index()),
@@ -39,7 +36,7 @@ where
         self.set_secret_key(new_secret_key);
 
         let result =
-            self.update_key_with_secret_key(&self.get_node_index().get_path()?, new_secret_key);
+            self.update_key_with_secret_key(&self.get_node_index().clone(), new_secret_key);
         self.update_node_index()?;
 
         result

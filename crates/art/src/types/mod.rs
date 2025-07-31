@@ -6,7 +6,12 @@ mod node_index;
 mod private_art;
 mod public_art;
 
-pub use art_node::{ARTDisplayTree, ARTNode};
+// ART update artefacts: (tk, co_path, lambdas)
+pub type ARTUpdateArtefacts<G> = (ARTRootKey<G>, Vec<G>, Vec<curve25519_dalek::Scalar>);
+
+pub use art_node::{
+    ARTDisplayTree, ARTNode, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
+};
 pub use art_root_key::ARTRootKey;
 pub use branch_changes::{BranchChanges, BranchChangesType};
 pub use direction::Direction;

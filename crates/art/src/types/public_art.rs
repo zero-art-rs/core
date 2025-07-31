@@ -29,7 +29,7 @@ where
         level_nodes: &mut Vec<ARTNode<G>>,
         level_secrets: &mut Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
+    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
         let mut upper_level_nodes = Vec::new();
         let mut upper_level_secrets = Vec::new();
 
@@ -45,7 +45,7 @@ where
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
-            );
+            )?;
 
             let ark_common_secret =
                 G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
@@ -65,24 +65,24 @@ where
             let first_node = level_nodes.remove(0);
             upper_level_nodes.push(first_node);
             let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret.clone());
+            upper_level_secrets.push(first_secret);
         }
 
-        (upper_level_nodes, upper_level_secrets)
+        Ok((upper_level_nodes, upper_level_secrets))
     }
 
     pub fn fit_leaves_in_one_level(
         mut level_nodes: Vec<ARTNode<G>>,
         mut level_secrets: Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
+    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
-            level_size = level_size << 1;
+            level_size <<= 1;
         }
 
         if level_size == level_nodes.len() {
-            return (level_nodes, level_secrets);
+            return Ok((level_nodes, level_secrets));
         }
 
         let excess = level_size - level_nodes.len();
@@ -100,7 +100,7 @@ where
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
-            );
+            )?;
 
             let ark_common_secret =
                 G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
@@ -119,17 +119,17 @@ where
             let first_node = level_nodes.remove(0);
             upper_level_nodes.push(first_node);
             let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret.clone());
+            upper_level_secrets.push(first_secret);
         }
 
-        (upper_level_nodes, upper_level_secrets)
+        Ok((upper_level_nodes, upper_level_secrets))
     }
 
     pub fn new_art_from_secrets(
         secrets: &Vec<G::ScalarField>,
         generator: &G,
     ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        if secrets.len() == 0 {
+        if secrets.is_empty() {
             return Err(ARTError::InvalidInput);
         }
         let mut level_nodes = Vec::new();
@@ -140,54 +140,48 @@ where
             let node = ARTNode::new_leaf(generator.mul(leaf_secret).into_affine());
 
             level_nodes.push(node);
-            level_secrets.push(leaf_secret.clone());
+            level_secrets.push(*leaf_secret);
         }
 
         // fully fit leaf nodes in the next level by combining only part of them
         if level_nodes.len() > 2 {
             (level_nodes, level_secrets) =
-                Self::fit_leaves_in_one_level(level_nodes, level_secrets, &generator);
+                Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator)?;
         }
 
         // iterate by levels. Go from current level to upper level
         while level_nodes.len() > 1 {
             (level_nodes, level_secrets) =
-                Self::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator);
+                Self::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator)?;
         }
 
         let root = level_nodes.remove(0);
         let root_key = ARTRootKey {
             key: level_secrets.remove(0),
-            generator: generator.clone(),
+            generator: *generator,
         };
 
         let art = Self {
             root: Box::new(root),
-            generator: generator.clone(),
+            generator: *generator,
         };
 
         Ok((art, root_key))
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
-        match serde_json::to_string(&self) {
-            Ok(json) => Ok(json),
-            Err(e) => Err(ARTError::SerdeJson(e)),
-        }
+        serde_json::to_string(&self).map_err(ARTError::SerdeJson)
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        match to_allocvec(self) {
-            Ok(output) => Ok(output),
-            Err(e) => Err(ARTError::Postcard(e)),
-        }
+        to_allocvec(self).map_err(ARTError::Postcard)
     }
 
-    pub fn deserialize(bytes: &Vec<u8>) -> Result<Self, ARTError> {
-        from_bytes(bytes).map_err(|e| ARTError::Postcard(e))
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(ARTError::Postcard)
     }
 
-    pub fn from_string(canonical_json: &String) -> Result<Self, ARTError> {
-        serde_json::from_str(canonical_json).map_err(|e| ARTError::SerdeJson(e))
+    pub fn from_string(canonical_json: &str) -> Result<Self, ARTError> {
+        serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)
     }
 }

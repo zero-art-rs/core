@@ -1,3 +1,4 @@
+use crate::types::ARTUpdateArtefacts;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
@@ -18,9 +19,7 @@ where
     fn recompute_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key.
-    fn recompute_root_key_with_artefacts(
-        &self,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError>;
+    fn recompute_root_key_with_artefacts(&self) -> Result<ARTUpdateArtefacts<G>, ARTError>;
 
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
     fn update_key(

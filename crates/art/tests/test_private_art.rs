@@ -5,6 +5,7 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use ark_std::{One, UniformRand, Zero};
+    use art::types::{LeafIterWithPath, NodeIndex, NodeIter, NodeIterWithPath};
     use art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
@@ -80,47 +81,18 @@ mod tests {
             let _ = tree.append_node(&ARTScalarField::rand(&mut rng)).unwrap();
         }
 
-        let mut path = vec![tree.get_root().as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        // Use depth-first search to travers through all the nodes
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if !last_node.is_leaf() {
-                assert_eq!(
-                    last_node.weight,
-                    last_node.get_left().unwrap().weight + last_node.get_right().unwrap().weight
-                );
-            } else {
-                if last_node.is_blank {
-                    assert_eq!(last_node.weight, 0);
+        for node in NodeIter::new(tree.get_root()) {
+            if node.is_leaf() {
+                if node.is_blank {
+                    assert_eq!(node.weight, 0);
                 } else {
-                    assert_eq!(last_node.weight, 1);
+                    assert_eq!(node.weight, 1);
                 }
-            }
-
-            if last_node.is_leaf() {
-                path.pop();
-                next.pop();
             } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right().unwrap().as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left().unwrap().as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
+                assert_eq!(
+                    node.weight,
+                    node.get_left().unwrap().weight + node.get_right().unwrap().weight
+                );
             }
         }
     }
@@ -232,19 +204,31 @@ mod tests {
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
-        let node_pk = tree.get_node_by_coordinate(0, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(0, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(1, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(1, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_left().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(1, 1).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(1, 1))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_right().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 0).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 0))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_left()
@@ -258,7 +242,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 11).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 11))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -272,7 +259,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(4, 15).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(4, 15))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -286,7 +276,10 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_coordinate(5, 31).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Coordinate(5, 31))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -310,19 +303,31 @@ mod tests {
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
-        let node_pk = tree.get_node_by_index(1).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(1))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(2).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(2))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_left().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(3).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(3))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree.get_root().get_right().unwrap().get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = tree.get_node_by_index(27).unwrap().get_public_key();
+        let node_pk = tree
+            .get_node(&NodeIndex::Index(27))
+            .unwrap()
+            .get_public_key();
         let root_pk = tree
             .get_root()
             .get_right()
@@ -338,7 +343,10 @@ mod tests {
 
         let node_pk = ARTGroup::generator().mul(&secrets[2]).into_affine();
         let node_index = tree.get_leaf_index(&node_pk).unwrap();
-        let rec_node_pk = tree.get_node_by_index(node_index).unwrap().get_public_key();
+        let rec_node_pk = tree
+            .get_node(&NodeIndex::Index(node_index))
+            .unwrap()
+            .get_public_key();
         assert!(node_pk.eq(&rec_node_pk));
     }
 
@@ -358,48 +366,20 @@ mod tests {
         (0..size).map(|_| F::rand(&mut rng)).collect()
     }
 
-    fn min_max_leaf_height(art: &PrivateART<ARTGroup>) -> Result<(usize, usize), ARTError> {
-        let mut min_height = usize::MAX;
-        let mut max_height = 0;
+    fn min_max_leaf_height(art: &PrivateART<ARTGroup>) -> Result<(u32, u32), ARTError> {
+        let mut min_height = u32::MAX;
+        let mut max_height = u32::MIN;
         let root = art.get_root();
 
-        let mut path = vec![root.as_ref()];
-        let mut next = vec![Direction::NoDirection];
-
-        while !path.is_empty() {
-            let last_node = path.last().unwrap();
-
-            if last_node.is_leaf() {
-                min_height = min(min_height, path.len());
-                max_height = max(max_height, path.len());
-
-                path.pop();
-                next.pop();
-            } else {
-                match next.pop().unwrap() {
-                    Direction::Left => {
-                        path.push(last_node.get_right()?.as_ref());
-
-                        next.push(Direction::Right);
-                        next.push(Direction::NoDirection);
-                    }
-                    Direction::Right => {
-                        path.pop();
-                    }
-                    Direction::NoDirection => {
-                        path.push(last_node.get_left()?.as_ref());
-
-                        next.push(Direction::Left);
-                        next.push(Direction::NoDirection);
-                    }
-                }
-            }
+        for (_, path) in LeafIterWithPath::new(root) {
+            min_height = min(min_height, path.len() as u32);
+            max_height = max(max_height, path.len() as u32);
         }
 
         Ok((min_height, max_height))
     }
 
-    fn get_disbalance(art: &PrivateART<ARTGroup>) -> Result<usize, ARTError> {
+    fn get_disbalance(art: &PrivateART<ARTGroup>) -> Result<u32, ARTError> {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)

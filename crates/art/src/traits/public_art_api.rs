@@ -1,3 +1,4 @@
+use crate::types::ARTUpdateArtefacts;
 use crate::{
     errors::ARTError,
     types::{ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex},
@@ -5,7 +6,6 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 
 pub trait ARTPublicAPI<G>
 where
@@ -14,7 +14,7 @@ where
     Self: Sized,
 {
     /// Returns a co-path to the leaf with a given public key.
-    fn get_co_path_values(&self, path: &Vec<Direction>) -> Result<Vec<G>, ARTError>;
+    fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError>;
 
     /// Brute-force depth-first search in a tree for a leaf node that matches the given public key. Returns the
     /// path from root to the node.
@@ -36,7 +36,7 @@ where
         &self,
         secret_key: G::ScalarField,
         node_index: Option<&NodeIndex>,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError>;
+    ) -> Result<ARTUpdateArtefacts<G>, ARTError>;
 
     /// Shorthand for computing public key to given secret.
     fn public_key_of(&self, secret: &G::ScalarField) -> G;
@@ -46,13 +46,13 @@ where
     fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
     fn update_key_with_secret_key(
         &mut self,
-        path: &Vec<Direction>,
+        node_index: &NodeIndex,
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
@@ -66,8 +66,8 @@ where
     fn append_node_without_changes(
         &mut self,
         node: ARTNode<G>,
-        path: &Vec<Direction>,
-    ) -> Result<Direction, ARTError>;
+        path: &[Direction],
+    ) -> Result<Option<Direction>, ARTError>;
 
     /// Extends the leaf on a path with new node. New node contains public key corresponding to a
     /// given secret key. Then it updates necessary public keys on a path to root using new
@@ -82,7 +82,7 @@ where
     /// or update_art_with_changes
     fn make_blank_without_changes(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_public_key: &G,
     ) -> Result<(), ARTError>;
 
@@ -105,33 +105,21 @@ where
     fn update_art_with_changes_and_path(
         &mut self,
         changes: &BranchChanges<G>,
-        path: &Vec<Direction>,
+        path: &[Direction],
     ) -> Result<(), ARTError>;
 
-    /// Returns mutable node by the given path to it
-    fn get_node_by_path(&mut self, next: &Vec<Direction>) -> Result<&mut ARTNode<G>, ARTError>;
-
-    /// Returns mutable node by the given coordinate of a node. For example, the root is (l:0, p:0),
-    /// while its childrens are (l: 1, p: 0) and l: 1, p: 1).
-    fn get_node_by_coordinate(
-        &mut self,
-        level: u32,
-        position: u32,
-    ) -> Result<&mut ARTNode<G>, ARTError>;
-
-    /// Returns mutable node by the given index of a node. For example, root have index 0, its
-    /// children are 1 and 2.
-    fn get_node_by_index(&mut self, index: u32) -> Result<&mut ARTNode<G>, ARTError>;
+    /// Returns node by the given ARTNodeIndex
+    fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
     /// Returns mutable node by the given ARTNodeIndex
-    fn get_node(&mut self, index: NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
+    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
     /// specific, so in general don't remove nodes and make them temporary instead
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool;
+    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError>;
 
     /// Remove the last node in the given path if can
-    fn remove_node(&mut self, path: &Vec<Direction>) -> Result<(), ARTError>;
+    fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError>;
 
     /// Remove the last node in the given path if can and update public keys on a path from root to
     /// leaf
