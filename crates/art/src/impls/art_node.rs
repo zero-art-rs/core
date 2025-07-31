@@ -160,13 +160,9 @@ impl<G: AffineRepr> ARTNode<G> {
         &mut self,
         child: &Direction,
     ) -> Result<&mut Box<Self>, ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
         match child {
-            Direction::Left => Ok(self.r.as_mut().unwrap()),
-            Direction::Right => Ok(self.l.as_mut().unwrap()),
+            Direction::Left => Ok(self.r.as_mut().ok_or(ARTNodeError::InternalNodeOnly)?),
+            Direction::Right => Ok(self.l.as_mut().ok_or(ARTNodeError::InternalNodeOnly)?),
         }
     }
 
@@ -226,7 +222,7 @@ impl<G: AffineRepr> ARTNode<G> {
             Direction::Right => (self.r.take(), self.l.take()),
         };
 
-        let mut new_self = new_self.unwrap();
+        let mut new_self = new_self.ok_or(ARTNodeError::InternalNodeOnly)?;
 
         self.weight = new_self.weight;
         self.public_key = new_self.public_key.clone();

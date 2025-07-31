@@ -29,7 +29,7 @@ where
         level_nodes: &mut Vec<ARTNode<G>>,
         level_secrets: &mut Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
+    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
         let mut upper_level_nodes = Vec::new();
         let mut upper_level_secrets = Vec::new();
 
@@ -45,7 +45,7 @@ where
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
-            );
+            )?;
 
             let ark_common_secret =
                 G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
@@ -68,21 +68,21 @@ where
             upper_level_secrets.push(first_secret);
         }
 
-        (upper_level_nodes, upper_level_secrets)
+        Ok((upper_level_nodes, upper_level_secrets))
     }
 
     pub fn fit_leaves_in_one_level(
         mut level_nodes: Vec<ARTNode<G>>,
         mut level_secrets: Vec<G::ScalarField>,
         generator: &G,
-    ) -> (Vec<ARTNode<G>>, Vec<G::ScalarField>) {
+    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
             level_size <<= 1;
         }
 
         if level_size == level_nodes.len() {
-            return (level_nodes, level_secrets);
+            return Ok((level_nodes, level_secrets));
         }
 
         let excess = level_size - level_nodes.len();
@@ -100,7 +100,7 @@ where
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
-            );
+            )?;
 
             let ark_common_secret =
                 G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
@@ -122,7 +122,7 @@ where
             upper_level_secrets.push(first_secret);
         }
 
-        (upper_level_nodes, upper_level_secrets)
+        Ok((upper_level_nodes, upper_level_secrets))
     }
 
     pub fn new_art_from_secrets(
@@ -146,13 +146,13 @@ where
         // fully fit leaf nodes in the next level by combining only part of them
         if level_nodes.len() > 2 {
             (level_nodes, level_secrets) =
-                Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator);
+                Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator)?;
         }
 
         // iterate by levels. Go from current level to upper level
         while level_nodes.len() > 1 {
             (level_nodes, level_secrets) =
-                Self::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator);
+                Self::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator)?;
         }
 
         let root = level_nodes.remove(0);

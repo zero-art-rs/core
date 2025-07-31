@@ -116,7 +116,7 @@ where
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
     /// specific, so in general don't remove nodes and make them temporary instead
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool;
+    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError>;
 
     /// Remove the last node in the given path if can
     fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError>;

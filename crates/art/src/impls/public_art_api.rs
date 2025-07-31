@@ -77,7 +77,7 @@ where
 
         let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
 
@@ -102,11 +102,10 @@ where
         let mut ark_secret = secret_key.clone();
         let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order(
             (&secret_key.clone().into_bigint().to_bytes_le()[..])
-                .try_into()
-                .unwrap(),
+                .try_into()?,
         )];
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine());
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
             secrets.push(secret.clone());
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
         }
@@ -141,9 +140,7 @@ where
         let mut public_key = self.public_key_of(secret_key);
 
         let mut ark_level_secret_key = secret_key.clone();
-        while !next.is_empty() {
-            let next_child = next.pop().unwrap();
-
+        while let Some(next_child) =  next.pop() {
             let mut parent = self.get_mut_root();
             for direction in &next {
                 parent = parent.get_mut_child(direction)?;
@@ -159,7 +156,7 @@ where
             let common_secret = other_child_public_key
                 .mul(ark_level_secret_key)
                 .into_affine();
-            let level_secret_key = iota_function(&common_secret);
+            let level_secret_key = iota_function(&common_secret)?;
             ark_level_secret_key =
                 G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
             public_key = self
@@ -351,27 +348,27 @@ where
         Ok(node)
     }
 
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> bool {
+    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError> {
         let users_public_key = self.public_key_of(lambda);
 
         if users_public_key.eq(public_key) {
-            return false;
+            return Ok(false);
         }
 
-        let path_to_other = self.get_path_to_leaf(public_key).unwrap();
-        let path_to_self = self.get_path_to_leaf(&users_public_key).unwrap();
+        let path_to_other = self.get_path_to_leaf(public_key)?;
+        let path_to_self = self.get_path_to_leaf(&users_public_key)?;
 
         if path_to_other.len().abs_diff(path_to_self.len()) > 1 {
-            return false;
+            return Ok(false);
         }
 
         for i in 0..(max(path_to_self.len(), path_to_other.len()) - 2) {
             if path_to_self[i] != path_to_other[i] {
-                return false;
+                return Ok(false);
             }
         }
 
-        true
+        Ok(true)
     }
 
     fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
@@ -391,7 +388,7 @@ where
         lambda: &G::ScalarField,
         public_key: &G,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        if !self.can_remove(lambda, public_key) {
+        if !self.can_remove(lambda, public_key)? {
             return Err(ARTError::RemoveError);
         }
 

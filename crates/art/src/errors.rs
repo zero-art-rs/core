@@ -26,4 +26,8 @@ pub enum ARTError {
     PathNotExists,
     #[error("Cant remove th node. It isn't close enough.")]
     RemoveError,
+    #[error("Failed to convert &[u8] into &[u8;32] {0}")]
+    ConversionError(#[from] std::array::TryFromSliceError),
+    #[error("Failed to retrieve x coordinate of a point")]
+    XCoordinateError,
 }

@@ -3,6 +3,7 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
+use crate::errors::ARTError;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -27,12 +28,12 @@ where
 /// Iota function is a function which converts computed public secret to scalar field. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
-pub fn iota_function<G>(point: &G) -> Scalar
+pub fn iota_function<G>(point: &G) -> Result<Scalar, ARTError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    let x = point.x().unwrap();
+    let x = point.x().ok_or(ARTError::XCoordinateError)?;
 
-    Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into().unwrap())
+    Ok(Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?))
 }
