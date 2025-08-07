@@ -7,7 +7,7 @@ use art::{
     traits::{ARTPrivateAPI, ARTPublicAPI},
     types::PrivateART,
 };
-use bulletproofs::{BulletproofGens, PedersenGens};
+use bulletproofs::{PedersenGens};
 use cortado::{self, CortadoAffine, Fr as ScalarField};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
@@ -80,10 +80,10 @@ fn private_example() {
 
     assert_eq!(tk_0.key, tk_1.key);
 
-    // For proof generation. there might be useful the next method.
-    let (_, co_path, lambdas) = art_1.recompute_root_key_with_artefacts().unwrap();
+    // For proof generation, there might be useful the next method.
+    let (_, artefacts) = art_1.recompute_root_key_with_artefacts().unwrap();
 
-    let k = co_path.len();
+    let k = artefacts.co_path.len();
 
     let g_1 = CortadoAffine::generator();
     let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
@@ -96,27 +96,31 @@ fn private_example() {
         ristretto255_to_ark(gens.B_blinding).unwrap(),
     );
 
-    let s = (0..2)
+    let aux_keys = (0..2)
         .map(|_| cortado::Fr::rand(&mut rng))
         .collect::<Vec<_>>();
+    let public_aux_keys = aux_keys.iter().map(|sk| CortadoAffine::generator().mul(sk).into_affine()).collect::<Vec<_>>();
     let blinding_vector: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
+    let associated_data = vec![0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65];
 
     let proof = art_prove(
-        &BulletproofGens::new(2048, 1),
         basis.clone(),
-        &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-        co_path.clone(),
-        lambdas.clone(),
-        s,
+        &associated_data,
+        public_aux_keys.clone(),
+        artefacts.path.clone(),
+        artefacts.co_path.clone(),
+        artefacts.secrets.clone(),
+        aux_keys.clone(),
         blinding_vector,
     )
     .unwrap();
 
     let verification_result = art_verify(
-        &BulletproofGens::new(2048, 1),
         basis,
-        &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-        co_path,
+        &associated_data,
+        public_aux_keys.clone(),
+        artefacts.path.clone(),
+        artefacts.co_path.clone(),
         proof,
     );
 

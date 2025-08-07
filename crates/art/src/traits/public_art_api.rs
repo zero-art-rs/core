@@ -1,7 +1,6 @@
-use crate::types::ARTUpdateArtefacts;
 use crate::{
     errors::ARTError,
-    types::{ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex},
+    types::{ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex, Artefacts},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -36,7 +35,7 @@ where
         &self,
         secret_key: G::ScalarField,
         node_index: Option<&NodeIndex>,
-    ) -> Result<ARTUpdateArtefacts<G>, ARTError>;
+    ) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError>;
 
     /// Shorthand for computing public key to given secret.
     fn public_key_of(&self, secret: &G::ScalarField) -> G;
