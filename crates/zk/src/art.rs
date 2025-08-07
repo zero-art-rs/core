@@ -106,6 +106,7 @@ pub fn Rσ_prove(
 pub fn Rσ_verify(
     transcript: &mut Transcript,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
+    Q_a: Vec<CortadoAffine>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     proof: CrossDLEQProof<CortadoAffine>,
 ) -> Result<(), zkp::ProofError> {
@@ -114,7 +115,9 @@ pub fn Rσ_verify(
     for R in R {
         verifier.add_dl_statement(R);
     }
-    for c in proof.commitments {
+    for (i, c) in proof.commitments.iter().enumerate() {
+        let mut c = c.clone();
+        c.Q = Q_a[i].clone();
         verifier.add_dleq_statement(c);
     }
     verifier.verify_cross(&proof.proof)?;
@@ -270,24 +273,29 @@ pub fn Rι_verify(
     Ok(())
 }
 
-pub fn random_witness_gen(k: u32) -> (Vec<CortadoAffine>, Vec<Scalar>) {
+pub fn random_witness_gen(k: u32) -> (Vec<Scalar>, Vec<CortadoAffine>, Vec<CortadoAffine>) {
     let start = Instant::now();
     let mut blinding_rng = rand::thread_rng();
     let mut λ = Vec::new();
-    let mut Q = Vec::new();
+    let mut Q_a = Vec::new();
+    let mut Q_b = Vec::new();
     let r: cortado::Fr = blinding_rng.r#gen();
     let mut λ_a = Scalar::from_bytes_mod_order((&r.into_bigint().to_bytes_le()[..]).try_into().unwrap());
+    Q_a.push((CortadoAffine::generator() * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine());
     λ.push(λ_a);
+    
     for i in 0..k {
         let r: cortado::Fr = blinding_rng.r#gen();
-        let Q_b = (CortadoAffine::generator() * r).into_affine();
-        Q.push(Q_b);
-        let R = (Q_b * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
+        let q_b = (CortadoAffine::generator() * r).into_affine();
+        Q_b.push(q_b);
+        let R = (q_b * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
         λ_a = R.x().unwrap().into_scalar();
         λ.push(λ_a);
+        let q_a = (CortadoAffine::generator() * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
+        Q_a.push(q_a);
     }
     debug!("Witness generation for Rι with depth {} took {:?}", k, start.elapsed());
-    (Q, λ)
+    (λ, Q_a, Q_b)
 }
 
 /// generate an ART update proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
@@ -328,6 +336,8 @@ pub fn art_verify(
     bp_gens: &BulletproofGens,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     ad: &[u8], // auxiliary data
+    R: Vec<CortadoAffine>, // auxiliary public keys
+    Q_a: Vec<CortadoAffine>, // path public keys
     Q_b: Vec<CortadoAffine>, // reciprocal public keys
     proof: ARTProof
 ) -> Result<(), R1CSError> {
@@ -344,7 +354,7 @@ pub fn art_verify(
     Rι_verify(&pc_gens, bp_gens, proof.Rι, Q_b, commitments)?;
     let mut transcript = Transcript::new(b"R_sigma");
     transcript.append_message(b"ad", ad);
-    Rσ_verify(&mut transcript, basis, proof.R, proof.Rσ)
+    Rσ_verify(&mut transcript, basis, Q_a, R, proof.Rσ)
         .map_err(|e| R1CSError::GadgetError{ description: format!("Rσ_verify failed: {e:?}") })?;
     
     debug!("ART proof verification time: {:?}", start.elapsed());
@@ -362,16 +372,16 @@ mod tests {
         let pc_gens = PedersenGens::default();
         let bp_gens = BulletproofGens::new(1<<16, 1);
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
-        let (Q, λ) = random_witness_gen(k);
+        let (λ, Q_a, Q_b) = random_witness_gen(k);
         let (proofs, commitments) = Rι_prove(
             &pc_gens, 
             &bp_gens, 
-            Q.clone(), 
+            Q_b.clone(), 
             λ,
             blindings
         )?;
 
-        Rι_verify(&pc_gens, &bp_gens, proofs, Q, commitments)
+        Rι_verify(&pc_gens, &bp_gens, proofs, Q_b, commitments)
     }
 
     #[test]
@@ -401,7 +411,7 @@ mod tests {
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
         
-        let (Q, λ) = random_witness_gen(k);
+        let (λ, Q_a, Q_b) = random_witness_gen(k);
         let s = (0..2).map(|_| cortado::Fr::rand(&mut thread_rng())).collect::<Vec<_>>();
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut thread_rng())).collect();
         let mut prover_transcript = Transcript::new(b"Test");
@@ -413,7 +423,7 @@ mod tests {
             blindings
         )?;
         let mut verifier_transcript = Transcript::new(b"Test");
-        Rσ_verify(&mut verifier_transcript, basis, R, proof)
+        Rσ_verify(&mut verifier_transcript, basis, Q_a, R, proof)
     }
 
     #[test]
@@ -437,7 +447,7 @@ mod tests {
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
         
-        let (Q, λ) = random_witness_gen(k);
+        let (λ, Q_a, Q_b) = random_witness_gen(k);
         let s = (0..2).map(|_| cortado::Fr::rand(&mut thread_rng())).collect::<Vec<_>>();
         let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut thread_rng())).collect();
         
@@ -445,7 +455,7 @@ mod tests {
             &BulletproofGens::new(2048, 1),
             basis.clone(),
             &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-            Q.clone(),
+            Q_b.clone(),
             λ.clone(),
             s,
             blindings
@@ -455,7 +465,9 @@ mod tests {
             &BulletproofGens::new(2048, 1),
             basis,
             &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-            Q,
+            proof.R.clone(),
+            Q_a,
+            Q_b,
             proof
         )
     }
