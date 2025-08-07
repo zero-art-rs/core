@@ -26,6 +26,7 @@ once_cell = "1.21.3"
 inherits = "release"
 
 [features]
+cross_sigma = []
 multi_thread_prover = []
 multi_thread_verifier = []
 default = ["multi_thread_prover", "multi_thread_verifier"]

@@ -12,7 +12,7 @@ use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, trace};
 use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use tracing_subscriber::field::debug;
@@ -157,7 +157,7 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Δ_i_y + y_P, P_i_1_x - x_P);
         cs.constrain(t1-t2);
     }
-    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
+    trace!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
     
     let (x_var,y_var) = *P_vars.last().unwrap();
     let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
@@ -246,7 +246,7 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - x_P);
         cs.constrain(t2 - (P_i_1_y + y_P));
     }
-    debug!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone()) );
+    trace!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone()) );
     let (x_var,y_var) = *P_vars.last().unwrap();
     let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
     
@@ -337,6 +337,106 @@ pub fn dh_gadget_verify(
     r
 }
 
+/// gadget constraining λ_ab = x(λ_a * Q_b) & Q_ab = [λ_ab]P
+pub fn art_level_gadget<CS: ConstraintSystem>(
+    ver: u8,
+    cs: &mut CS,
+    λ_a: AllocatedScalar,
+    λ_ab: AllocatedScalar,
+    Q_ab: CortadoAffine,
+    Q_b: CortadoAffine,
+) -> Result<(), R1CSError> {
+    // constrain λ_ab = x(λ_a * Q_b)
+    let AllocatedScalar {variable: var_ab, assignment: _} = λ_ab;
+    let var_R = match ver {
+        1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
+        2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
+        _ => return Err(R1CSError::VerificationError),
+    };
+    cs.constrain(var_R.x.variable - var_ab);
+
+    // constrain Q_ab = [λ_ab]P
+    let var_Q = match ver {
+        1 => scalar_mul_gadget_v1(cs, λ_ab, CortadoAffine::generator())?,
+        2 => scalar_mul_gadget_v2(cs, λ_ab, CortadoAffine::generator())?,
+        _ => return Err(R1CSError::VerificationError),
+    };
+    cs.constrain(var_Q.x.variable - Q_ab.x().unwrap().into_scalar());
+    cs.constrain(var_Q.y.variable - Q_ab.y().unwrap().into_scalar());
+    
+    Ok(())
+}
+
+pub fn art_level_prove(
+    ver: u8,
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    Q_b: CortadoAffine,
+    Q_ab: CortadoAffine,
+    λ_a: Scalar,
+    λ_ab: Scalar,
+) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
+    let mut blinding_rng = thread_rng();
+
+    let mut transcript = Transcript::new(b"ARTLevel");
+
+    // 1. Create a prover
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+    
+    // 2. Commit high-level variables
+    let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
+    let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
+    
+    let λ_a = AllocatedScalar::new(var_a, Some(λ_a)); 
+    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab)); 
+    let mut start = Instant::now();
+    
+    art_level_gadget(ver, &mut prover, λ_a, λ_ab, Q_ab, Q_b)?;
+    
+    debug!("ARTLevel prover synthetize time: {:?}, metrics: {:?}", start.elapsed(), prover.metrics());
+    start = Instant::now();
+    
+    let proof = prover.prove(bp_gens)?;
+    
+    debug!("ARTLevel proving time: {:?}, proof_size = {:?}", start.elapsed(), proof.to_bytes().len() );
+
+    Ok((proof, (a_commitment, ab_commitment)))
+}
+
+pub fn art_level_verify(
+    ver: u8,
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    proof: R1CSProof,
+    Q_b: CortadoAffine,
+    Q_ab: CortadoAffine,
+    a_commitment: CompressedRistretto,
+    ab_commitment: CompressedRistretto,
+) -> Result<(), R1CSError> {
+    let mut transcript = Transcript::new(b"ARTLevel");
+    let mut verifier = Verifier::new(&mut transcript);
+    
+    let var_a = verifier.commit(a_commitment);
+    let var_ab = verifier.commit(ab_commitment);
+    
+    let λ_a = AllocatedScalar::new(var_a, None); 
+    let λ_ab = AllocatedScalar::new(var_ab, None); 
+    let mut start = Instant::now();
+
+    art_level_gadget(ver, &mut verifier, λ_a, λ_ab, Q_ab, Q_b)?;
+
+    debug!("ARTLevel verifier synthetize time: {:?}", start.elapsed());
+    start = Instant::now();
+    
+    let r = verifier
+        .verify(&proof, &pc_gens, &bp_gens)
+        .map_err(|_| R1CSError::VerificationError);
+    
+    debug!("ARTLevel verification time: {:?}", start.elapsed());
+    
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,12 +459,40 @@ mod tests {
         let (proof, (var_a, var_b)) = dh_gadget_proof(
             ver, 
             &pc_gens, 
-            &bp_gens, Q_b, 
+            &bp_gens, 
+            Q_b, 
             Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
             R.x().unwrap().into_scalar() 
         )?;
 
         dh_gadget_verify(ver, &pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
+    }
+
+    fn art_level_gadget_roundtrip(ver: u8) -> Result<(), R1CSError> {
+        let mut blinding_rng = rand::thread_rng();
+        let pc_gens = PedersenGens::default();
+        let bp_gens = BulletproofGens::new(4096, 1);
+
+        let r: cortado::Fr = blinding_rng.r#gen();
+        let Q_b = (CortadoAffine::generator() * r).into_affine();
+        let λ_a: cortado::Fr = blinding_rng.r#gen();
+
+        let λ_ab = cortado::Fr::from_le_bytes_mod_order(&(Q_b * λ_a).into_affine().x().unwrap().into_bigint().to_bytes_le() );
+        let Q_ab = (CortadoAffine::generator() * λ_ab).into_affine();
+        let R = (Q_b * λ_a).into_affine();
+        debug!("Q_ab_real={:?}", Q_ab);
+        
+        let (proof, (var_a, var_b)) = art_level_prove(
+            ver, 
+            &pc_gens, 
+            &bp_gens, 
+            Q_b, 
+            Q_ab, 
+            Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
+            R.x().unwrap().into_scalar()
+        )?;
+
+        art_level_verify(ver, &pc_gens, &bp_gens, proof, Q_b, Q_ab, var_a, var_b)
     }
 
     #[test]
@@ -375,5 +503,15 @@ mod tests {
     #[test]
     fn dh_gadget_roundtrip_v2() {
         assert!(dh_gadget_roundtrip(2).is_ok());
+    }
+
+    #[test]
+    fn art_level_gadget_roundtrip_v1() {
+        assert!(art_level_gadget_roundtrip(1).is_ok());
+    }
+
+    #[test]
+    fn art_level_gadget_roundtrip_v2() {
+        assert!(art_level_gadget_roundtrip(2).is_ok());
     }
 }
