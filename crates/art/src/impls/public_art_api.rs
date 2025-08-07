@@ -1,11 +1,10 @@
-use crate::types::LeafIterWithPath;
 use crate::{
     errors::ARTError,
     helper_tools::iota_function,
     traits::{ARTPublicAPI, ARTPublicView},
     types::{
         ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex,
-        NodeIterWithPath,
+        NodeIterWithPath, Artefacts, LeafIterWithPath
     },
 };
 use ark_ec::{AffineRepr, CurveGroup};
@@ -91,7 +90,7 @@ where
         &self,
         secret_key: G::ScalarField,
         node_index: Option<&NodeIndex>,
-    ) -> Result<(ARTRootKey<G>, Vec<G>, Vec<Scalar>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError> {
         let path = match node_index {
             Some(node_index) => node_index.get_path()?,
             None => self.get_path_to_leaf(&self.public_key_of(&secret_key))?,
@@ -104,10 +103,12 @@ where
             (&secret_key.clone().into_bigint().to_bytes_le()[..])
                 .try_into()?,
         )];
+        let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
         for public_key in co_path_values.iter() {
             let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
             secrets.push(secret.clone());
             ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
+            path_values.push(G::generator().mul(ark_secret).into_affine());
         }
 
         Ok((
@@ -115,8 +116,11 @@ where
                 key: ark_secret,
                 generator: self.get_generator().clone(),
             },
-            co_path_values,
-            secrets,
+            Artefacts {
+                path: path_values,
+                co_path: co_path_values,
+                secrets,
+            }
         ))
     }
 

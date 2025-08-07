@@ -3,7 +3,7 @@
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
-    types::{ARTRootKey, ARTUpdateArtefacts, BranchChanges, BranchChangesType},
+    types::{ARTRootKey, Artefacts, BranchChanges, BranchChangesType},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -22,7 +22,7 @@ where
         self.recompute_root_key_using_secret_key(self.get_secret_key(), Some(self.get_node_index()))
     }
 
-    fn recompute_root_key_with_artefacts(&self) -> Result<ARTUpdateArtefacts<G>, ARTError> {
+    fn recompute_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError> {
         self.recompute_root_key_with_artefacts_using_secret_key(
             self.get_secret_key(),
             Some(self.get_node_index()),

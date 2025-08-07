@@ -10,6 +10,18 @@ use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Artefacts<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    pub path: Vec<G>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    pub co_path: Vec<G>,
+    pub secrets: Vec<curve25519_dalek::Scalar>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
 pub struct PublicART<G>
 where
