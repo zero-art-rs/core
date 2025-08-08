@@ -30,6 +30,9 @@ use crate::gadgets::r1cs_utils::AllocatedScalar;
 #[derive(Clone)]
 pub struct R1CSProof(BPR1CSProof);
 
+#[derive(Clone)]
+pub struct CompressedRistrettoWrapper(CompressedRistretto);
+
 #[cfg(feature = "cross_sigma")]
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ARTProof {
@@ -38,8 +41,9 @@ pub struct ARTProof {
 }
 
 #[cfg(not(feature = "cross_sigma"))]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ARTProof {
-    pub Rι: (Vec<R1CSProof>, Vec<CompressedRistretto>), // Rδ gadget proofs
+    pub Rι: (Vec<R1CSProof>, Vec<CompressedRistrettoWrapper>), // Rδ gadget proofs
     pub Rσ: CompactProof<cortado::Fr>, // sigma part of the proof
 }
 
@@ -83,6 +87,49 @@ impl CanonicalDeserialize for R1CSProof {
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
 
         Ok(R1CSProof ( proof ))
+    }
+}
+
+impl CanonicalSerialize for CompressedRistrettoWrapper {
+    fn serialize_with_mode<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        // Serialize the proof
+        let proof_bytes = self.0.to_bytes();
+        (proof_bytes.len() as u32).serialize_with_mode(&mut writer, compress)?;
+        writer.write_all(&proof_bytes)?;
+
+        Ok(())
+    }
+
+    fn serialized_size(&self, _compress: Compress) -> usize {
+        let proof_size = self.0.to_bytes().len();
+        proof_size + 4
+    }
+}
+
+impl ark_serialize::Valid for CompressedRistrettoWrapper {
+    fn check(&self) -> Result<(), SerializationError> {
+        Ok(())
+    }
+}
+
+impl CanonicalDeserialize for CompressedRistrettoWrapper {
+    fn deserialize_with_mode<R: std::io::Read>(
+        mut reader: R,
+        _compress: ark_serialize::Compress,
+        _validate: ark_serialize::Validate,
+    ) -> Result<Self, ark_serialize::SerializationError> {
+        // Deserialize the proof
+        let proof_len = u32::deserialize_compressed(&mut reader)? as usize;
+        let mut proof_bytes = vec![0u8; proof_len];
+        reader.read_exact(&mut proof_bytes)?;
+        let point = CompressedRistretto::from_slice(&proof_bytes)
+            .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
+
+        Ok(CompressedRistrettoWrapper ( point ))
     }
 }
 
@@ -314,7 +361,7 @@ pub fn Rδ_prove(
     λ_a: Vec<Scalar>, // secrets
     blindings: Vec<Scalar>, // blinding factors for λ_a
     
-) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
+) -> Result<(Vec<R1CSProof>, Vec<CompressedRistrettoWrapper>), R1CSError> {
     let start = Instant::now();
     let k = Q_b.len();
     assert!(k == λ_a.len() - 1, "length mismatch");
@@ -368,7 +415,10 @@ pub fn Rδ_prove(
             .map(|x| x.to_bytes().len())
             .sum::<usize>();
         debug!("Rδ_prove (parallel) for depth {k} proving time: {:?}, proof_len: {proof_len}", start.elapsed());
-        Ok((proofs.lock().unwrap().iter().map(|x| R1CSProof(x.as_ref().unwrap().clone()) ).collect(), commitments.lock().unwrap().clone()))
+        Ok((
+            proofs.lock().unwrap().iter().map(|x| R1CSProof(x.as_ref().unwrap().clone()) ).collect(),
+            commitments.lock().unwrap().iter().map(|point| CompressedRistrettoWrapper(*point)).collect()
+        ))
     }
     #[cfg(not(feature = "multi_thread_prover"))]
     {
@@ -399,7 +449,7 @@ pub fn Rδ_verify(
     proofs: Vec<R1CSProof>,
     Q_b: Vec<CortadoAffine>, // k
     Q_ab: Vec<CortadoAffine>, // k
-    commitments: Vec<CompressedRistretto>, // k+1
+    commitments: Vec<CompressedRistrettoWrapper>, // k+1
 ) -> Result<(), R1CSError> {
     let start = Instant::now();
     assert!(Q_b.len() == commitments.len() - 1, "length mismatch");
@@ -416,8 +466,8 @@ pub fn Rδ_verify(
             let Q_b_i = Q_b[i].clone();
             let Q_ab_i = Q_ab[i].clone();
             let proof_i = proofs[i].clone();
-            let commitment_i = commitments[i];
-            let commitment_next = commitments[i+1];
+            let commitment_i = commitments[i].0;
+            let commitment_next = commitments[i+1].0;
 
             handles.push(std::thread::spawn(move || {
                 let mut transcript = Transcript::new(b"ARTGadget");
@@ -442,7 +492,7 @@ pub fn Rδ_verify(
         let mut verifier = Verifier::new(&mut transcript);
         let mut vars = Vec::new();
         for i in 0..k+1 {
-            let var_a = verifier.commit(commitments[i]);
+            let var_a = verifier.commit(commitments[i].0);
             vars.push(AllocatedScalar::new(var_a, None));
         }
 
