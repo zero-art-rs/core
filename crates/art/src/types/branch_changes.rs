@@ -1,9 +1,11 @@
+use crate::traits::ARTPublicAPI;
 use crate::{
     errors::ARTError,
     helper_tools::{ark_de, ark_se},
     types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
@@ -12,13 +14,23 @@ use serde::{Deserialize, Serialize};
 #[serde(bound = "")]
 pub enum BranchChangesType<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     MakeBlank(
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G,
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")] G::ScalarField,
+        /// Blank node old public key
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        G,
+        /// Blank node new secret key
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        G::ScalarField,
     ),
-    AppendNode(ARTNode<G>),
+    AppendNode(
+        /// New node as Node struct
+        ARTNode<G>,
+    ),
     UpdateKey,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    RemoveNode(G),
+    RemoveNode(
+        /// Removed node public key
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        G,
+    ),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -1,7 +1,7 @@
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
-    types::{ARTRootKey, BranchChanges, Artefacts},
+    types::{ARTRootKey, BranchChanges, ProverArtefacts},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -17,7 +17,9 @@ where
     fn recompute_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key.
-    fn recompute_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError>;
+    fn recompute_root_key_with_artefacts(
+        &self,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
     /// Changes old_secret_key secret key of a leaf to the new_secret_key.
     fn update_key(

@@ -7,7 +7,7 @@ use art::{
     traits::{ARTPrivateAPI, ARTPublicAPI},
     types::PrivateART,
 };
-use bulletproofs::{PedersenGens};
+use bulletproofs::PedersenGens;
 use cortado::{self, CortadoAffine, Fr as ScalarField};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
@@ -99,7 +99,10 @@ fn private_example() {
     let aux_keys = (0..2)
         .map(|_| cortado::Fr::rand(&mut rng))
         .collect::<Vec<_>>();
-    let public_aux_keys = aux_keys.iter().map(|sk| CortadoAffine::generator().mul(sk).into_affine()).collect::<Vec<_>>();
+    let public_aux_keys = aux_keys
+        .iter()
+        .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
+        .collect::<Vec<_>>();
     let blinding_vector: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
     let associated_data = vec![0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65];
 

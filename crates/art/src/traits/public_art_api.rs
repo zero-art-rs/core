@@ -1,6 +1,9 @@
 use crate::{
     errors::ARTError,
-    types::{ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex, Artefacts},
+    types::{
+        ARTNode, ARTRootKey, BranchChanges, Direction, NodeIndex, ProverArtefacts,
+        VerifierArtefacts,
+    },
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -30,12 +33,19 @@ where
         node_index: Option<&NodeIndex>,
     ) -> Result<ARTRootKey<G>, ARTError>;
 
-    /// Recomputes art root key using the given leaf secret key.
+    /// Recomputes art root key using the given leaf secret key. returns additional artifacts for
+    /// proof creation.
     fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
         node_index: Option<&NodeIndex>,
-    ) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError>;
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
+
+    /// Returns helper structure for verification of art changes
+    fn compute_artefacts_for_verification(
+        &self,
+        branch_changes: &BranchChanges<G>,
+    ) -> Result<VerifierArtefacts<G>, ARTError>;
 
     /// Shorthand for computing public key to given secret.
     fn public_key_of(&self, secret: &G::ScalarField) -> G;
@@ -76,8 +86,8 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
-    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
-    /// one. This method don't change other art nodes. To update art use update_art_with_secret_key
+    /// Converts the leaf on a given path to blank by changing its public key on a blank one.
+    /// This method doesn't change other art nodes. To update art afterward, use update_art_with_secret_key
     /// or update_art_with_changes
     fn make_blank_without_changes(
         &mut self,

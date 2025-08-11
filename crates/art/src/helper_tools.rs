@@ -1,9 +1,9 @@
+use crate::errors::ARTError;
 use ark_ec::AffineRepr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
-use crate::errors::ARTError;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -35,5 +35,7 @@ where
 {
     let x = point.x().ok_or(ARTError::XCoordinateError)?;
 
-    Ok(Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?))
+    Ok(Scalar::from_bytes_mod_order(
+        (&x.into_bigint().to_bytes_le()[..]).try_into()?,
+    ))
 }
