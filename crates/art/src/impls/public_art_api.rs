@@ -122,7 +122,7 @@ where
             },
         ))
     }
-    
+
     fn compute_artefacts_for_verification(
         &self,
         changes: &BranchChanges<G>,
@@ -132,7 +132,7 @@ where
         let mut parent = self.get_root();
         for direction in &changes.node_index.get_path()? {
             if parent.is_leaf() {
-                if let BranchChangesType::AppendNode(_) = changes.change_type
+                if let BranchChangesType::AppendNode = changes.change_type
                     && !parent.is_blank
                 {
                     // The current node is a part of the co-path
@@ -288,7 +288,7 @@ where
         self.update_art_with_secret_key(secret_key, &path)
             .map(|(root_key, mut changes)| {
                 changes.node_index = node_index;
-                changes.change_type = BranchChangesType::AppendNode(node);
+                changes.change_type = BranchChangesType::AppendNode;
                 (root_key, changes)
             })
     }
@@ -319,8 +319,7 @@ where
 
         self.update_art_with_secret_key(temporary_secret_key, &next)
             .map(|(root_key, mut changes)| {
-                changes.change_type =
-                    BranchChangesType::MakeBlank(*public_key, *temporary_secret_key);
+                changes.change_type = BranchChangesType::MakeBlank;
                 (root_key, changes)
             })
     }
@@ -429,7 +428,7 @@ where
 
         match self.update_art_with_secret_key(lambda, &path) {
             Ok((root_key, mut changes)) => {
-                changes.change_type = BranchChangesType::RemoveNode(*public_key);
+                changes.change_type = BranchChangesType::RemoveNode;
 
                 Ok((root_key, changes))
             }
@@ -459,18 +458,26 @@ where
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
             BranchChangesType::UpdateKey => self.update_art_with_changes(changes),
-            BranchChangesType::AppendNode(node) => {
-                self.append_node_without_changes(node.clone(), &changes.node_index.get_path()?)?;
+            BranchChangesType::AppendNode => {
+                let leaf = ARTNode::new_leaf(
+                    changes
+                        .public_keys
+                        .last()
+                        .ok_or(ARTError::NoChanges)?
+                        .clone(),
+                );
+                self.append_node_without_changes(leaf, &changes.node_index.get_path()?)?;
                 self.update_art_with_changes(changes)
             }
-            BranchChangesType::MakeBlank(_, temporary_lambda) => {
+            BranchChangesType::MakeBlank => {
+                let temporary_public_key = changes.public_keys.last().ok_or(ARTError::NoChanges)?;
                 self.make_blank_without_changes(
                     &changes.node_index.get_path()?,
-                    &self.public_key_of(temporary_lambda),
+                    temporary_public_key,
                 )?;
                 self.update_art_with_changes(changes)
             }
-            BranchChangesType::RemoveNode(_) => Err(ARTError::RemoveError),
+            BranchChangesType::RemoveNode => Err(ARTError::RemoveError),
         }
     }
 }

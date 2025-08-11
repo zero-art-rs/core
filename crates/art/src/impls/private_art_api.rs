@@ -48,7 +48,7 @@ where
         let result = <Self as ARTPublicAPI<G>>::update_public_art(self, changes);
 
         match &changes.change_type {
-            BranchChangesType::AppendNode(_) => {
+            BranchChangesType::AppendNode => {
                 self.update_node_index()?;
             }
             _ => {}

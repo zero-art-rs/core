@@ -11,32 +11,20 @@ use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(bound = "")]
-pub enum BranchChangesType<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
-    MakeBlank(
-        /// Blank node old public key
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-        G,
-        /// Blank node new secret key
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-        G::ScalarField,
-    ),
-    AppendNode(
-        /// New node as Node struct
-        ARTNode<G>,
-    ),
+pub enum BranchChangesType {
+    MakeBlank,
+    AppendNode,
     UpdateKey,
-    RemoveNode(
-        /// Removed node public key
-        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-        G,
-    ),
+    RemoveNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub struct BranchChanges<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
-    pub change_type: BranchChangesType<G>,
+pub struct BranchChanges<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
+    pub change_type: BranchChangesType,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_keys: Vec<G>,
     pub node_index: NodeIndex,
