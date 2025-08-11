@@ -3,7 +3,7 @@
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
-    types::{ARTRootKey, Artefacts, BranchChanges, BranchChangesType},
+    types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -11,18 +11,20 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-impl<G, PrtART> ARTPrivateAPI<G> for PrtART
+impl<G, A> ARTPrivateAPI<G> for A
 where
     Self: Sized + Serialize + DeserializeOwned,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
-    PrtART: ARTPrivateView<G>,
+    A: ARTPrivateView<G>,
 {
     fn recompute_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         self.recompute_root_key_using_secret_key(self.get_secret_key(), Some(self.get_node_index()))
     }
 
-    fn recompute_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError> {
+    fn recompute_root_key_with_artefacts(
+        &self,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
         self.recompute_root_key_with_artefacts_using_secret_key(
             self.get_secret_key(),
             Some(self.get_node_index()),
@@ -46,7 +48,7 @@ where
         let result = <Self as ARTPublicAPI<G>>::update_public_art(self, changes);
 
         match &changes.change_type {
-            BranchChangesType::AppendNode(_) => {
+            BranchChangesType::AppendNode => {
                 self.update_node_index()?;
             }
             _ => {}

@@ -3,8 +3,8 @@ use crate::{
     helper_tools::iota_function,
     traits::{ARTPublicAPI, ARTPublicView},
     types::{
-        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, NodeIndex,
-        NodeIterWithPath, Artefacts, LeafIterWithPath
+        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
+        NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierArtefacts,
     },
 };
 use ark_ec::{AffineRepr, CurveGroup};
@@ -15,12 +15,12 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{max, min};
 
-impl<G, PublicART> ARTPublicAPI<G> for PublicART
+impl<G, A> ARTPublicAPI<G> for A
 where
     Self: Sized + Serialize + DeserializeOwned,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
-    PublicART: ARTPublicView<G>,
+    A: ARTPublicView<G>,
 {
     fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
@@ -90,7 +90,7 @@ where
         &self,
         secret_key: G::ScalarField,
         node_index: Option<&NodeIndex>,
-    ) -> Result<(ARTRootKey<G>, Artefacts<G>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
         let path = match node_index {
             Some(node_index) => node_index.get_path()?,
             None => self.get_path_to_leaf(&self.public_key_of(&secret_key))?,
@@ -100,8 +100,7 @@ where
 
         let mut ark_secret = secret_key.clone();
         let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order(
-            (&secret_key.clone().into_bigint().to_bytes_le()[..])
-                .try_into()?,
+            (&secret_key.clone().into_bigint().to_bytes_le()[..]).try_into()?,
         )];
         let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
         for public_key in co_path_values.iter() {
@@ -116,12 +115,41 @@ where
                 key: ark_secret,
                 generator: self.get_generator().clone(),
             },
-            Artefacts {
+            ProverArtefacts {
                 path: path_values,
                 co_path: co_path_values,
                 secrets,
-            }
+            },
         ))
+    }
+
+    fn compute_artefacts_for_verification(
+        &self,
+        changes: &BranchChanges<G>,
+    ) -> Result<VerifierArtefacts<G>, ARTError> {
+        let mut co_path = Vec::new();
+
+        let mut parent = self.get_root();
+        for direction in &changes.node_index.get_path()? {
+            if parent.is_leaf() {
+                if let BranchChangesType::AppendNode = changes.change_type
+                    && !parent.is_blank
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key)
+                }
+            } else {
+                co_path.push(parent.get_other_child(direction)?.public_key);
+                parent = parent.get_child(direction)?;
+            }
+        }
+
+        co_path.reverse();
+
+        Ok(VerifierArtefacts {
+            path: changes.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        })
     }
 
     fn public_key_of(&self, secret: &G::ScalarField) -> G {
@@ -144,7 +172,7 @@ where
         let mut public_key = self.public_key_of(secret_key);
 
         let mut ark_level_secret_key = secret_key.clone();
-        while let Some(next_child) =  next.pop() {
+        while let Some(next_child) = next.pop() {
             let mut parent = self.get_mut_root();
             for direction in &next {
                 parent = parent.get_mut_child(direction)?;
@@ -224,12 +252,15 @@ where
     ) -> Result<Option<Direction>, ARTError> {
         let mut node_for_extension = self.get_mut_root();
         for direction in path {
+            if node_for_extension.is_leaf() {
+                // The last node weight is done automatically through the extension method in ARTNode
+                break;
+            }
+
             node_for_extension.weight += 1; // The weight of every node is increased by 1
             node_for_extension = node_for_extension.get_mut_child(direction)?;
         }
 
-        // The last node weight is done automatically through the extension methods
-        node_for_extension.weight -= 1;
         let next_node_direction = match !node_for_extension.is_blank {
             true => Some(Direction::Right),
             false => None,
@@ -245,7 +276,6 @@ where
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
         let mut path = self.find_path_to_possible_leaf_for_insertion()?;
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
-        let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
 
         let next = self.append_node_without_changes(node.clone(), &path)?;
         match next {
@@ -254,10 +284,11 @@ where
             None => {}
         }
 
+        let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
         self.update_art_with_secret_key(secret_key, &path)
             .map(|(root_key, mut changes)| {
                 changes.node_index = node_index;
-                changes.change_type = BranchChangesType::AppendNode(node);
+                changes.change_type = BranchChangesType::AppendNode;
                 (root_key, changes)
             })
     }
@@ -282,19 +313,15 @@ where
         public_key: &G,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        let new_public_key = self.public_key_of(temporary_secret_key);
         let next = self.get_path_to_leaf(public_key)?;
 
-        self.make_blank_without_changes(&next, &new_public_key)?;
+        self.make_blank_without_changes(&next, &self.public_key_of(temporary_secret_key))?;
 
-        self.update_art_with_secret_key(
-            temporary_secret_key,
-            &self.get_path_to_leaf(&new_public_key)?,
-        )
-        .map(|(root_key, mut changes)| {
-            changes.change_type = BranchChangesType::MakeBlank(*public_key, *temporary_secret_key);
-            (root_key, changes)
-        })
+        self.update_art_with_secret_key(temporary_secret_key, &next)
+            .map(|(root_key, mut changes)| {
+                changes.change_type = BranchChangesType::MakeBlank;
+                (root_key, changes)
+            })
     }
 
     fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
@@ -401,7 +428,7 @@ where
 
         match self.update_art_with_secret_key(lambda, &path) {
             Ok((root_key, mut changes)) => {
-                changes.change_type = BranchChangesType::RemoveNode(*public_key);
+                changes.change_type = BranchChangesType::RemoveNode;
 
                 Ok((root_key, changes))
             }
@@ -431,18 +458,26 @@ where
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         match &changes.change_type {
             BranchChangesType::UpdateKey => self.update_art_with_changes(changes),
-            BranchChangesType::AppendNode(node) => {
-                self.append_node_without_changes(node.clone(), &changes.node_index.get_path()?)?;
+            BranchChangesType::AppendNode => {
+                let leaf = ARTNode::new_leaf(
+                    changes
+                        .public_keys
+                        .last()
+                        .ok_or(ARTError::NoChanges)?
+                        .clone(),
+                );
+                self.append_node_without_changes(leaf, &changes.node_index.get_path()?)?;
                 self.update_art_with_changes(changes)
             }
-            BranchChangesType::MakeBlank(_, temporary_lambda) => {
+            BranchChangesType::MakeBlank => {
+                let temporary_public_key = changes.public_keys.last().ok_or(ARTError::NoChanges)?;
                 self.make_blank_without_changes(
                     &changes.node_index.get_path()?,
-                    &self.public_key_of(temporary_lambda),
+                    temporary_public_key,
                 )?;
                 self.update_art_with_changes(changes)
             }
-            BranchChangesType::RemoveNode(_) => Err(ARTError::RemoveError),
+            BranchChangesType::RemoveNode => Err(ARTError::RemoveError),
         }
     }
 }

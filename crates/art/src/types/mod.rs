@@ -14,4 +14,4 @@ pub use branch_changes::{BranchChanges, BranchChangesType};
 pub use direction::Direction;
 pub use node_index::NodeIndex;
 pub use private_art::PrivateART;
-pub use public_art::{PublicART, Artefacts};
+pub use public_art::{ProverArtefacts, PublicART, VerifierArtefacts};

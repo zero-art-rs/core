@@ -30,4 +30,6 @@ pub enum ARTError {
     ConversionError(#[from] std::array::TryFromSliceError),
     #[error("Failed to retrieve x coordinate of a point")]
     XCoordinateError,
+    #[error("No changes provided in given BranchChanges structure")]
+    NoChanges,
 }

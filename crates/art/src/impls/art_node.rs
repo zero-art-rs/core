@@ -176,7 +176,7 @@ impl<G: AffineRepr> ARTNode<G> {
             l: self.l.take(),
             r: self.r.take(),
             is_blank: false,
-            weight,
+            weight: self.weight,
             metadata: self.metadata.clone(),
         };
 

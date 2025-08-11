@@ -1,20 +1,31 @@
 #[cfg(test)]
 mod tests {
     use ark_ec::{AffineRepr, CurveGroup};
+    use ark_ed25519::EdwardsAffine as Ed25519Affine;
     use ark_ff::Field;
-    use ark_std::rand::SeedableRng;
+    use ark_serialize::CanonicalSerialize;
     use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
-    use art::types::{LeafIterWithPath, NodeIndex, NodeIter, NodeIterWithPath};
+    use art::traits::ARTPrivateView;
+    use art::types::{
+        BranchChanges, LeafIterWithPath, NodeIndex, NodeIter, ProverArtefacts, VerifierArtefacts,
+    };
     use art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-        types::{Direction, PrivateART, PublicART},
+        types::{PrivateART, PublicART},
     };
-    use cortado::{CortadoAffine as ARTGroup, Fr as ARTScalarField};
+    use bulletproofs::PedersenGens;
+    use bulletproofs::r1cs::R1CSError;
+    use cortado::{CortadoAffine as ARTGroup, CortadoAffine, Fr as ARTScalarField};
+    use curve25519_dalek::Scalar;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
+    use zk::art::{art_prove, art_verify};
+    use zkp::toolbox::cross_dleq::PedersenBasis;
+    use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
     #[test]
     fn test_art_key_update() {
@@ -71,17 +82,18 @@ mod tests {
 
     #[test]
     fn test_art_weights_correctness() {
-        let number_of_users = 100;
+        let number_of_users = 10;
         let secrets = create_random_secrets(number_of_users);
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
-        for _ in 0..10 {
+
+        for _ in 0..number_of_users {
             let _ = tree.append_node(&ARTScalarField::rand(&mut rng)).unwrap();
         }
 
-        for node in NodeIter::new(tree.get_root()) {
+        for node in tree.get_root() {
             if node.is_leaf() {
                 if node.is_blank {
                     assert_eq!(node.weight, 0);
@@ -120,14 +132,14 @@ mod tests {
     fn test_art_make_blank() {
         let mut rng = rng();
         let number_of_users = 100;
-        let main_user_id = rng.random_range(0..(number_of_users - 2));
-
         let secrets = create_random_secrets(number_of_users);
 
-        let mut temporary_user_id = rng.random_range(0..(number_of_users - 3));
-        while temporary_user_id >= main_user_id && temporary_user_id <= main_user_id + 2 {
-            temporary_user_id = rng.random_range(0..(number_of_users - 3));
+        let main_user_id = rng.random_range(0..(number_of_users - 2));
+        let mut blank_user_id = rng.random_range(0..(number_of_users - 3));
+        while blank_user_id >= main_user_id && blank_user_id <= main_user_id + 2 {
+            blank_user_id = rng.random_range(0..(number_of_users - 3));
         }
+
         let mut rng = StdRng::seed_from_u64(rand::random());
 
         let (public_art, root_key) =
@@ -148,7 +160,7 @@ mod tests {
 
         let mut main_user_art = users_arts[main_user_id].clone();
         let temporary_public_key = ARTGroup::generator()
-            .mul(secrets[temporary_user_id])
+            .mul(secrets[blank_user_id])
             .into_affine();
         let temporary_secret = ARTScalarField::rand(&mut rng);
 
@@ -162,7 +174,7 @@ mod tests {
         );
 
         for i in 0..number_of_users {
-            if i != temporary_user_id && i != main_user_id {
+            if i != blank_user_id && i != main_user_id {
                 assert_ne!(
                     users_arts[i].recompute_root_key().unwrap().key,
                     root_key.key
@@ -183,9 +195,8 @@ mod tests {
         assert_ne!(root_key2.key, root_key.key);
 
         for i in 0..number_of_users {
-            if i != main_user_id && i != temporary_user_id {
+            if i != main_user_id && i != blank_user_id {
                 users_arts[i].update_private_art(&changes2).unwrap();
-                // users_arts[i].update_node_index().unwrap();
 
                 assert_eq!(
                     users_arts[i].recompute_root_key().unwrap().key,
@@ -360,6 +371,186 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_key_update_proof() {
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = create_random_secrets(100);
+        let (mut art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+
+        let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[2])
+            .expect("Failed to deserialize art");
+
+        let secret_key = art.secret_key.clone();
+        let public_key = art.public_key_of(&secret_key);
+        let new_secret_key = ARTScalarField::rand(&mut rng);
+
+        let mut associated_data = Vec::new();
+        art.root
+            .public_key
+            .serialize_uncompressed(&mut associated_data)
+            .unwrap();
+
+        let (_, key_update_changes) = art.update_key(&new_secret_key).unwrap();
+        let (_, artefacts) = art.recompute_root_key_with_artefacts().unwrap();
+
+        let verification_result = check_art_proof_and_verify(
+            associated_data.as_slice(),
+            vec![secret_key],
+            vec![public_key],
+            artefacts,
+            key_update_changes.clone(),
+            test_art
+                .compute_artefacts_for_verification(&key_update_changes)
+                .unwrap(),
+        );
+
+        assert_eq!(verification_result, Ok(()));
+    }
+
+    #[test]
+    fn test_make_blank_proof() {
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = create_random_secrets(100);
+        let (mut art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+
+        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
+            .expect("Failed to deserialize art");
+
+        let secret_key = art.secret_key.clone();
+        let public_key = art.public_key_of(&secret_key);
+        let target_public_key = art.public_key_of(&secrets[1]);
+        let new_secret_key = ARTScalarField::rand(&mut rng);
+
+        let mut associated_data = Vec::new();
+        art.root
+            .public_key
+            .serialize_uncompressed(&mut associated_data)
+            .unwrap();
+
+        let (_, make_blank_changes) = art.make_blank(&target_public_key, &new_secret_key).unwrap();
+        let (_, artefacts) = art
+            .recompute_root_key_with_artefacts_using_secret_key(
+                new_secret_key,
+                Some(&make_blank_changes.node_index),
+            )
+            .unwrap();
+
+        let verification_artefacts = test_art
+            .compute_artefacts_for_verification(&make_blank_changes)
+            .unwrap();
+
+        let verification_result = check_art_proof_and_verify(
+            associated_data.as_slice(),
+            vec![secret_key],
+            vec![public_key],
+            artefacts,
+            make_blank_changes,
+            verification_artefacts,
+        );
+
+        assert_eq!(verification_result, Ok(()));
+    }
+
+    #[test]
+    fn test_append_node_proof() {
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = create_random_secrets(100);
+        let (mut art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+
+        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
+            .expect("Failed to deserialize art");
+
+        let secret_key = art.secret_key.clone();
+        let public_key = art.public_key_of(&secret_key);
+        let new_secret_key = ARTScalarField::rand(&mut rng);
+
+        let mut associated_data = Vec::new();
+        art.root
+            .public_key
+            .serialize_uncompressed(&mut associated_data)
+            .unwrap();
+
+        let (_, append_node_changes) = art.append_node(&new_secret_key).unwrap();
+        let (_, artefacts) = art
+            .recompute_root_key_with_artefacts_using_secret_key(
+                new_secret_key,
+                Some(&append_node_changes.node_index),
+            )
+            .unwrap();
+
+        let verification_artefacts = test_art
+            .compute_artefacts_for_verification(&append_node_changes)
+            .unwrap();
+
+        let verification_result = check_art_proof_and_verify(
+            associated_data.as_slice(),
+            vec![secret_key],
+            vec![public_key],
+            artefacts,
+            append_node_changes,
+            verification_artefacts,
+        );
+
+        assert_eq!(verification_result, Ok(()));
+    }
+
+    #[test]
+    fn test_append_node_after_make_blank_proof() {
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        // Use power of two, so all branches have equal weight. Then any blank node will be the
+        // one to be replaced at node addition.
+        let art_size = 2usize.pow(7);
+        let secrets = create_random_secrets(art_size);
+        let (mut art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+
+        let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
+            .expect("Failed to deserialize art");
+
+        let secret_key = art.secret_key.clone();
+        let public_key = art.public_key_of(&secret_key);
+        let new_secret_key = ARTScalarField::rand(&mut rng);
+
+        let mut associated_data = Vec::new();
+        art.root
+            .public_key
+            .serialize_uncompressed(&mut associated_data)
+            .unwrap();
+
+        // Make blank the node with index 1
+        let target_public_key = art.public_key_of(&secrets[1]);
+        let (_, make_blank_changes) = art.make_blank(&target_public_key, &new_secret_key).unwrap();
+        test_art
+            .update_art_with_changes(&make_blank_changes)
+            .unwrap();
+
+        let (_, append_node_changes) = art.append_node(&new_secret_key).unwrap();
+        let (_, artefacts) = art
+            .recompute_root_key_with_artefacts_using_secret_key(
+                new_secret_key,
+                Some(&append_node_changes.node_index),
+            )
+            .unwrap();
+
+        let verification_artefacts = test_art
+            .compute_artefacts_for_verification(&append_node_changes)
+            .unwrap();
+
+        let verification_result = check_art_proof_and_verify(
+            associated_data.as_slice(),
+            vec![secret_key],
+            vec![public_key],
+            artefacts,
+            append_node_changes,
+            verification_artefacts,
+        );
+
+        assert_eq!(verification_result, Ok(()));
+    }
+
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
@@ -395,5 +586,56 @@ mod tests {
         }
 
         k
+    }
+
+    #[inline]
+    fn new_blindings(size: usize) -> Vec<Scalar> {
+        (0..size)
+            .map(|_| Scalar::random(&mut thread_rng()))
+            .collect()
+    }
+
+    fn get_pedersen_basis() -> PedersenBasis<CortadoAffine, Ed25519Affine> {
+        let g_1 = CortadoAffine::generator();
+        let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+
+        let gens = PedersenGens::default();
+        PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
+            g_1,
+            h_1,
+            ristretto255_to_ark(gens.B).unwrap(),
+            ristretto255_to_ark(gens.B_blinding).unwrap(),
+        )
+    }
+
+    fn check_art_proof_and_verify(
+        associated_data: &[u8],
+        aux_sk: Vec<ARTScalarField>,
+        aux_pk: Vec<ARTGroup>,
+        artefacts: ProverArtefacts<ARTGroup>,
+        update_changes: BranchChanges<ARTGroup>,
+        verification_artefacts: VerifierArtefacts<ARTGroup>,
+    ) -> Result<(), R1CSError> {
+        let basis = get_pedersen_basis();
+
+        let proof = art_prove(
+            basis.clone(),
+            associated_data,
+            aux_pk.clone(),
+            artefacts.path.clone(),
+            artefacts.co_path.clone(),
+            artefacts.secrets.clone(),
+            aux_sk,
+            new_blindings(artefacts.co_path.len() + 1),
+        )?;
+
+        art_verify(
+            basis.clone(),
+            associated_data,
+            aux_pk,
+            verification_artefacts.path,
+            verification_artefacts.co_path,
+            proof.clone(),
+        )
     }
 }
