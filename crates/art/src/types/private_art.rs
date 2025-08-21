@@ -9,6 +9,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
+use crate::traits::ARTPublicView;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
@@ -84,5 +85,25 @@ where
             serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
         )
+    }
+}
+
+impl<G, A> TryFrom<(&A, G::ScalarField)> for PrivateART<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+    A: ARTPublicView<G> + ARTPublicAPI<G>,
+{
+    type Error = ARTError;
+
+    fn try_from((other, sk): (&A, G::ScalarField)) -> Result<Self, Self::Error> {
+        let node_index = other.get_leaf_index(&other.public_key_of(&sk))?;
+
+        Ok(Self {
+            root: Box::new(other.get_root().clone()),
+            generator: other.get_generator(),
+            secret_key: sk,
+            node_index: NodeIndex::Index(node_index),
+        })
     }
 }

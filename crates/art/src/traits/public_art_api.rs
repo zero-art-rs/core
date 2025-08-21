@@ -104,8 +104,8 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
 
-    /// Updates art public keys using public keys provided in changes. Can be used after
-    /// operations on art like append_node, etc.
+    /// Updates art public keys using public keys provided in changes. It doesn't change the art
+    /// structure.
     fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
     /// Uses public keys provided in changes to change public keys of art.
@@ -144,4 +144,8 @@ where
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
+
+    /// Merge the other art into self. Private art might have issues with merge, because it has a
+    /// direction to self.
+    fn merge(&mut self, other: &Self) -> Result<(), ARTError>;
 }

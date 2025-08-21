@@ -1,8 +1,7 @@
-use crate::errors::ARTNodeError;
-use crate::types::{
-    ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
-};
-use ark_ec::AffineRepr;
+use std::fmt::{Display, Formatter};
+use crate::errors::{ARTError, ARTNodeError};
+use crate::types::{ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, NodeIndex, NodeIter, NodeIterWithPath};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 
@@ -169,8 +168,6 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
-        let weight = other.weight + self.weight;
-
         let new_self = Self {
             public_key: self.public_key.clone(),
             l: self.l.take(),
@@ -187,13 +184,16 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Changes values of the node with the values of the given one.
-    pub fn replace_with(&mut self, other: Self) {
-        self.set_public_key(other.get_public_key());
-        self.l = other.l;
-        self.r = other.r;
-        self.is_blank = other.is_blank;
-        self.weight = other.weight;
-        self.metadata = other.metadata;
+    pub fn replace_with(&mut self, mut other: Self) -> Self {
+        std::mem::swap(self, &mut other);
+        other
+
+        // self.set_public_key(other.get_public_key());
+        // self.l = other.l;
+        // self.r = other.r;
+        // self.is_blank = other.is_blank;
+        // self.weight = other.weight;
+        // self.metadata = other.metadata;
     }
 
     /// If the node is temporary, replace the node, else moves current node down to left,
@@ -204,7 +204,7 @@ impl<G: AffineRepr> ARTNode<G> {
         }
 
         match self.is_blank {
-            true => self.replace_with(other),
+            true => _ = self.replace_with(other),
             false => self.extend(other),
         }
 
@@ -285,6 +285,24 @@ impl<G: AffineRepr> ARTNode<G> {
                     .char_set(CharSet::DOUBLE_LINE)
             )
         );
+    }
+}
+
+impl<G> Display for ARTNode<G>
+where
+    G: AffineRepr,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            format_tree!(
+                self.display_analog(),
+                Style::default()
+                    .indentation(4)
+                    .char_set(CharSet::DOUBLE_LINE)
+            )
+        )
     }
 }
 

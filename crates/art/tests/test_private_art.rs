@@ -7,9 +7,8 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
-    use art::traits::ARTPrivateView;
     use art::types::{
-        BranchChanges, LeafIterWithPath, NodeIndex, NodeIter, ProverArtefacts, VerifierArtefacts,
+        BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
     };
     use art::{
         errors::ARTError,
@@ -18,7 +17,7 @@ mod tests {
     };
     use bulletproofs::PedersenGens;
     use bulletproofs::r1cs::R1CSError;
-    use cortado::{CortadoAffine as ARTGroup, CortadoAffine, Fr as ARTScalarField};
+    use cortado::{CortadoAffine, Fr};
     use curve25519_dalek::Scalar;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
@@ -26,6 +25,7 @@ mod tests {
     use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+    use tracing::{info};
 
     #[test]
     fn test_art_key_update() {
@@ -34,7 +34,7 @@ mod tests {
         let secrets = create_random_secrets(number_of_users);
 
         let (public_art, root_key) =
-            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for i in 0..number_of_users {
@@ -86,11 +86,11 @@ mod tests {
         let secrets = create_random_secrets(number_of_users);
 
         let (mut tree, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
         for _ in 0..number_of_users {
-            let _ = tree.append_node(&ARTScalarField::rand(&mut rng)).unwrap();
+            let _ = tree.append_node(&Fr::rand(&mut rng)).unwrap();
         }
 
         for node in tree.get_root() {
@@ -114,10 +114,10 @@ mod tests {
         let number_of_users = 100;
         let secrets = create_random_secrets(number_of_users);
 
-        let (tree, _) = PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+        let (tree, _) = PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let serialized = tree.serialize().unwrap();
-        let deserialized: PrivateART<ARTGroup> =
+        let deserialized: PrivateART<CortadoAffine> =
             PrivateART::deserialize(&serialized, &secrets[1]).unwrap();
 
         assert!(
@@ -143,7 +143,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(rand::random());
 
         let (public_art, root_key) =
-            PublicART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut users_arts = Vec::new();
         for i in 0..number_of_users {
@@ -159,10 +159,10 @@ mod tests {
         }
 
         let mut main_user_art = users_arts[main_user_id].clone();
-        let temporary_public_key = ARTGroup::generator()
+        let temporary_public_key = CortadoAffine::generator()
             .mul(secrets[blank_user_id])
             .into_affine();
-        let temporary_secret = ARTScalarField::rand(&mut rng);
+        let temporary_secret = Fr::rand(&mut rng);
 
         let (root_key, changes) = main_user_art
             .make_blank(&temporary_public_key, &temporary_secret)
@@ -188,7 +188,7 @@ mod tests {
             }
         }
 
-        let new_lambda = ARTScalarField::rand(&mut rng);
+        let new_lambda = Fr::rand(&mut rng);
 
         let (root_key2, changes2) = main_user_art.append_node(&new_lambda).unwrap();
 
@@ -214,7 +214,7 @@ mod tests {
         let secrets = create_random_secrets(number_of_users);
 
         let (mut tree, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
         let node_pk = tree
             .get_node(&NodeIndex::Coordinate(0, 0))
             .unwrap()
@@ -313,7 +313,7 @@ mod tests {
         let secrets = create_random_secrets(number_of_users);
 
         let (mut tree, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
         let node_pk = tree
             .get_node(&NodeIndex::Index(1))
             .unwrap()
@@ -352,7 +352,7 @@ mod tests {
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
-        let node_pk = ARTGroup::generator().mul(&secrets[2]).into_affine();
+        let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
         let node_index = tree.get_leaf_index(&node_pk).unwrap();
         let rec_node_pk = tree
             .get_node(&NodeIndex::Index(node_index))
@@ -366,7 +366,7 @@ mod tests {
         for i in 1..100 {
             let secrets = create_random_secrets(i);
             let (art, _) =
-                PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+                PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
             assert!(get_disbalance(&art).unwrap() < 2);
         }
     }
@@ -376,14 +376,14 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(rand::random());
         let secrets = create_random_secrets(100);
         let (mut art, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[2])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
         let public_key = art.public_key_of(&secret_key);
-        let new_secret_key = ARTScalarField::rand(&mut rng);
+        let new_secret_key = Fr::rand(&mut rng);
 
         let mut associated_data = Vec::new();
         art.root
@@ -413,7 +413,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(rand::random());
         let secrets = create_random_secrets(100);
         let (mut art, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
             .expect("Failed to deserialize art");
@@ -421,7 +421,7 @@ mod tests {
         let secret_key = art.secret_key.clone();
         let public_key = art.public_key_of(&secret_key);
         let target_public_key = art.public_key_of(&secrets[1]);
-        let new_secret_key = ARTScalarField::rand(&mut rng);
+        let new_secret_key = Fr::rand(&mut rng);
 
         let mut associated_data = Vec::new();
         art.root
@@ -458,14 +458,14 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(rand::random());
         let secrets = create_random_secrets(100);
         let (mut art, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
         let public_key = art.public_key_of(&secret_key);
-        let new_secret_key = ARTScalarField::rand(&mut rng);
+        let new_secret_key = Fr::rand(&mut rng);
 
         let mut associated_data = Vec::new();
         art.root
@@ -505,14 +505,14 @@ mod tests {
         let art_size = 2usize.pow(7);
         let secrets = create_random_secrets(art_size);
         let (mut art, _) =
-            PrivateART::new_art_from_secrets(&secrets, &ARTGroup::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
         let public_key = art.public_key_of(&secret_key);
-        let new_secret_key = ARTScalarField::rand(&mut rng);
+        let new_secret_key = Fr::rand(&mut rng);
 
         let mut associated_data = Vec::new();
         art.root
@@ -524,7 +524,7 @@ mod tests {
         let target_public_key = art.public_key_of(&secrets[1]);
         let (_, make_blank_changes) = art.make_blank(&target_public_key, &new_secret_key).unwrap();
         test_art
-            .update_art_with_changes(&make_blank_changes)
+            .update_public_art(&make_blank_changes)
             .unwrap();
 
         let (_, append_node_changes) = art.append_node(&new_secret_key).unwrap();
@@ -551,13 +551,117 @@ mod tests {
         assert_eq!(verification_result, Ok(()));
     }
 
+    #[test]
+    fn test_merge_for_key_updates() {
+        init_tracing_for_test();
+
+        let art_size = 1000;
+
+        let secrets = create_random_secrets(art_size);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap().0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..art_size {
+            let art = PrivateART::<CortadoAffine>::try_from((&art, secrets[i]))
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        let mut first = user_arts.remove(98);
+        let mut second = user_arts.remove(586);
+
+        let (_, first_changes) = first.update_key(&create_random_secrets(1)[0]).unwrap();
+        let (_, second_changes) = second.update_key(&create_random_secrets(1)[0]).unwrap();
+
+        let first_clone = first.clone();
+        let second_clone = second.clone();
+        first.merge(&second).unwrap();
+        second.merge(&first_clone).unwrap();
+
+        assert_eq!(first.root.public_key, second.root.public_key);
+
+        let mut rng = rand::rng();
+        for i in 0..art_size - 2 {
+            match rng.random_bool(0.5) {
+                true => {
+                    user_arts[i].update_public_art(&first_changes).unwrap();
+                    user_arts[i].merge(&second_clone).unwrap();
+                },
+                false => {
+                    user_arts[i].update_public_art(&second_changes).unwrap();
+                    user_arts[i].merge(&first_clone).unwrap();
+                },
+            }
+
+            assert_eq!(user_arts[i].root.public_key, first.root.public_key);
+        }
+    }
+
+    #[test]
+    fn test_merge_for_add_member() {
+        init_tracing_for_test();
+
+        let art_size = 1000;
+
+        let secrets = create_random_secrets(art_size);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap().0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..art_size {
+            let art = PrivateART::<CortadoAffine>::try_from((&art, secrets[i]))
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        let mut first = user_arts.remove(47);
+        let mut second = user_arts.remove(46);
+
+        let new_node1_sk = create_random_secrets(1)[0];
+        let new_node2_sk = create_random_secrets(1)[0];
+        let (_, first_changes) = first.append_node(&new_node1_sk).unwrap();
+        let (_, second_changes) = second.update_key(&new_node2_sk).unwrap();
+        // create two new users, from corresponding arts
+        let mut new_user1 = PrivateART::try_from((&first, new_node1_sk)).unwrap();
+
+
+
+        let first_clone = first.clone();
+        let second_clone = second.clone();
+        first.merge(&second).unwrap();
+        second.merge(&first_clone).unwrap();
+        new_user1.merge(&second_clone).unwrap();
+
+        assert_eq!(first.root.public_key, second.root.public_key);
+        assert_eq!(first.root.public_key, new_user1.root.public_key);
+
+        let mut rng = rand::rng();
+        for i in 0..art_size - 2 {
+            match rng.random_bool(0.5) {
+                true => {
+                    user_arts[i].update_public_art(&first_changes).unwrap();
+                    user_arts[i].merge(&second_clone).unwrap();
+                },
+                false => {
+                    user_arts[i].update_public_art(&second_changes).unwrap();
+                    user_arts[i].merge(&first_clone).unwrap();
+                },
+
+            }
+
+            assert_eq!(user_arts[i].root.public_key, first.root.public_key);
+
+            let (_, changes) = user_arts[i].update_key(&create_random_secrets(1)[0]).unwrap();
+            first.clone().update_public_art(&changes).unwrap();
+        }
+    }
+
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
         (0..size).map(|_| F::rand(&mut rng)).collect()
     }
 
-    fn min_max_leaf_height(art: &PrivateART<ARTGroup>) -> Result<(u32, u32), ARTError> {
+    fn min_max_leaf_height(art: &PrivateART<CortadoAffine>) -> Result<(u32, u32), ARTError> {
         let mut min_height = u32::MAX;
         let mut max_height = u32::MIN;
         let root = art.get_root();
@@ -570,19 +674,19 @@ mod tests {
         Ok((min_height, max_height))
     }
 
-    fn get_disbalance(art: &PrivateART<ARTGroup>) -> Result<u32, ARTError> {
+    fn get_disbalance(art: &PrivateART<CortadoAffine>) -> Result<u32, ARTError> {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)
     }
 
     /// Returns random scalar, which is not one or zero.
-    fn get_random_scalar() -> ARTScalarField {
+    fn get_random_scalar() -> Fr {
         let mut rng = StdRng::seed_from_u64(rand::random());
 
-        let mut k = ARTScalarField::zero();
+        let mut k = Fr::zero();
         while k.is_one() || k.is_zero() {
-            k = ARTScalarField::rand(&mut rng);
+            k = Fr::rand(&mut rng);
         }
 
         k
@@ -610,11 +714,11 @@ mod tests {
 
     fn check_art_proof_and_verify(
         associated_data: &[u8],
-        aux_sk: Vec<ARTScalarField>,
-        aux_pk: Vec<ARTGroup>,
-        artefacts: ProverArtefacts<ARTGroup>,
-        update_changes: BranchChanges<ARTGroup>,
-        verification_artefacts: VerifierArtefacts<ARTGroup>,
+        aux_sk: Vec<Fr>,
+        aux_pk: Vec<CortadoAffine>,
+        artefacts: ProverArtefacts<CortadoAffine>,
+        update_changes: BranchChanges<CortadoAffine>,
+        verification_artefacts: VerifierArtefacts<CortadoAffine>,
     ) -> Result<(), R1CSError> {
         let basis = get_pedersen_basis();
 
@@ -637,5 +741,13 @@ mod tests {
             verification_artefacts.co_path,
             proof.clone(),
         )
+    }
+
+    /// Try to init console logger with RUST_LOG level filter
+    fn init_tracing_for_test() {
+        _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_target(false)
+            .try_init();
     }
 }

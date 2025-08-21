@@ -29,3 +29,5 @@ bulletproofs = { workspace = true }
 zkp = { workspace = true, features = ["rangeproof", "rangeproof_batchable"]}
 display_tree = {workspace = true}
 postcard = { workspace = true, features = ["alloc"] }
+tracing-subscriber = { workspace = true }
+tracing = { workspace = true }

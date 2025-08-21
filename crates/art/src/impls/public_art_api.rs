@@ -14,6 +14,8 @@ use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{max, min};
+use tracing::{trace, warn, debug};
+use crate::errors::ARTNodeError;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -479,5 +481,25 @@ where
             }
             BranchChangesType::RemoveNode => Err(ARTError::RemoveError),
         }
+    }
+
+    fn merge(&mut self, other: &Self) -> Result<(), ARTError> {
+        for (other_node, path) in NodeIterWithPath::new(other.get_root()) {
+            let dir_path = path.iter().map(|&d| d.1).collect::<Vec<_>>();
+            let node = self.get_mut_node(&NodeIndex::Direction(dir_path))?;
+
+            if !other_node.is_leaf() && node.is_leaf() {
+                // We are merging add member operation => clone the other_node, and append to the node
+                let old_node = node.replace_with(other_node.clone());
+                node.public_key = (node.public_key + old_node.public_key).into_affine();
+            } else {
+                if other_node.public_key != node.public_key {
+                    node.public_key = (node.public_key + other_node.public_key).into_affine();
+                }
+            }
+
+        }
+
+        Ok(())
     }
 }
