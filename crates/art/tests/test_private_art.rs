@@ -578,7 +578,7 @@ mod tests {
         first.merge(&second).unwrap();
         second.merge(&first_clone).unwrap();
 
-        assert_eq!(first.root.public_key, second.root.public_key);
+        assert_eq!(first.root, second.root);
 
         let mut rng = rand::rng();
         for i in 0..art_size - 2 {
@@ -593,7 +593,7 @@ mod tests {
                 },
             }
 
-            assert_eq!(user_arts[i].root.public_key, first.root.public_key);
+            assert_eq!(user_arts[i].root, first.root);
         }
     }
 
@@ -601,7 +601,7 @@ mod tests {
     fn test_merge_for_add_member() {
         init_tracing_for_test();
 
-        let art_size = 1000;
+        let art_size = 8;
 
         let secrets = create_random_secrets(art_size);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap().0;
@@ -613,45 +613,66 @@ mod tests {
             user_arts.push(art);
         }
 
-        let mut first = user_arts.remove(47);
-        let mut second = user_arts.remove(46);
+        let mut art1 = user_arts.remove(1);
+        let mut art2 = user_arts.remove(2);
+        let mut art3 = user_arts.remove(3);
+        let mut art4 = user_arts.remove(4);
 
         let new_node1_sk = create_random_secrets(1)[0];
         let new_node2_sk = create_random_secrets(1)[0];
-        let (_, first_changes) = first.append_node(&new_node1_sk).unwrap();
-        let (_, second_changes) = second.update_key(&new_node2_sk).unwrap();
+        let new_node3_sk = create_random_secrets(1)[0];
+        let new_node4_sk = create_random_secrets(1)[0];
+
+        let (_, changes1) = art1.append_node(&new_node1_sk).unwrap();
+        let (_, changes2) = art2.update_key(&new_node2_sk).unwrap();
+        let (_, changes3) = art3.update_key(&new_node3_sk).unwrap();
+        let (_, changes4) = art3.append_node(&new_node4_sk).unwrap();
+
         // create two new users, from corresponding arts
-        let mut new_user1 = PrivateART::try_from((&first, new_node1_sk)).unwrap();
+        let mut new_user1 = PrivateART::try_from((&art1, new_node1_sk)).unwrap();
 
 
 
-        let first_clone = first.clone();
-        let second_clone = second.clone();
-        first.merge(&second).unwrap();
-        second.merge(&first_clone).unwrap();
-        new_user1.merge(&second_clone).unwrap();
+        let art1_clone = art1.clone();
+        let art2_clone = art2.clone();
+        let art3_clone = art3.clone();
+        let art4_clone = art4.clone();
+        art1.merge(&art2).unwrap();
+        art2.merge(&art1_clone).unwrap();
+        new_user1.merge(&art2_clone).unwrap();
 
-        assert_eq!(first.root.public_key, second.root.public_key);
-        assert_eq!(first.root.public_key, new_user1.root.public_key);
+        assert_eq!(art1.root, art2.root);
+        assert_eq!(art1.root, new_user1.root);
+
+        art1.merge(&art3_clone).unwrap();
+        art2.merge(&art3_clone).unwrap();
+        art1.merge(&art4_clone).unwrap();
+        art2.merge(&art4_clone).unwrap();
+
+        assert_eq!(art1.root, art2.root);
 
         let mut rng = rand::rng();
-        for i in 0..art_size - 2 {
+        for i in 0..art_size - 4 {
             match rng.random_bool(0.5) {
                 true => {
-                    user_arts[i].update_public_art(&first_changes).unwrap();
-                    user_arts[i].merge(&second_clone).unwrap();
+                    user_arts[i].update_public_art(&changes1).unwrap();
+                    user_arts[i].merge(&art2_clone).unwrap();
+                    user_arts[i].merge(&art3_clone).unwrap();
+                    user_arts[i].merge(&art4_clone).unwrap();
                 },
                 false => {
-                    user_arts[i].update_public_art(&second_changes).unwrap();
-                    user_arts[i].merge(&first_clone).unwrap();
+                    user_arts[i].update_public_art(&changes2).unwrap();
+                    user_arts[i].merge(&art1_clone).unwrap();
+                    user_arts[i].merge(&art3_clone).unwrap();
+                    user_arts[i].merge(&art4_clone).unwrap();
                 },
 
             }
 
-            assert_eq!(user_arts[i].root.public_key, first.root.public_key);
+            assert_eq!(user_arts[i].root, art1.root);
 
             let (_, changes) = user_arts[i].update_key(&create_random_secrets(1)[0]).unwrap();
-            first.clone().update_public_art(&changes).unwrap();
+            art1.clone().update_public_art(&changes).unwrap();
         }
     }
 

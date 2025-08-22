@@ -494,6 +494,9 @@ where
                 node.public_key = (node.public_key + old_node.public_key).into_affine();
             } else {
                 if other_node.public_key != node.public_key {
+                    // Compute weight as max, because remove isn't supported yet
+                    node.weight = max(other_node.weight, node.weight);
+
                     node.public_key = (node.public_key + other_node.public_key).into_affine();
                 }
             }
