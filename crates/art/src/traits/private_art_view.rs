@@ -24,4 +24,6 @@ where
         generator: G,
         secret_key: G::ScalarField,
     ) -> Result<Self, ARTError>;
+
+    // fn merged_changes(&mut self) ->
 }

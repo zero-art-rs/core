@@ -1,3 +1,5 @@
+use crate::traits::ARTPublicView;
+use crate::types::BranchChanges;
 use crate::{
     errors::ARTError,
     helper_tools::{ark_de, ark_se},
@@ -9,7 +11,6 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
-use crate::traits::ARTPublicView;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
@@ -23,6 +24,7 @@ where
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub secret_key: G::ScalarField,
     pub node_index: NodeIndex,
+    merged_changes: Vec<BranchChanges<G>>,
 }
 
 impl<G> PrivateART<G>
@@ -51,6 +53,7 @@ where
             generator: public_art.generator,
             secret_key,
             node_index: NodeIndex::Index(node_index),
+            merged_changes: Vec::new(),
         })
     }
 
@@ -104,6 +107,7 @@ where
             generator: other.get_generator(),
             secret_key: sk,
             node_index: NodeIndex::Index(node_index),
+            merged_changes: Vec::new(),
         })
     }
 }

@@ -1,3 +1,4 @@
+use crate::types::BranchChangesType;
 use crate::{
     errors::ARTError,
     types::{
@@ -8,6 +9,7 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use cortado::CortadoAffine;
 
 pub trait ARTPublicAPI<G>
 where
@@ -146,6 +148,29 @@ where
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
     /// Merge the other art into self. Private art might have issues with merge, because it has a
-    /// direction to self.
-    fn merge(&mut self, other: &Self) -> Result<(), ARTError>;
+    /// direction to self. weight_change can be used for correctness of merge, if the merging art
+    /// fork has different number of nodes form the base art.
+    fn merge_change(
+        &mut self,
+        merged_changes: &[BranchChanges<G>],
+        target_change: &BranchChanges<G>,
+    ) -> Result<(), ARTError>;
+
+    /// Internal method, which changes art, structure, so it is possible to update public keys
+    /// without errors.
+    fn prepare_structure_for_append_node_changes(
+        &mut self,
+        append_node_changes: &[BranchChanges<G>],
+    ) -> Result<(), ARTError>;
+
+    /// Merges given conflict changes into the art.
+    fn merge(&mut self, target_changes: &Vec<BranchChanges<G>>) -> Result<(), ARTError>;
+
+    /// Merges given conflict changes into the art. If some key update changes are already applied, pass them
+    /// into applied_changes. Other changes are not supported yet
+    fn merge_with_skip(
+        &mut self,
+        applied_changes: &Vec<BranchChanges<G>>,
+        target_changes: &Vec<BranchChanges<G>>,
+    ) -> Result<(), ARTError>;
 }

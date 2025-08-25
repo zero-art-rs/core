@@ -14,8 +14,7 @@ use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{max, min};
-use tracing::{trace, warn, debug};
-use crate::errors::ARTNodeError;
+use std::collections::HashMap;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -263,9 +262,9 @@ where
             node_for_extension = node_for_extension.get_mut_child(direction)?;
         }
 
-        let next_node_direction = match !node_for_extension.is_blank {
-            true => Some(Direction::Right),
-            false => None,
+        let next_node_direction = match node_for_extension.is_blank {
+            true => None,
+            false => Some(Direction::Right),
         };
         node_for_extension.extend_or_replace(node)?;
 
@@ -483,24 +482,144 @@ where
         }
     }
 
-    fn merge(&mut self, other: &Self) -> Result<(), ARTError> {
-        for (other_node, path) in NodeIterWithPath::new(other.get_root()) {
-            let dir_path = path.iter().map(|&d| d.1).collect::<Vec<_>>();
-            let node = self.get_mut_node(&NodeIndex::Direction(dir_path))?;
+    fn merge_change(
+        &mut self,
+        merged_changes: &[BranchChanges<G>],
+        target_change: &BranchChanges<G>,
+    ) -> Result<(), ARTError> {
+        let mut shared_paths = Vec::with_capacity(merged_changes.len());
+        for change in merged_changes {
+            shared_paths.push(change.node_index.get_path()?);
+        }
 
-            if !other_node.is_leaf() && node.is_leaf() {
-                // We are merging add member operation => clone the other_node, and append to the node
-                let old_node = node.replace_with(other_node.clone());
-                node.public_key = (node.public_key + old_node.public_key).into_affine();
-            } else {
-                if other_node.public_key != node.public_key {
-                    // Compute weight as max, because remove isn't supported yet
-                    node.weight = max(other_node.weight, node.weight);
-
-                    node.public_key = (node.public_key + other_node.public_key).into_affine();
+        let target_path = target_change.node_index.get_path()?;
+        for level in 0..=target_path.len() {
+            let node = self.get_mut_node(&NodeIndex::Direction(target_path[0..level].to_vec()))?;
+            if let BranchChangesType::AppendNode = target_change.change_type {
+                if level < target_path.len() {
+                    node.weight += 1;
                 }
+                // The last node weight where computed when structure where updated
             }
 
+            if shared_paths.is_empty() {
+                // There are no further conflicts
+                node.public_key = target_change.public_keys[level];
+            } else {
+                // Resolve conflict
+                node.public_key =
+                    (node.public_key + target_change.public_keys[level]).into_affine();
+            }
+
+            // Remove branches which are not conflicting with target one yet
+            for j in (0..shared_paths.len()).rev() {
+                if shared_paths[j].get(level) != target_path.get(level) {
+                    shared_paths.remove(j);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn prepare_structure_for_append_node_changes(
+        &mut self,
+        append_node_changes: &[BranchChanges<G>],
+    ) -> Result<(), ARTError> {
+        let mut update_targets = HashMap::new();
+        for change in append_node_changes {
+            update_targets
+                .entry(change.node_index.get_path()?)
+                .or_insert(Vec::new())
+                .push(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
+        }
+
+        // Sort public keys by x coordinate or, if they are equal, by y coordinate
+        let keys = update_targets.keys().cloned().collect::<Vec<_>>();
+        for key in keys {
+            update_targets
+                .entry(key.clone())
+                .and_modify(|subtree_leaves| {
+                    subtree_leaves.sort_by(|&a, &b| match a.x() == b.x() {
+                        false => return a.x().cmp(&b.x()),
+                        true => a.y().cmp(&b.y()),
+                    });
+                });
+        }
+
+        for (path, subtree_leaves) in &mut update_targets.iter() {
+            let mut target_node_path = path.clone();
+
+            if let Some(last_dir) = target_node_path.pop() {
+                let mut node = self.get_mut_node(&NodeIndex::Direction(target_node_path))?;
+                node = match node.is_leaf() {
+                    true => node,
+                    false => node.get_mut_child(&last_dir)?,
+                };
+
+                let subtree = match node.is_blank {
+                    true => ARTNode::new_default_tree_with_public_keys(subtree_leaves)?,
+                    false => {
+                        let mut subtree_with_previous_user = vec![node.public_key];
+                        subtree_with_previous_user.extend(subtree_leaves);
+
+                        ARTNode::new_default_tree_with_public_keys(&subtree_with_previous_user)?
+                    }
+                };
+
+                node.replace_with(subtree);
+            }
+        }
+
+        // merge all add member changes as key update, as all the nodes are present
+        // for i in 0..update_key_changes.len() {
+        //     self.merge_key_update(&update_key_changes[0..i].to_vec(), &update_key_changes[i])?;
+        // }
+
+        Ok(())
+    }
+
+    fn merge(&mut self, target_changes: &Vec<BranchChanges<G>>) -> Result<(), ARTError> {
+        self.merge_with_skip(&vec![], target_changes)
+    }
+
+    fn merge_with_skip(
+        &mut self,
+        applied_changes: &Vec<BranchChanges<G>>,
+        target_changes: &Vec<BranchChanges<G>>,
+    ) -> Result<(), ARTError> {
+        for change in applied_changes {
+            match change.change_type {
+                BranchChangesType::UpdateKey => {}
+                _ => return Err(ARTError::InvalidInput),
+            }
+        }
+
+        let mut update_key_changes = Vec::new();
+        let mut append_member_changes = Vec::new();
+
+        for change in target_changes {
+            match change.change_type {
+                BranchChangesType::UpdateKey => {
+                    update_key_changes.push(change.clone());
+                }
+                BranchChangesType::AppendNode => {
+                    append_member_changes.push(change.clone());
+                }
+                _ => todo!(),
+            }
+        }
+
+        self.prepare_structure_for_append_node_changes(append_member_changes.as_slice())?;
+
+        // merge all key update changes but skip whose from applied_changes
+        let merge_limit = update_key_changes.len();
+        let mut changes = applied_changes.clone();
+        changes.extend(update_key_changes);
+        changes.extend(append_member_changes);
+
+        for i in applied_changes.len()..changes.len() {
+            self.merge_change(&changes[0..i], &changes[i])?;
         }
 
         Ok(())
