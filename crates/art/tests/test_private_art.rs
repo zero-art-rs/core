@@ -8,7 +8,7 @@ mod tests {
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
     use art::types::{
-        BranchChanges, BranchChangesType, LeafIterWithPath, NodeIndex, ProverArtefacts,
+        BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts,
         VerifierArtefacts,
     };
     use art::{
@@ -23,10 +23,10 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::Mul;
-    use tracing::info;
     use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+    use art::traits::ARTPrivateView;
 
     #[test]
     fn test_art_key_update() {
@@ -589,8 +589,8 @@ mod tests {
         second.merge_change(&second_merged, &first_changes).unwrap();
 
         assert_eq!(first.root.weight, second.root.weight);
-        // info!("first:\n{}", first.root);
-        // info!("second:\n{}", second.root);
+        // debug!("first:\n{}", first.root);
+        // debug!("second:\n{}", second.root);
         assert_eq!(first.root, second.root);
 
         // check leaf update correctness
@@ -683,8 +683,8 @@ mod tests {
         second.merge_change(&second_merged, &first_changes).unwrap();
 
         assert_eq!(first.root.weight, second.root.weight);
-        // info!("first:\n{}", first.root);
-        // info!("second:\n{}", second.root);
+        // debug!("first:\n{}", first.root);
+        // debug!("second:\n{}", second.root);
         assert_eq!(first.root, second.root);
 
         // check leaf update correctness
@@ -738,7 +738,7 @@ mod tests {
     fn test_merge_for_add_member() {
         init_tracing_for_test();
 
-        let art_size = 8;
+        let art_size = 100;
 
         let secrets = create_random_secrets(art_size);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
@@ -752,10 +752,11 @@ mod tests {
             user_arts.push(art);
         }
 
-        let mut art1 = user_arts.remove(1);
-        let mut art2 = user_arts.remove(2);
+        let mut art1 = user_arts.remove(0);
+        let mut art2 = user_arts.remove(1);
         let mut art3 = user_arts.remove(3);
         let mut art4 = user_arts.remove(4);
+
 
         let new_node1_sk = create_random_secrets(1)[0];
         let new_node2_sk = create_random_secrets(1)[0];
@@ -768,18 +769,22 @@ mod tests {
         let (_, changes4) = art4.append_node(&new_node4_sk).unwrap();
 
         // create two new users, from corresponding arts
-        let mut new_user1 = PrivateART::try_from((&art1, new_node1_sk)).unwrap();
+        let mut new_user1 = PrivateART::try_from((&art4, new_node4_sk)).unwrap();
 
         art1.merge_with_skip(
             &vec![changes1.clone()],
             &vec![changes2.clone(), changes3.clone(), changes4.clone()],
         )
         .unwrap();
+        art1.update_node_index().unwrap();
+
         art2.merge_with_skip(
             &vec![changes2.clone()],
             &vec![changes1.clone(), changes3.clone(), changes4.clone()],
         )
         .unwrap();
+        art2.update_node_index().unwrap();
+
         new_user1
             .merge(&vec![
                 changes1.clone(),
@@ -788,6 +793,13 @@ mod tests {
                 changes4.clone(),
             ])
             .unwrap();
+        new_user1.update_node_index().unwrap();
+
+
+        assert_eq!(art1.public_key_of(&new_node1_sk), art1.get_node(&art1.node_index).unwrap().public_key);
+        assert_eq!(art2.public_key_of(&new_node2_sk), art2.get_node(&art2.node_index).unwrap().public_key);
+        assert_eq!(new_user1.public_key_of(&new_node4_sk), new_user1.get_node(&new_user1.node_index).unwrap().public_key);
+
 
         assert_eq!(art1.root, art2.root);
         assert_eq!(art1.root.public_key, new_user1.root.public_key);

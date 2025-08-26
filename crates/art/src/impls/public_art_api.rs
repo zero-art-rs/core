@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{max, min};
 use std::collections::HashMap;
+use tracing::{info, debug};
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -557,24 +558,9 @@ where
                     false => node.get_mut_child(&last_dir)?,
                 };
 
-                let subtree = match node.is_blank {
-                    true => ARTNode::new_default_tree_with_public_keys(subtree_leaves)?,
-                    false => {
-                        let mut subtree_with_previous_user = vec![node.public_key];
-                        subtree_with_previous_user.extend(subtree_leaves);
-
-                        ARTNode::new_default_tree_with_public_keys(&subtree_with_previous_user)?
-                    }
-                };
-
-                node.replace_with(subtree);
+                node.extend_or_replace(ARTNode::new_default_tree_with_public_keys(subtree_leaves)?)?;
             }
         }
-
-        // merge all add member changes as key update, as all the nodes are present
-        // for i in 0..update_key_changes.len() {
-        //     self.merge_key_update(&update_key_changes[0..i].to_vec(), &update_key_changes[i])?;
-        // }
 
         Ok(())
     }
@@ -610,15 +596,19 @@ where
             }
         }
 
-        self.prepare_structure_for_append_node_changes(append_member_changes.as_slice())?;
-
         // merge all key update changes but skip whose from applied_changes
-        let merge_limit = update_key_changes.len();
+        let merge_limit = update_key_changes.len() + applied_changes.len();
         let mut changes = applied_changes.clone();
         changes.extend(update_key_changes);
-        changes.extend(append_member_changes);
 
         for i in applied_changes.len()..changes.len() {
+            self.merge_change(&changes[0..i], &changes[i])?;
+        }
+
+        self.prepare_structure_for_append_node_changes(append_member_changes.as_slice())?;
+        changes.extend(append_member_changes);
+
+        for i in merge_limit..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
         }
 
