@@ -1,5 +1,6 @@
 use crate::{errors::ARTError, types::Direction};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum NodeIndex {
@@ -68,6 +69,7 @@ impl NodeIndex {
     /// Computes the path to the node starting from the root.
     fn get_path_from_index(index: u32) -> Result<Vec<Direction>, ARTError> {
         if index == 0 {
+            error!("Failed to convert index: {index} to path");
             return Err(ARTError::InvalidInput);
         }
 
@@ -91,6 +93,9 @@ impl NodeIndex {
     /// Computes the path to the node starting from the root.
     fn get_path_from_coordinate(level: u32, position: u32) -> Result<Vec<Direction>, ARTError> {
         if position >= (2 << level) {
+            error!(
+                "Failed to convert coordinate (l: {level}, p: {position}), as the provided position is to big"
+            );
             return Err(ARTError::InvalidInput);
         }
 
@@ -138,5 +143,14 @@ impl NodeIndex {
         }
 
         Ok((path.len() as u32 - 1, position))
+    }
+}
+
+impl PartialEq<NodeIndex> for NodeIndex {
+    fn eq(&self, other: &Self) -> bool {
+        match (self.get_path(), other.get_path()) {
+            (Ok(index), Ok(other_index)) => index.eq(&other_index),
+            _ => false,
+        }
     }
 }

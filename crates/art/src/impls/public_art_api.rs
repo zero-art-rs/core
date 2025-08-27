@@ -1,3 +1,4 @@
+use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
     helper_tools::iota_function,
@@ -10,12 +11,13 @@ use crate::{
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::Zero;
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::cmp::{max, min};
+use std::cmp::{PartialEq, max, min};
 use std::collections::HashMap;
-use tracing::{info, debug};
+use tracing::error;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -55,6 +57,7 @@ where
             }
         }
 
+        error!("Failed to find a path to the node, as it isn't exists");
         Err(ARTError::PathNotExists)
     }
 
@@ -123,6 +126,50 @@ where
                 secrets,
             },
         ))
+    }
+
+    fn recompute_root_key_with_artefacts_using_secret_key_and_change(
+        &self,
+        secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
+        change: &BranchChanges<G>,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
+        match node_index {
+            Some(node_index) => {
+                if node_index == &change.node_index {
+                    return Err(ARTError::InvalidInput);
+                }
+            }
+            None => {}
+        }
+        let mut fork = self.clone();
+        fork.update_public_art(&change)?;
+        fork.recompute_root_key_with_artefacts_using_secret_key(secret_key, node_index)
+    }
+
+    fn recompute_root_key_with_artefacts_for_merge(
+        &self,
+        secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
+        changes: &Vec<BranchChanges<G>>,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
+        let (mut tk, mut artefacts) = self
+            .recompute_root_key_with_artefacts_using_secret_key_and_change(
+                secret_key,
+                node_index,
+                &changes.get(0).cloned().ok_or(ARTError::InvalidInput)?,
+            )?;
+
+        for change in changes[1..changes.len()].iter() {
+            let (temp_tk, temp_artefacts) = self
+                .recompute_root_key_with_artefacts_using_secret_key_and_change(
+                    secret_key, node_index, &change,
+                )?;
+            tk.key += temp_tk.key;
+            artefacts.try_merge(&temp_artefacts)?;
+        }
+
+        Ok((tk, artefacts))
     }
 
     fn compute_artefacts_for_verification(
@@ -558,7 +605,9 @@ where
                     false => node.get_mut_child(&last_dir)?,
                 };
 
-                node.extend_or_replace(ARTNode::new_default_tree_with_public_keys(subtree_leaves)?)?;
+                node.extend_or_replace(ARTNode::new_default_tree_with_public_keys(
+                    subtree_leaves,
+                )?)?;
             }
         }
 
@@ -592,7 +641,8 @@ where
                 BranchChangesType::AppendNode => {
                     append_member_changes.push(change.clone());
                 }
-                _ => todo!(),
+                // Return error, as other operations are not supported for merge
+                _ => return Err(ARTError::InvalidInput),
             }
         }
 

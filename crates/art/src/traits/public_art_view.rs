@@ -5,7 +5,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 pub trait ARTPublicView<G>
 where
-    Self: Sized,
+    Self: Sized + Clone,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {

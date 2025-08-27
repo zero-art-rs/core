@@ -43,6 +43,20 @@ where
         node_index: Option<&NodeIndex>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
+    fn recompute_root_key_with_artefacts_using_secret_key_and_change(
+        &self,
+        secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
+        changes: &BranchChanges<G>,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
+
+    fn recompute_root_key_with_artefacts_for_merge(
+        &self,
+        secret_key: G::ScalarField,
+        node_index: Option<&NodeIndex>,
+        changes: &Vec<BranchChanges<G>>,
+    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
+
     /// Returns helper structure for verification of art changes
     fn compute_artefacts_for_verification(
         &self,
