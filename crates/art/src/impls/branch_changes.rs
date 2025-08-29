@@ -1,7 +1,4 @@
-use crate::{
-    errors::ARTError,
-    types::{BranchChanges},
-};
+use crate::{errors::ARTError, types::BranchChanges};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};

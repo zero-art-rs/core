@@ -371,6 +371,15 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 }
 
+impl<G> Default for ARTNode<G>
+where
+    G: AffineRepr,
+{
+    fn default() -> Self {
+        Self::new_leaf(G::zero())
+    }
+}
+
 impl<G> Display for ARTNode<G>
 where
     G: AffineRepr,

@@ -32,4 +32,6 @@ pub enum ARTError {
     XCoordinateError,
     #[error("No changes provided in given BranchChanges structure")]
     NoChanges,
+    #[error("The art has no nodes")]
+    EmptyART,
 }

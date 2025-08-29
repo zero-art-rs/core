@@ -2,7 +2,7 @@ use crate::{
     traits::ARTPublicView,
     types::{ARTNode, PublicART},
 };
-use ark_ec::AffineRepr;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use std::mem;
@@ -28,13 +28,3 @@ where
         mem::replace(&mut self.root, new_root)
     }
 }
-
-// impl<G> PartialEq for dyn PublicARTView<G>
-// where
-//     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-//     G::BaseField: PrimeField,
-// {
-//     fn eq(&self, other: &Self) -> bool {
-//         !(self.get_root().ne(other.get_root()) || self.get_generator() != other.get_generator())
-//     }
-// }

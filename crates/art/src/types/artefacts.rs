@@ -1,7 +1,5 @@
-use crate::{
-    helper_tools::{ark_de, ark_se},
-};
-use ark_ec::{AffineRepr};
+use crate::helper_tools::{ark_de, ark_se};
+use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 

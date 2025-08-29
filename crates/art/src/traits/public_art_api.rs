@@ -1,4 +1,3 @@
-use crate::types::BranchChangesType;
 use crate::{
     errors::ARTError,
     types::{
@@ -9,7 +8,7 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use cortado::CortadoAffine;
+use curve25519_dalek::Scalar;
 
 pub trait ARTPublicAPI<G>
 where
@@ -18,7 +17,7 @@ where
     Self: Sized,
 {
     /// Returns a co-path to the leaf with a given public key.
-    fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError>;
+    fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError>;
 
     /// Brute-force depth-first search in a tree for a leaf node that matches the given public key. Returns the
     /// path from root to the node.
@@ -28,36 +27,29 @@ where
     /// index of a node. Searching algorithm is depth-first search.
     fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError>;
 
-    /// Recomputes art root key using the given leaf secret key.
+    /// Recomputes art root key using the given leaf secret key. It progresively goes from leaf to root, computing secret keys using Diffie–Hellman key exchange.
     fn recompute_root_key_using_secret_key(
         &self,
         secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
+        node_index: &NodeIndex,
     ) -> Result<ARTRootKey<G>, ARTError>;
 
-    /// Recomputes art root key using the given leaf secret key. returns additional artifacts for
+    /// Recomputes art root key using the given leaf secret key. Returns additional artifacts for
     /// proof creation.
     fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
+        node_index: &NodeIndex,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
-    fn recompute_root_key_with_artefacts_using_secret_key_and_change(
+    /// Recomputes art root key and ProverArtefacts by given path secrets and path to node, which knows them
+    fn recompute_root_key_with_artefacts_using_path_secrets(
         &self,
-        secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
-        changes: &BranchChanges<G>,
+        node_index: &NodeIndex,
+        path_secrets: Vec<Scalar>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
-    fn recompute_root_key_with_artefacts_for_merge(
-        &self,
-        secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
-        changes: &Vec<BranchChanges<G>>,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
-
-    /// Returns helper structure for verification of art changes
+    /// Returns helper structure for verification of art update.
     fn compute_artefacts_for_verification(
         &self,
         branch_changes: &BranchChanges<G>,
@@ -66,45 +58,40 @@ where
     /// Shorthand for computing public key to given secret.
     fn public_key_of(&self, secret: &G::ScalarField) -> G;
 
-    /// Update all public keys on path from the root to node, corresponding to the given secret
-    /// key. Can be used to update art after applied changes.
+    /// This method will update all public keys on a path from the root to node. Using provided
+    /// secret key, it will recompute all the public keys and change old ones. It is used
+    /// internally in algorithms for art updateCan be used to update art after applied changes.
     fn update_art_with_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
         path: &[Direction],
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
-
-    /// Changes old_secret_key secret key of a leaf to the new_secret_key.
-    fn update_key_with_secret_key(
-        &mut self,
-        node_index: &NodeIndex,
-        new_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
     /// with the smallest weight. Priority is given to left-most branch.
     fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError>;
 
-    /// Extends a leaf on the end of a given path with the given node. This method don't change
-    /// other nodes public keys. To update art, use update_art_with_secret_key,
-    /// update_art_with_changes, etc.
+    /// Extends or replaces a leaf on the end of a given path with the given node. This method
+    /// doesn't change other nodes public keys. To update art, use update_art_with_secret_key,
+    /// update_art_with_changes, etc. The return value says if the target node is replaced of extended
     fn append_node_without_changes(
         &mut self,
         node: ARTNode<G>,
         path: &[Direction],
     ) -> Result<Option<Direction>, ARTError>;
 
-    /// Extends the leaf on a path with new node. New node contains public key corresponding to a
-    /// given secret key. Then it updates necessary public keys on a path to root using new
-    /// node temporary secret key. Returns new ARTRootKey and BranchChanges for other users.
-    fn append_node(
+    /// Extends or replaces the leaf on a path with new node. New node contains public key
+    /// corresponding to a given secret key. Then it updates the necessary public keys on a
+    /// path to root using new node's temporary secret key. Returns new ARTRootKey and
+    /// BranchChanges for other users.
+    fn append_node_public_art(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
-    /// Converts the leaf on a given path to blank by changing its public key on a blank one.
+    /// Converts the type of leaf on a given path to blank leaf by changing its public key on a temporary one.
     /// This method doesn't change other art nodes. To update art afterward, use update_art_with_secret_key
-    /// or update_art_with_changes
+    /// or update_art_with_changes.
     fn make_blank_without_changes(
         &mut self,
         path: &[Direction],
@@ -112,31 +99,22 @@ where
     ) -> Result<(), ARTError>;
 
     /// Converts the leaf on a given path to temporary by changing its public key on given temporary
-    /// one. At the end, updates necessary public keys on a path to root. Returns new ARTRootKey
-    /// and BranchChanges for other users.
-    fn make_blank(
+    /// one. At the end, updates the necessary public keys on a path to root. Returns BranchChanges for
+    /// other users and new ARTRootKey.
+    fn make_blank_public_art(
         &mut self,
         public_key: &G,
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
     /// structure.
     fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
-    /// Uses public keys provided in changes to change public keys of art.
-    /// Those public keys are located on a path from root to node, corresponding to user, which
-    /// provided changes.
-    fn update_art_with_changes_and_path(
-        &mut self,
-        changes: &BranchChanges<G>,
-        path: &[Direction],
-    ) -> Result<(), ARTError>;
-
-    /// Returns node by the given ARTNodeIndex
+    /// Returns node by the given NodeIndex
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
-    /// Returns mutable node by the given ARTNodeIndex
+    /// Returns mutable node by the given NodeIndex
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// This check says if the node can be immediately removed from a tree. Those cases are
@@ -152,18 +130,18 @@ where
         &mut self,
         lambda: &G::ScalarField,
         public_key: &G,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError>;
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
+    // Returns min and max height of a leaf in a tree.
     fn min_max_leaf_height(&self) -> Result<(u32, u32), ARTError>;
 
+    // returns the difference between min and max height of a leaf in a tree.
     fn get_disbalance(&self) -> Result<u32, ARTError>;
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
-    /// Merge the other art into self. Private art might have issues with merge, because it has a
-    /// direction to self. weight_change can be used for correctness of merge, if the merging art
-    /// fork has different number of nodes form the base art.
+    /// Merge the other art into self.
     fn merge_change(
         &mut self,
         merged_changes: &[BranchChanges<G>],
@@ -171,7 +149,7 @@ where
     ) -> Result<(), ARTError>;
 
     /// Internal method, which changes art, structure, so it is possible to update public keys
-    /// without errors.
+    /// after add member changes without errors.
     fn prepare_structure_for_append_node_changes(
         &mut self,
         append_node_changes: &[BranchChanges<G>],
@@ -180,8 +158,8 @@ where
     /// Merges given conflict changes into the art.
     fn merge(&mut self, target_changes: &Vec<BranchChanges<G>>) -> Result<(), ARTError>;
 
-    /// Merges given conflict changes into the art. If some key update changes are already applied, pass them
-    /// into applied_changes. Other changes are not supported yet
+    /// Merges given conflict changes into the art. Changes which are already applied (key_update)
+    /// are passed into applied_changes. Other changes are not supported.
     fn merge_with_skip(
         &mut self,
         applied_changes: &Vec<BranchChanges<G>>,

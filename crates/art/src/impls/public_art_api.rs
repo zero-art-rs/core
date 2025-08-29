@@ -1,7 +1,8 @@
+use crate::impls::artefacts;
 use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
-    helper_tools::iota_function,
+    helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar},
     traits::{ARTPublicAPI, ARTPublicView},
     types::{
         ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
@@ -26,21 +27,13 @@ where
     G::BaseField: PrimeField,
     A: ARTPublicView<G>,
 {
-    fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError> {
+    fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
 
         let mut parent = self.get_root();
-        for direction in path {
-            match direction {
-                Direction::Left => {
-                    co_path_values.push(parent.get_right()?.public_key);
-                    parent = parent.get_left()?;
-                }
-                Direction::Right => {
-                    co_path_values.push(parent.get_left()?.public_key);
-                    parent = parent.get_right()?;
-                }
-            }
+        for direction in &index.get_path()? {
+            co_path_values.push(parent.get_other_child(direction)?.public_key);
+            parent = parent.get_child(direction)?;
         }
 
         co_path_values.reverse();
@@ -62,22 +55,17 @@ where
     }
 
     fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError> {
-        let next = self.get_path_to_leaf(user_val)?;
-
-        Ok(NodeIndex::get_index_from_path(&next)?)
+        Ok(NodeIndex::get_index_from_path(
+            &self.get_path_to_leaf(user_val)?,
+        )?)
     }
 
     fn recompute_root_key_using_secret_key(
         &self,
         secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
+        node_index: &NodeIndex,
     ) -> Result<ARTRootKey<G>, ARTError> {
-        let path = match node_index {
-            Some(node_index) => node_index.get_path()?,
-            None => self.get_path_to_leaf(&self.public_key_of(&secret_key))?,
-        };
-
-        let co_path_values = self.get_co_path_values(&path)?;
+        let co_path_values = self.get_co_path_values(&node_index)?;
 
         let mut ark_secret = secret_key.clone();
         for public_key in co_path_values.iter() {
@@ -94,19 +82,12 @@ where
     fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
+        node_index: &NodeIndex,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        let path = match node_index {
-            Some(node_index) => node_index.get_path()?,
-            None => self.get_path_to_leaf(&self.public_key_of(&secret_key))?,
-        };
-
-        let co_path_values = self.get_co_path_values(&path)?;
+        let co_path_values = self.get_co_path_values(node_index)?;
 
         let mut ark_secret = secret_key.clone();
-        let mut secrets: Vec<Scalar> = vec![Scalar::from_bytes_mod_order(
-            (&secret_key.clone().into_bigint().to_bytes_le()[..]).try_into()?,
-        )];
+        let mut secrets: Vec<Scalar> = vec![to_dalek_scalar::<G>(secret_key)?];
         let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
         for public_key in co_path_values.iter() {
             let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
@@ -118,7 +99,7 @@ where
         Ok((
             ARTRootKey {
                 key: ark_secret,
-                generator: self.get_generator().clone(),
+                generator: self.get_generator(),
             },
             ProverArtefacts {
                 path: path_values,
@@ -128,48 +109,37 @@ where
         ))
     }
 
-    fn recompute_root_key_with_artefacts_using_secret_key_and_change(
+    fn recompute_root_key_with_artefacts_using_path_secrets(
         &self,
-        secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
-        change: &BranchChanges<G>,
+        node_index: &NodeIndex,
+        path_secrets: Vec<Scalar>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        match node_index {
-            Some(node_index) => {
-                if node_index == &change.node_index {
-                    return Err(ARTError::InvalidInput);
-                }
-            }
-            None => {}
-        }
-        let mut fork = self.clone();
-        fork.update_public_art(&change)?;
-        fork.recompute_root_key_with_artefacts_using_secret_key(secret_key, node_index)
-    }
-
-    fn recompute_root_key_with_artefacts_for_merge(
-        &self,
-        secret_key: G::ScalarField,
-        node_index: Option<&NodeIndex>,
-        changes: &Vec<BranchChanges<G>>,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        let (mut tk, mut artefacts) = self
-            .recompute_root_key_with_artefacts_using_secret_key_and_change(
-                secret_key,
-                node_index,
-                &changes.get(0).cloned().ok_or(ARTError::InvalidInput)?,
-            )?;
-
-        for change in changes[1..changes.len()].iter() {
-            let (temp_tk, temp_artefacts) = self
-                .recompute_root_key_with_artefacts_using_secret_key_and_change(
-                    secret_key, node_index, &change,
-                )?;
-            tk.key += temp_tk.key;
-            artefacts.try_merge(&temp_artefacts)?;
+        let co_path_values = self.get_co_path_values(&node_index)?;
+        if co_path_values.len() != path_secrets.len() {
+            return Err(ARTError::InvalidInput);
         }
 
-        Ok((tk, artefacts))
+        let mut path_values = Vec::with_capacity(co_path_values.len());
+        for (sk, pk) in path_secrets.iter().zip(co_path_values.iter()) {
+            path_values.push(pk.mul(to_ark_scalar::<G>(*sk)).into_affine());
+        }
+
+        Ok((
+            ARTRootKey {
+                key: G::ScalarField::from_le_bytes_mod_order(
+                    &path_secrets
+                        .last()
+                        .ok_or(ARTError::InvalidInput)?
+                        .to_bytes(),
+                ),
+                generator: self.get_generator(),
+            },
+            ProverArtefacts {
+                path: path_values,
+                co_path: co_path_values,
+                secrets: path_secrets,
+            },
+        ))
     }
 
     fn compute_artefacts_for_verification(
@@ -209,66 +179,70 @@ where
         &mut self,
         secret_key: &G::ScalarField,
         path: &[Direction],
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let mut next = path.to_vec();
-
-        let mut changes = BranchChanges {
-            change_type: BranchChangesType::UpdateKey,
-            public_keys: Vec::new(),
-            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(&next.clone())?),
-        };
-
         let mut public_key = self.public_key_of(secret_key);
 
-        let mut ark_level_secret_key = secret_key.clone();
+        let mut co_path_values = vec![];
+        let mut path_values = vec![];
+        let mut secrets = vec![to_dalek_scalar::<G>(*secret_key)?];
+
+        // possibly remove the next two lines
+        let user_node = self.get_mut_node(&NodeIndex::from(path.to_vec()))?;
+        user_node.set_public_key(public_key);
+
+        let mut ark_level_secret_key = *secret_key;
         while let Some(next_child) = next.pop() {
             let mut parent = self.get_mut_root();
             for direction in &next {
                 parent = parent.get_mut_child(direction)?;
             }
 
+            // Update public art
             parent
                 .get_mut_child(&next_child)?
                 .set_public_key(public_key);
-
-            changes.public_keys.push(public_key);
-
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
+
+            path_values.push(public_key);
+            co_path_values.push(other_child_public_key);
+
             let common_secret = other_child_public_key
                 .mul(ark_level_secret_key)
                 .into_affine();
+
             let level_secret_key = iota_function(&common_secret)?;
+            secrets.push(level_secret_key);
+
             ark_level_secret_key =
                 G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
-            public_key = self
-                .get_generator()
-                .mul(&ark_level_secret_key)
-                .into_affine();
+
+            public_key = self.public_key_of(&ark_level_secret_key);
         }
 
         self.get_mut_root().set_public_key(public_key);
-        changes.public_keys.push(public_key);
-        changes.public_keys.reverse();
+        path_values.push(public_key);
 
         let key = ARTRootKey {
             key: ark_level_secret_key,
-            generator: self.get_generator().clone(),
+            generator: self.get_generator(),
         };
 
-        Ok((key, changes))
-    }
+        let artefacts = ProverArtefacts {
+            path: path_values.clone(),
+            co_path: co_path_values,
+            secrets,
+        };
 
-    fn update_key_with_secret_key(
-        &mut self,
-        node_index: &NodeIndex,
-        new_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
-        let new_public_key = self.public_key_of(new_secret_key);
+        path_values.reverse();
 
-        let user_node = self.get_mut_node(node_index)?;
-        user_node.set_public_key(new_public_key);
+        let changes = BranchChanges {
+            change_type: BranchChangesType::UpdateKey,
+            public_keys: path_values,
+            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(&path.to_vec())?),
+        };
 
-        self.update_art_with_secret_key(&new_secret_key, &node_index.get_path()?)
+        Ok((key, changes, artefacts))
     }
 
     fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
@@ -319,10 +293,10 @@ where
         Ok(next_node_direction)
     }
 
-    fn append_node(
+    fn append_node_public_art(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let mut path = self.find_path_to_possible_leaf_for_insertion()?;
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
 
@@ -334,12 +308,13 @@ where
         }
 
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
-        self.update_art_with_secret_key(secret_key, &path)
-            .map(|(root_key, mut changes)| {
+        self.update_art_with_secret_key(secret_key, &path).map(
+            |(root_key, mut changes, artefacts)| {
                 changes.node_index = node_index;
                 changes.change_type = BranchChangesType::AppendNode;
-                (root_key, changes)
-            })
+                (root_key, changes, artefacts)
+            },
+        )
     }
 
     fn make_blank_without_changes(
@@ -357,19 +332,19 @@ where
         Ok(())
     }
 
-    fn make_blank(
+    fn make_blank_public_art(
         &mut self,
         public_key: &G,
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let next = self.get_path_to_leaf(public_key)?;
 
         self.make_blank_without_changes(&next, &self.public_key_of(temporary_secret_key))?;
 
         self.update_art_with_secret_key(temporary_secret_key, &next)
-            .map(|(root_key, mut changes)| {
+            .map(|(root_key, mut changes, artefacts)| {
                 changes.change_type = BranchChangesType::MakeBlank;
-                (root_key, changes)
+                (root_key, changes, artefacts)
             })
     }
 
@@ -384,25 +359,6 @@ where
                     .get(i)
                     .unwrap_or(&Direction::Right),
             )?;
-        }
-
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
-
-        Ok(())
-    }
-
-    fn update_art_with_changes_and_path(
-        &mut self,
-        changes: &BranchChanges<G>,
-        path: &[Direction],
-    ) -> Result<(), ARTError> {
-        let mut current_node = self.get_mut_root();
-        for (next, public_key) in path
-            .iter()
-            .zip(changes.public_keys[..changes.public_keys.len() - 1].iter())
-        {
-            current_node.set_public_key(*public_key);
-            current_node = current_node.get_mut_child(next)?;
         }
 
         current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
@@ -467,7 +423,7 @@ where
         &mut self,
         lambda: &G::ScalarField,
         public_key: &G,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>), ARTError> {
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         if !self.can_remove(lambda, public_key)? {
             return Err(ARTError::RemoveError);
         }
@@ -476,10 +432,10 @@ where
         self.remove_node(&path)?;
 
         match self.update_art_with_secret_key(lambda, &path) {
-            Ok((root_key, mut changes)) => {
+            Ok((root_key, mut changes, artefacts)) => {
                 changes.change_type = BranchChangesType::RemoveNode;
 
-                Ok((root_key, changes))
+                Ok((root_key, changes, artefacts))
             }
             Err(msg) => Err(msg),
         }
@@ -547,14 +503,14 @@ where
                 if level < target_path.len() {
                     node.weight += 1;
                 }
-                // The last node weight where computed when structure where updated
+                // The last node weight will be computed when the structure is updated
             }
 
             if shared_paths.is_empty() {
-                // There are no further conflicts
+                // There are no further conflicts so change public key
                 node.public_key = target_change.public_keys[level];
             } else {
-                // Resolve conflict
+                // Resolve conflict by adding public keys
                 node.public_key =
                     (node.public_key + target_change.public_keys[level]).into_affine();
             }

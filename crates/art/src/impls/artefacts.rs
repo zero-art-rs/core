@@ -1,7 +1,4 @@
-use crate::{
-    errors::ARTError,
-    types::ProverArtefacts,
-};
+use crate::{errors::ARTError, types::ProverArtefacts};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use std::cmp::max;

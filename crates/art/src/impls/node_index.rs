@@ -1,6 +1,6 @@
-use tracing::error;
 use crate::errors::ARTError;
 use crate::types::{Direction, NodeIndex};
+use tracing::error;
 
 impl NodeIndex {
     pub fn as_path(&self) -> Result<Self, ARTError> {
@@ -132,6 +132,19 @@ impl NodeIndex {
 
         Ok((path.len() as u32 - 1, position))
     }
+
+    fn get_intersection(&self, other: &NodeIndex) -> Result<NodeIndex, ARTError> {
+        let mut intersection = Vec::new();
+        for (a, b) in self.get_path()?.iter().zip(other.get_path()?.iter()) {
+            if a == b {
+                intersection.push(*a);
+            } else {
+                return Ok(NodeIndex::Direction(intersection));
+            }
+        }
+
+        Ok(NodeIndex::Direction(intersection))
+    }
 }
 
 impl PartialEq<NodeIndex> for NodeIndex {
@@ -140,5 +153,23 @@ impl PartialEq<NodeIndex> for NodeIndex {
             (Ok(index), Ok(other_index)) => index.eq(&other_index),
             _ => false,
         }
+    }
+}
+
+impl From<u32> for NodeIndex {
+    fn from(index: u32) -> Self {
+        Self::Index(index)
+    }
+}
+
+impl From<Vec<Direction>> for NodeIndex {
+    fn from(path: Vec<Direction>) -> Self {
+        Self::Direction(path)
+    }
+}
+
+impl From<(u32, u32)> for NodeIndex {
+    fn from((level, position): (u32, u32)) -> Self {
+        Self::Coordinate(level, position)
     }
 }

@@ -1,14 +1,16 @@
 use crate::{
     errors::ARTError,
+    helper_tools::{to_ark_scalar, to_dalek_scalar},
     traits::{ARTPrivateView, ARTPublicAPI, ARTPublicView},
-    types::{ARTNode, NodeIndex, PrivateART, PublicART},
+    types::{ARTNode, ARTRootKey, NodeIndex, PrivateART, PublicART},
 };
-use ark_ec::AffineRepr;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use std::mem;
+use curve25519_dalek::Scalar;
 use postcard::{from_bytes, to_allocvec};
-use crate::types::ARTRootKey;
+use std::mem;
+use tracing::info;
 
 impl<G> ARTPublicView<G> for PrivateART<G>
 where
@@ -44,6 +46,19 @@ where
         self.secret_key = secret_key.clone();
     }
 
+    fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
+        Ok(ARTRootKey {
+            key: G::ScalarField::from_le_bytes_mod_order(
+                &self
+                    .get_path_secrets()
+                    .last()
+                    .ok_or(ARTError::ARTLogicError)?
+                    .to_bytes(),
+            ),
+            generator: self.get_generator(),
+        })
+    }
+
     fn get_node_index(&self) -> &NodeIndex {
         &self.node_index
     }
@@ -68,8 +83,73 @@ where
 
         Self::from_public_art(public_art, secret_key)
     }
-}
 
+    fn get_path_secrets(&self) -> &Vec<Scalar> {
+        &self.path_secrets
+    }
+    fn get_mut_path_secrets(&mut self) -> &mut Vec<Scalar> {
+        &mut self.path_secrets
+    }
+
+    fn set_path_secrets(&mut self, new_path_secrets: Vec<Scalar>) -> Vec<Scalar> {
+        mem::replace(&mut self.path_secrets, new_path_secrets)
+    }
+
+    fn update_path_secrets_with(
+        &mut self,
+        other_path_secrets: &Vec<Scalar>,
+        other: &NodeIndex,
+    ) -> Result<(), ARTError> {
+        let node_path = self.get_node_index().get_path()?;
+        let other_node_path = other.get_path()?;
+
+        let last_index = self.get_path_secrets().len() - 1;
+        let other_last_index = other_path_secrets.len() - 1;
+
+        let path_secrets = self.get_mut_path_secrets();
+        for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
+            if a == b {
+                path_secrets[last_index - i] = other_path_secrets[other_last_index - i];
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn merge_path_secrets(
+        &mut self,
+        other_path_secrets: &Vec<Scalar>,
+        other: &NodeIndex,
+    ) -> Result<(), ARTError> {
+        let node_path = self.get_node_index().get_path()?;
+        let other_node_path = other.get_path()?;
+
+        let last_index = self.get_path_secrets().len() - 2;
+        let other_last_index = other_path_secrets.len() - 2;
+
+        let path_secrets = self.get_mut_path_secrets();
+
+        path_secrets[last_index + 1] = to_dalek_scalar::<G>(
+            to_ark_scalar::<G>(path_secrets[last_index + 1])
+                + to_ark_scalar::<G>(other_path_secrets[other_last_index + 1]),
+        )?;
+
+        for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
+            if a == b {
+                path_secrets[last_index - i] = to_dalek_scalar::<G>(
+                    to_ark_scalar::<G>(path_secrets[last_index - i])
+                        + to_ark_scalar::<G>(other_path_secrets[other_last_index - i]),
+                )?;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl<G> PrivateART<G>
 where
@@ -90,14 +170,17 @@ where
         public_art: PublicART<G>,
         secret_key: G::ScalarField,
     ) -> Result<Self, ARTError> {
-        let node_index = public_art.get_leaf_index(&public_art.public_key_of(&secret_key))?;
+        let node_index =
+            NodeIndex::from(public_art.get_leaf_index(&public_art.public_key_of(&secret_key))?);
+        let (_, artefacts) = public_art
+            .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
 
         Ok(Self {
             root: public_art.root,
             generator: public_art.generator,
             secret_key,
-            node_index: NodeIndex::Index(node_index),
-            merged_changes: Vec::new(),
+            node_index,
+            path_secrets: artefacts.secrets,
         })
     }
 
@@ -106,7 +189,7 @@ where
             root: self.root.clone(),
             generator: self.generator,
         })
-            .map_err(ARTError::SerdeJson)
+        .map_err(ARTError::SerdeJson)
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
@@ -114,7 +197,7 @@ where
             root: self.root.clone(),
             generator: self.generator,
         })
-            .map_err(ARTError::Postcard)
+        .map_err(ARTError::Postcard)
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
@@ -135,7 +218,7 @@ where
     }
 }
 
-impl<G, A> TryFrom<(&A, G::ScalarField)> for PrivateART<G>
+impl<G, A> TryFrom<(A, G::ScalarField)> for PrivateART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
@@ -143,15 +226,18 @@ where
 {
     type Error = ARTError;
 
-    fn try_from((other, sk): (&A, G::ScalarField)) -> Result<Self, Self::Error> {
-        let node_index = other.get_leaf_index(&other.public_key_of(&sk))?;
+    fn try_from((mut other, secret_key): (A, G::ScalarField)) -> Result<Self, Self::Error> {
+        let node_index = NodeIndex::from(other.get_leaf_index(&other.public_key_of(&secret_key))?);
+        let (_, artefacts) =
+            other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
+        let root = other.replace_root(Box::new(ARTNode::default()));
 
         Ok(Self {
-            root: Box::new(other.get_root().clone()),
+            root,
             generator: other.get_generator(),
-            secret_key: sk,
-            node_index: NodeIndex::Index(node_index),
-            merged_changes: Vec::new(),
+            secret_key,
+            node_index,
+            path_secrets: artefacts.secrets,
         })
     }
 }

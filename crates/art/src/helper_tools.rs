@@ -39,3 +39,19 @@ where
         (&x.into_bigint().to_bytes_le()[..]).try_into()?,
     ))
 }
+
+pub fn to_ark_scalar<G>(point: Scalar) -> G::ScalarField
+where
+    G: AffineRepr,
+{
+    G::ScalarField::from_le_bytes_mod_order(&point.to_bytes())
+}
+
+pub fn to_dalek_scalar<G>(point: G::ScalarField) -> Result<Scalar, ARTError>
+where
+    G: AffineRepr,
+{
+    Ok(Scalar::from_bytes_mod_order(
+        (&point.clone().into_bigint().to_bytes_le()[..]).try_into()?,
+    ))
+}
