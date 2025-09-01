@@ -25,7 +25,7 @@ where
 
     /// Searches the tree for a leaf node that matches the given public key, and returns the
     /// index of a node. Searching algorithm is depth-first search.
-    fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError>;
+    fn get_leaf_index(&self, user_val: &G) -> Result<u64, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key. It progresively goes from leaf to root, computing secret keys using Diffie–Hellman key exchange.
     fn recompute_root_key_using_secret_key(
@@ -133,10 +133,10 @@ where
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     // Returns min and max height of a leaf in a tree.
-    fn min_max_leaf_height(&self) -> Result<(u32, u32), ARTError>;
+    fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError>;
 
     // returns the difference between min and max height of a leaf in a tree.
-    fn get_disbalance(&self) -> Result<u32, ARTError>;
+    fn get_disbalance(&self) -> Result<u64, ARTError>;
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;

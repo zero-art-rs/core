@@ -54,7 +54,7 @@ where
         Err(ARTError::PathNotExists)
     }
 
-    fn get_leaf_index(&self, user_val: &G) -> Result<u32, ARTError> {
+    fn get_leaf_index(&self, user_val: &G) -> Result<u64, ARTError> {
         Ok(NodeIndex::get_index_from_path(
             &self.get_path_to_leaf(user_val)?,
         )?)
@@ -441,20 +441,20 @@ where
         }
     }
 
-    fn min_max_leaf_height(&self) -> Result<(u32, u32), ARTError> {
-        let mut min_height = u32::MAX;
-        let mut max_height = u32::MIN;
+    fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError> {
+        let mut min_height = u64::MAX;
+        let mut max_height = u64::MIN;
         let root = self.get_root();
 
         for (_, path) in LeafIterWithPath::new(root) {
-            min_height = min(min_height, path.len() as u32);
-            max_height = max(max_height, path.len() as u32);
+            min_height = min(min_height, path.len() as u64);
+            max_height = max(max_height, path.len() as u64);
         }
 
         Ok((min_height, max_height))
     }
 
-    fn get_disbalance(&self) -> Result<u32, ARTError> {
+    fn get_disbalance(&self) -> Result<u64, ARTError> {
         let (min_height, max_height) = self.min_max_leaf_height()?;
 
         Ok(max_height - min_height)

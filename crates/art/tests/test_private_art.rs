@@ -918,20 +918,20 @@ mod tests {
         (0..size).map(|_| F::rand(&mut rng)).collect()
     }
 
-    fn min_max_leaf_height(art: &PrivateART<CortadoAffine>) -> Result<(u32, u32), ARTError> {
-        let mut min_height = u32::MAX;
-        let mut max_height = u32::MIN;
+    fn min_max_leaf_height(art: &PrivateART<CortadoAffine>) -> Result<(u64, u64), ARTError> {
+        let mut min_height = u64::MAX;
+        let mut max_height = u64::MIN;
         let root = art.get_root();
 
         for (_, path) in LeafIterWithPath::new(root) {
-            min_height = min(min_height, path.len() as u32);
-            max_height = max(max_height, path.len() as u32);
+            min_height = min(min_height, path.len() as u64);
+            max_height = max(max_height, path.len() as u64);
         }
 
         Ok((min_height, max_height))
     }
 
-    fn get_disbalance(art: &PrivateART<CortadoAffine>) -> Result<u32, ARTError> {
+    fn get_disbalance(art: &PrivateART<CortadoAffine>) -> Result<u64, ARTError> {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)

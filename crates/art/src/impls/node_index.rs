@@ -16,7 +16,7 @@ impl NodeIndex {
         Ok(Self::Coordinate(level, position))
     }
 
-    pub fn get_index(&self) -> Result<u32, ARTError> {
+    pub fn get_index(&self) -> Result<u64, ARTError> {
         match self {
             NodeIndex::Index(index) => Ok(*index),
             NodeIndex::Coordinate(level, position) => {
@@ -26,7 +26,7 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_coordinate(&self) -> Result<(u32, u32), ARTError> {
+    pub fn get_coordinate(&self) -> Result<(u64, u64), ARTError> {
         match self {
             NodeIndex::Coordinate(level, position) => Ok((*level, *position)),
             NodeIndex::Index(index) => Self::get_coordinate_from_index(*index),
@@ -42,8 +42,8 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_index_from_path(path: &[Direction]) -> Result<u32, ARTError> {
-        let mut index = 1u32;
+    pub fn get_index_from_path(path: &[Direction]) -> Result<u64, ARTError> {
+        let mut index = 1u64;
         for direction in path {
             match direction {
                 Direction::Left => index <<= 1,
@@ -55,7 +55,7 @@ impl NodeIndex {
     }
 
     /// Computes the path to the node starting from the root.
-    fn get_path_from_index(index: u32) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_from_index(index: u64) -> Result<Vec<Direction>, ARTError> {
         if index == 0 {
             error!("Failed to convert index: {index} to path");
             return Err(ARTError::InvalidInput);
@@ -79,7 +79,7 @@ impl NodeIndex {
     }
 
     /// Computes the path to the node starting from the root.
-    fn get_path_from_coordinate(level: u32, position: u32) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_from_coordinate(level: u64, position: u64) -> Result<Vec<Direction>, ARTError> {
         if position >= (2 << level) {
             error!(
                 "Failed to convert coordinate (l: {level}, p: {position}), as the provided position is to big"
@@ -106,8 +106,8 @@ impl NodeIndex {
         Ok(path)
     }
 
-    fn get_coordinate_from_index(index: u32) -> Result<(u32, u32), ARTError> {
-        let mut level = 0u32;
+    fn get_coordinate_from_index(index: u64) -> Result<(u64, u64), ARTError> {
+        let mut level = 0u64;
         let mut position = index;
 
         let mut level_max_width = 1;
@@ -120,8 +120,8 @@ impl NodeIndex {
         Ok((level, position))
     }
 
-    fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u32, u32), ARTError> {
-        let mut position = 0u32;
+    fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u64, u64), ARTError> {
+        let mut position = 0u64;
 
         for next in path {
             match next {
@@ -130,7 +130,7 @@ impl NodeIndex {
             }
         }
 
-        Ok((path.len() as u32 - 1, position))
+        Ok((path.len() as u64 - 1, position))
     }
 
     fn get_intersection(&self, other: &NodeIndex) -> Result<NodeIndex, ARTError> {
@@ -156,8 +156,8 @@ impl PartialEq<NodeIndex> for NodeIndex {
     }
 }
 
-impl From<u32> for NodeIndex {
-    fn from(index: u32) -> Self {
+impl From<u64> for NodeIndex {
+    fn from(index: u64) -> Self {
         Self::Index(index)
     }
 }
@@ -168,8 +168,8 @@ impl From<Vec<Direction>> for NodeIndex {
     }
 }
 
-impl From<(u32, u32)> for NodeIndex {
-    fn from((level, position): (u32, u32)) -> Self {
+impl From<(u64, u64)> for NodeIndex {
+    fn from((level, position): (u64, u64)) -> Self {
         Self::Coordinate(level, position)
     }
 }
