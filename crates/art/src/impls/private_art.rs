@@ -10,7 +10,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
-use tracing::info;
 
 impl<G> ARTPublicView<G> for PrivateART<G>
 where
@@ -103,12 +102,15 @@ where
         let node_path = self.get_node_index().get_path()?;
         let other_node_path = other.get_path()?;
 
-        let last_index = self.get_path_secrets().len() - 1;
-        let other_last_index = other_path_secrets.len() - 1;
+        // Minus 2, because we skip root index
+        let last_index = self.get_path_secrets().len() - 2;
+        let other_last_index = other_path_secrets.len() - 2;
 
         let path_secrets = self.get_mut_path_secrets();
+        // Update root, as any change will affect it
+        path_secrets[last_index + 1] = other_path_secrets[other_last_index + 1];
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
-            if a == b {
+            if a == b { // if path to next node is the same
                 path_secrets[last_index - i] = other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());

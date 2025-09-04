@@ -27,6 +27,7 @@ mod tests {
     use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+    use art::helper_tools::{to_ark_scalar, to_dalek_scalar};
 
     #[test]
     fn test_art_key_update() {
@@ -807,15 +808,10 @@ mod tests {
         let new_node3_sk = create_random_secrets(1)[0];
         let new_node4_sk = create_random_secrets(1)[0];
 
-        let (tk1, changes1, artefacts_1) = art1.update_key(&new_node1_sk).unwrap();
+        let (tk1, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
         let (tk2, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
         let (tk3, changes3, _) = art3.update_key(&new_node3_sk).unwrap();
         let (tk4, changes4, _) = art4.update_key(&new_node4_sk).unwrap();
-
-        debug!("art1:\n{}", art1.get_root());
-        debug!("art2:\n{}", art2.get_root());
-        debug!("art3:\n{}", art3.get_root());
-        debug!("art4:\n{}", art4.get_root());
 
         let merged_tk = ARTRootKey {
             key: tk1.key + tk2.key + tk3.key + tk4.key,
@@ -904,6 +900,147 @@ mod tests {
             let tk = user_arts[i].get_root_key().unwrap();
 
             assert_eq!(root_key_from_changes, user_arts[i].root.public_key);
+            assert_eq!(
+                user_arts[i].root.public_key,
+                user_arts[i].public_key_of(&tk.key)
+            );
+            assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_merge_for_remove_member() {
+        init_tracing_for_test();
+
+        // init test
+        let art_size = 9;
+        let secrets = create_random_secrets(art_size);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
+            .unwrap()
+            .0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..art_size {
+            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        // choose some users for main test subjects
+        let mut art1 = user_arts.remove(0);
+        let mut art2 = user_arts.remove(1);
+        let mut art3 = user_arts.remove(3);
+
+        // Backup previous arts for merge
+        let def_art1 = art1.clone();
+        let def_art2 = art2.clone();
+        let def_art3 = art3.clone();
+
+        // Choose user to remove from the group
+        let art4 = user_arts.remove(4);
+
+        // Sanity check
+        assert_eq!(art1.root, art2.root);
+        assert_eq!(art1.root, art3.root);
+        assert_eq!(art1.root, art4.root);
+
+        // Remove the user from the group (make his node blank).
+        let new_node1_sk: Fr = create_random_secrets(1)[0];
+        let new_node2_sk: Fr = create_random_secrets(1)[0];
+        let new_node3_sk: Fr = create_random_secrets(1)[0];
+
+        let target_node_pk = CortadoAffine::generator().mul(&art4.secret_key).into_affine();
+
+        let (tk1, changes1, _) = art1.make_blank(&target_node_pk, &new_node1_sk).unwrap();
+        let (tk2, changes2, _) = art2.make_blank(&target_node_pk, &new_node2_sk).unwrap();
+        let (tk3, changes3, _) = art3.make_blank(&target_node_pk, &new_node3_sk).unwrap();
+
+        // Compute new tk for tests
+        let merged_tk = ARTRootKey {
+            key: tk1.key + tk2.key + tk3.key,
+            generator: tk1.generator,
+        };
+
+        let merged_pub_tk = art1.public_key_of(&merged_tk.key);
+
+        debug!("merged_tk: {}", merged_tk.key);
+        debug!("tk1.key: {}", tk1.key);
+        debug!("tk2.key: {}", tk2.key);
+        debug!("tk3.key: {}", tk3.key);
+
+        // Sanity check
+        assert_eq!(art1.root.public_key, art1.public_key_of(&to_ark_scalar::<CortadoAffine>(*art1.path_secrets.last().unwrap())));
+        assert_eq!(art2.root.public_key, art3.public_key_of(&to_ark_scalar::<CortadoAffine>(*art2.path_secrets.last().unwrap())));
+        assert_eq!(art3.root.public_key, art4.public_key_of(&to_ark_scalar::<CortadoAffine>(*art3.path_secrets.last().unwrap())));
+
+        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1.key));
+        assert_eq!(art2.root.public_key, art2.public_key_of(&tk2.key));
+        assert_eq!(art3.root.public_key, art3.public_key_of(&tk3.key));
+
+        assert_eq!(art1.root.public_key, *changes1.public_keys.get(0).unwrap());
+        assert_eq!(art2.root.public_key, *changes2.public_keys.get(0).unwrap());
+        assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
+
+        // Update art path_secrets with unapplied changes
+        art1.recompute_path_secrets_for_participant(
+            &vec![changes2.clone(), changes3.clone()],
+            &def_art1,
+        )
+            .unwrap();
+
+        // Check if new tk is correctly computed
+        assert_eq!(to_ark_scalar::<CortadoAffine>(*art1.path_secrets.last().unwrap()), merged_tk.key);
+
+        // Merge unapplied changes into the art
+        art1.merge_with_skip(
+            &vec![changes1.clone()],
+            &vec![changes2.clone(), changes3.clone()],
+        )
+            .unwrap();
+
+        // Check Merge correctness
+        let tk1_merged = art1.get_root_key().unwrap();
+        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
+        assert_eq!(merged_tk, tk1_merged);
+        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
+
+        // Update art path_secrets with unapplied changes
+        art2.recompute_path_secrets_for_participant(
+            &vec![changes1.clone(), changes3.clone()],
+            &def_art2,
+        )
+            .unwrap();
+        // Merge unapplied changes into the art
+        art2.merge_with_skip(
+            &vec![changes2.clone()],
+            &vec![changes1.clone(), changes3.clone()],
+        )
+            .unwrap();
+
+        // Check Merge correctness
+        assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
+        assert_eq!(merged_tk, art2.get_root_key().unwrap());
+
+        assert_eq!(
+            art1.public_key_of(&(new_node1_sk + new_node2_sk + new_node3_sk)),
+            art1.get_node(&art4.node_index).unwrap().public_key
+        );
+        assert_eq!(
+            art2.public_key_of(&(new_node1_sk + new_node2_sk + new_node3_sk)),
+            art2.get_node(&art4.node_index).unwrap().public_key
+        );
+
+        assert_eq!(art1.root, art2.root);
+
+        // Check merge correctness for other users
+        let all_changes = vec![changes1, changes2, changes3];
+        for i in 0..art_size - 4 {
+            user_arts[i].recompute_path_secrets_for_observer(&all_changes).unwrap();
+            user_arts[i].merge(&all_changes).unwrap();
+
+            let tk = user_arts[i].get_root_key().unwrap();
+
+            assert_eq!(merged_pub_tk, user_arts[i].root.public_key);
             assert_eq!(
                 user_arts[i].root.public_key,
                 user_arts[i].public_key_of(&tk.key)

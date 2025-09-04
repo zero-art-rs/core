@@ -1,7 +1,6 @@
 // Asynchronous Ratchet Tree implementation
 
 use crate::helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar};
-use crate::types::{ARTNode, NodeIndex};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
@@ -13,8 +12,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
-use tracing::info;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where

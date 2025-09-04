@@ -581,18 +581,18 @@ where
     ) -> Result<(), ARTError> {
         for change in applied_changes {
             match change.change_type {
-                BranchChangesType::UpdateKey => {}
+                BranchChangesType::UpdateKey | BranchChangesType::MakeBlank => {}
                 _ => return Err(ARTError::InvalidInput),
             }
         }
 
-        let mut update_key_changes = Vec::new();
+        let mut non_structural_changes = Vec::new();
         let mut append_member_changes = Vec::new();
 
         for change in target_changes {
             match change.change_type {
-                BranchChangesType::UpdateKey => {
-                    update_key_changes.push(change.clone());
+                BranchChangesType::UpdateKey | BranchChangesType::MakeBlank => {
+                    non_structural_changes.push(change.clone());
                 }
                 BranchChangesType::AppendNode => {
                     append_member_changes.push(change.clone());
@@ -603,9 +603,9 @@ where
         }
 
         // merge all key update changes but skip whose from applied_changes
-        let merge_limit = update_key_changes.len() + applied_changes.len();
+        let merge_limit = non_structural_changes.len() + applied_changes.len();
         let mut changes = applied_changes.clone();
-        changes.extend(update_key_changes);
+        changes.extend(non_structural_changes);
 
         for i in applied_changes.len()..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
