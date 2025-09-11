@@ -45,19 +45,6 @@ where
         self.secret_key = secret_key.clone();
     }
 
-    fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
-        Ok(ARTRootKey {
-            key: G::ScalarField::from_le_bytes_mod_order(
-                &self
-                    .get_path_secrets()
-                    .last()
-                    .ok_or(ARTError::ARTLogicError)?
-                    .to_bytes(),
-            ),
-            generator: self.get_generator(),
-        })
-    }
-
     fn get_node_index(&self) -> &NodeIndex {
         &self.node_index
     }

@@ -60,17 +60,17 @@ fn private_example() {
     // Users can further modify art as next.
     // Upend new node for new member.
     let some_secret_key1 = ScalarField::rand(&mut rng);
-    let (_, changes_2, artefacts_2) = art_1.append_node_public_art(&some_secret_key1).unwrap();
+    let (_, changes_2, artefacts_2) = art_1.append_or_replace_node_in_public_art(&some_secret_key1).unwrap();
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
     let (_, changes_3, artefacts_3) = art_1.update_key(&some_secret_key2).unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
-    let (_, changes_4, artefacts_4) = art_1.append_node_public_art(&some_secret_key3).unwrap();
+    let (_, changes_4, artefacts_4) = art_1.append_or_replace_node_in_public_art(&some_secret_key3).unwrap();
     // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
     let (tk_1, changes_5, artefacts_5) = art_1
-        .make_blank_public_art(&public_key, &some_secret_key2)
+        .make_blank_in_public_art(&public_key, &some_secret_key2)
         .unwrap();
 
     // Other users will update their trees correspondingly.
@@ -83,7 +83,7 @@ fn private_example() {
     assert_eq!(tk_0.key, tk_1.key);
 
     // For proof generation, there might be useful the next method.
-    let (_, artefacts) = art_1.recompute_root_key_with_artefacts().unwrap();
+    let (_, artefacts) = art_1.get_root_key_with_artefacts().unwrap();
     assert_eq!(artefacts.path, artefacts_4.path);
     assert_eq!(artefacts.co_path, artefacts_4.co_path);
     assert_eq!(artefacts.secrets, artefacts_4.secrets);

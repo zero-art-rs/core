@@ -175,7 +175,7 @@ where
         self.get_generator().mul(secret).into_affine()
     }
 
-    fn update_art_with_secret_key(
+    fn update_art_branch_with_leaf_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
         path: &[Direction],
@@ -258,7 +258,7 @@ where
         None
     }
 
-    fn find_path_to_clothest_leaf(&self) -> Result<Vec<Direction>, ARTError> {
+    fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ARTError> {
         let mut candidate = self.get_root();
         let mut next = vec![];
 
@@ -281,7 +281,7 @@ where
         Ok(next)
     }
 
-    fn append_node_without_changes(
+    fn append_or_replace_node_without_changes(
         &mut self,
         node: ARTNode<G>,
         path: &[Direction],
@@ -306,18 +306,18 @@ where
         Ok(next_node_direction)
     }
 
-    fn append_node_public_art(
+    fn append_or_replace_node_in_public_art(
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let mut path = match self.find_path_to_left_most_blank_node() {
             Some(path) => path,
-            None => self.find_path_to_clothest_leaf()?
+            None => self.find_path_to_lowest_leaf()?
         };
 
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
 
-        let next = self.append_node_without_changes(node.clone(), &path)?;
+        let next = self.append_or_replace_node_without_changes(node.clone(), &path)?;
         match next {
             Some(Direction::Right) => path.push(Direction::Right),
             Some(Direction::Left) => return Err(ARTError::ARTLogicError),
@@ -325,7 +325,7 @@ where
         }
 
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
-        self.update_art_with_secret_key(secret_key, &path).map(
+        self.update_art_branch_with_leaf_secret_key(secret_key, &path).map(
             |(root_key, mut changes, artefacts)| {
                 changes.node_index = node_index;
                 changes.change_type = BranchChangesType::AppendNode;
@@ -349,7 +349,7 @@ where
         Ok(())
     }
 
-    fn make_blank_public_art(
+    fn make_blank_in_public_art(
         &mut self,
         public_key: &G,
         temporary_secret_key: &G::ScalarField,
@@ -358,7 +358,7 @@ where
 
         self.make_blank_without_changes(&next, &self.public_key_of(temporary_secret_key))?;
 
-        self.update_art_with_secret_key(temporary_secret_key, &next)
+        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &next)
             .map(|(root_key, mut changes, artefacts)| {
                 changes.change_type = BranchChangesType::MakeBlank;
                 (root_key, changes, artefacts)
@@ -448,7 +448,7 @@ where
         let path = self.get_path_to_leaf(public_key)?;
         self.remove_node(&path)?;
 
-        match self.update_art_with_secret_key(lambda, &path) {
+        match self.update_art_branch_with_leaf_secret_key(lambda, &path) {
             Ok((root_key, mut changes, artefacts)) => {
                 changes.change_type = BranchChangesType::RemoveNode;
 
@@ -488,7 +488,7 @@ where
                         .ok_or(ARTError::NoChanges)?
                         .clone(),
                 );
-                self.append_node_without_changes(leaf, &changes.node_index.get_path()?)?;
+                self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
                 self.update_art_with_changes(changes)
             }
             BranchChangesType::MakeBlank => {

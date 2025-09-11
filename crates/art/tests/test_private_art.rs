@@ -96,7 +96,7 @@ mod tests {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
         for _ in 0..number_of_users {
-            let _ = tree.append_node(&Fr::rand(&mut rng)).unwrap();
+            let _ = tree.append_or_replace_node(&Fr::rand(&mut rng)).unwrap();
         }
 
         for node in tree.get_root() {
@@ -197,7 +197,7 @@ mod tests {
 
         let new_lambda = Fr::rand(&mut rng);
 
-        let (root_key2, changes2, _) = main_user_art.append_node(&new_lambda).unwrap();
+        let (root_key2, changes2, _) = main_user_art.append_or_replace_node(&new_lambda).unwrap();
 
         assert_ne!(root_key2.key, root_key.key);
 
@@ -489,7 +489,7 @@ mod tests {
             .serialize_uncompressed(&mut associated_data)
             .unwrap();
 
-        let (tk, append_node_changes, artefacts) = art.append_node(&new_secret_key).unwrap();
+        let (tk, append_node_changes, artefacts) = art.append_or_replace_node(&new_secret_key).unwrap();
         assert_eq!(tk, art.get_root_key().unwrap());
         let (_, artefacts_rl) = art
             .recompute_root_key_with_artefacts_using_secret_key(
@@ -546,7 +546,7 @@ mod tests {
             art.make_blank(&target_public_key, &new_secret_key).unwrap();
         test_art.update_private_art(&make_blank_changes).unwrap();
 
-        let (_, append_node_changes, artefacts) = art.append_node(&new_secret_key).unwrap();
+        let (_, append_node_changes, artefacts) = art.append_or_replace_node(&new_secret_key).unwrap();
         // let (_, artefacts) = art
         //     .recompute_root_key_with_artefacts_using_secret_key(
         //         new_secret_key,

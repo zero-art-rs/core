@@ -24,14 +24,22 @@ where
         self.recompute_root_key_using_secret_key(self.get_secret_key(), self.get_node_index())
     }
 
-    fn recompute_root_key_with_artefacts(
+    fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
+        Ok(ARTRootKey {
+            key: G::ScalarField::from_le_bytes_mod_order(
+                &self
+                    .get_path_secrets()
+                    .last()
+                    .ok_or(ARTError::ARTLogicError)?
+                    .to_bytes(),
+            ),
+            generator: self.get_generator(),
+        })
+    }
+
+    fn get_root_key_with_artefacts(
         &self,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        // self.recompute_root_key_with_artefacts_using_secret_key(
-        //     self.get_secret_key(),
-        //     Some(self.get_node_index()),
-        // )
-
         self.recompute_root_key_with_artefacts_using_path_secrets(
             self.get_node_index(),
             self.get_path_secrets().clone(),
@@ -45,7 +53,7 @@ where
         self.set_secret_key(new_secret_key);
 
         let (tk, changers, artefacts) =
-            self.update_art_with_secret_key(new_secret_key, &self.get_node_index().get_path()?)?;
+            self.update_art_branch_with_leaf_secret_key(new_secret_key, &self.get_node_index().get_path()?)?;
         self.update_node_index()?;
         self.set_path_secrets(artefacts.secrets.clone());
 
@@ -58,17 +66,17 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let (tk, changes, artefacts) =
-            self.make_blank_public_art(public_key, temporary_secret_key)?;
+            self.make_blank_in_public_art(public_key, temporary_secret_key)?;
         self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
 
         Ok((tk, changes, artefacts))
     }
 
-    fn append_node(
+    fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (tk, changes, artefacts) = self.append_node_public_art(secret_key)?;
+        let (tk, changes, artefacts) = self.append_or_replace_node_in_public_art(secret_key)?;
         self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
 
         Ok((tk, changes, artefacts))
