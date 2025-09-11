@@ -9,6 +9,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
+use crate::types::LeafIterWithPath;
 
 pub trait ARTPublicAPI<G>
 where
@@ -66,10 +67,13 @@ where
         secret_key: &G::ScalarField,
         path: &[Direction],
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    
+    /// Searches for the left most blank node and returns the vector of directions to it.
+    fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>>;
 
     /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
-    /// with the smallest weight. Priority is given to left-most branch.
-    fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError>;
+    /// with the smallest weight. Priority is given to left branch.
+    fn find_path_to_clothest_leaf(&self) -> Result<Vec<Direction>, ARTError>;
 
     /// Extends or replaces a leaf on the end of a given path with the given node. This method
     /// doesn't change other nodes public keys. To update art, use update_art_with_secret_key,

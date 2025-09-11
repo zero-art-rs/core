@@ -245,7 +245,20 @@ where
         Ok((key, changes, artefacts))
     }
 
-    fn find_path_to_possible_leaf_for_insertion(&self) -> Result<Vec<Direction>, ARTError> {
+    fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
+        for (node, path) in LeafIterWithPath::new(self.get_root()) {
+            let mut node_path = Vec::with_capacity(path.len());
+            if node.is_blank {
+                for (_, dir) in path {
+                    node_path.push(dir);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn find_path_to_clothest_leaf(&self) -> Result<Vec<Direction>, ARTError> {
         let mut candidate = self.get_root();
         let mut next = vec![];
 
@@ -297,7 +310,11 @@ where
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let mut path = self.find_path_to_possible_leaf_for_insertion()?;
+        let mut path = match self.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.find_path_to_clothest_leaf()?
+        };
+
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
 
         let next = self.append_node_without_changes(node.clone(), &path)?;
