@@ -12,6 +12,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use crate::types::Direction;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -62,11 +63,11 @@ where
 
     fn make_blank(
         &mut self,
-        public_key: &G,
+        path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let (tk, changes, artefacts) =
-            self.make_blank_in_public_art(public_key, temporary_secret_key)?;
+            self.make_blank_in_public_art(path, temporary_secret_key)?;
         self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
 
         Ok((tk, changes, artefacts))

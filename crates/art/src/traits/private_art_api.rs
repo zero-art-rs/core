@@ -7,6 +7,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
+use crate::types::Direction;
 
 pub trait ARTPrivateAPI<G>: ARTPublicAPI<G>
 where
@@ -35,7 +36,7 @@ where
     /// Converts a leaf node, which is on the given path, to blank one and update path_secrets
     fn make_blank(
         &mut self,
-        public_key: &G,
+        path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 

@@ -109,7 +109,7 @@ where
     /// other users and new ARTRootKey.
     fn make_blank_in_public_art(
         &mut self,
-        public_key: &G,
+        path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 

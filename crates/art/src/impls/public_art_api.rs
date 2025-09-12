@@ -351,14 +351,12 @@ where
 
     fn make_blank_in_public_art(
         &mut self,
-        public_key: &G,
+        path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let next = self.get_path_to_leaf(public_key)?;
+        self.make_blank_without_changes(&path, &self.public_key_of(temporary_secret_key))?;
 
-        self.make_blank_without_changes(&next, &self.public_key_of(temporary_secret_key))?;
-
-        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &next)
+        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path)
             .map(|(root_key, mut changes, artefacts)| {
                 changes.change_type = BranchChangesType::MakeBlank;
                 (root_key, changes, artefacts)

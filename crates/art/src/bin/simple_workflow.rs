@@ -70,7 +70,7 @@ fn private_example() {
     // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
     let (tk_1, changes_5, artefacts_5) = art_1
-        .make_blank_in_public_art(&public_key, &some_secret_key2)
+        .make_blank_in_public_art(&art_1.get_path_to_leaf(&public_key).unwrap(), &some_secret_key2)
         .unwrap();
 
     // Other users will update their trees correspondingly.
