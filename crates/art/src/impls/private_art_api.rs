@@ -13,6 +13,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tracing::debug;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -54,8 +55,9 @@ where
         let (tk, changers, artefacts) = self.update_art_branch_with_leaf_secret_key(
             new_secret_key,
             &self.get_node_index().get_path()?,
+            false,
         )?;
-        self.update_node_index()?;
+        // self.update_node_index()?;
         self.set_path_secrets(artefacts.secrets.clone());
 
         Ok((tk, changers, artefacts))
@@ -66,8 +68,30 @@ where
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (tk, changes, artefacts) = self.make_blank_in_public_art(path, temporary_secret_key)?;
-        self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
+        self.make_blank_with_options(path, temporary_secret_key, false, true)
+    }
+
+    fn make_blank_with_options(
+        &mut self,
+        path: &Vec<Direction>,
+        temporary_secret_key: &G::ScalarField,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+        let (mut tk, changes, artefacts) = self.make_blank_in_public_art(
+            path,
+            temporary_secret_key,
+            append_changes,
+            update_weights,
+        )?;
+        match append_changes {
+            true => {
+                self.merge_path_secrets(&artefacts.secrets, &changes.node_index)?;
+                tk.key +=
+                    to_ark_scalar::<G>(*self.get_path_secrets().last().ok_or(ARTError::EmptyART)?);
+            }
+            false => _ = self.set_path_secrets(artefacts.secrets.clone()),
+        }
 
         Ok((tk, changes, artefacts))
     }
@@ -100,7 +124,7 @@ where
             _ => {}
         };
 
-        let artefact_secrets = self.get_artefact_secrets_from_change(
+        let mut artefact_secrets = self.get_artefact_secrets_from_change(
             self.get_node_index(),
             self.get_secret_key(),
             changes,
@@ -109,7 +133,7 @@ where
 
         match append_changes {
             true => self.merge_path_secrets(&artefact_secrets, &changes.node_index)?,
-            false => _ = self.set_path_secrets(artefact_secrets),
+            false => _ = self.update_path_secrets_with(&artefact_secrets, &changes.node_index),
         }
 
         Ok(())

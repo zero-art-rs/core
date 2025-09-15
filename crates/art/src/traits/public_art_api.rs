@@ -68,6 +68,7 @@ where
         &mut self,
         secret_key: &G::ScalarField,
         path: &[Direction],
+        append_changes: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Searches for the left most blank node and returns the vector of directions to it.
@@ -111,6 +112,8 @@ where
         &mut self,
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
+        append_changes: bool,
+        update_weights: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
@@ -150,6 +153,7 @@ where
         &mut self,
         lambda: &G::ScalarField,
         public_key: &G,
+        append_changes: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Returns min and max height of a leaf in a tree.

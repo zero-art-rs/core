@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{PartialEq, max, min};
 use std::collections::HashMap;
-use tracing::error;
+use tracing::{debug, error};
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -179,6 +179,7 @@ where
         &mut self,
         secret_key: &G::ScalarField,
         path: &[Direction],
+        append_changes: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let mut next = path.to_vec();
         let mut public_key = self.public_key_of(secret_key);
@@ -186,10 +187,6 @@ where
         let mut co_path_values = vec![];
         let mut path_values = vec![];
         let mut secrets = vec![to_dalek_scalar::<G>(*secret_key)?];
-
-        // possibly remove the next two lines
-        let user_node = self.get_mut_node(&NodeIndex::from(path.to_vec()))?;
-        user_node.set_public_key(public_key);
 
         let mut ark_level_secret_key = *secret_key;
         while let Some(next_child) = next.pop() {
@@ -201,7 +198,7 @@ where
             // Update public art
             parent
                 .get_mut_child(&next_child)?
-                .set_public_key(public_key);
+                .set_public_key_with_options(public_key, append_changes);
             let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
 
             path_values.push(public_key);
@@ -220,7 +217,8 @@ where
             public_key = self.public_key_of(&ark_level_secret_key);
         }
 
-        self.get_mut_root().set_public_key(public_key);
+        self.get_mut_root()
+            .set_public_key_with_options(public_key, append_changes);
         path_values.push(public_key);
 
         let key = ARTRootKey {
@@ -325,7 +323,7 @@ where
         }
 
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
-        self.update_art_branch_with_leaf_secret_key(secret_key, &path)
+        self.update_art_branch_with_leaf_secret_key(secret_key, &path, false)
             .map(|(root_key, mut changes, artefacts)| {
                 changes.node_index = node_index;
                 changes.change_type = BranchChangesType::AppendNode;
@@ -355,10 +353,12 @@ where
         &mut self,
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
+        append_changes: bool,
+        update_weights: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        self.make_blank_without_changes_with_options(&path, true)?;
+        self.make_blank_without_changes_with_options(&path, update_weights)?;
 
-        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path)
+        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path, append_changes)
             .map(|(root_key, mut changes, artefacts)| {
                 changes.change_type = BranchChangesType::MakeBlank;
                 (root_key, changes, artefacts)
@@ -471,6 +471,7 @@ where
         &mut self,
         lambda: &G::ScalarField,
         public_key: &G,
+        append_changes: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         if !self.can_remove(lambda, public_key)? {
             return Err(ARTError::RemoveError);
@@ -479,7 +480,7 @@ where
         let path = self.get_path_to_leaf(public_key)?;
         self.remove_node(&path)?;
 
-        match self.update_art_branch_with_leaf_secret_key(lambda, &path) {
+        match self.update_art_branch_with_leaf_secret_key(lambda, &path, append_changes) {
             Ok((root_key, mut changes, artefacts)) => {
                 changes.change_type = BranchChangesType::RemoveNode;
 

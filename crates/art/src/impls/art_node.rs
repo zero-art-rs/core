@@ -6,6 +6,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
+use tracing::debug;
 
 /// Implementation of main methods for operating with ARTNode
 impl<G: AffineRepr> ARTNode<G> {

@@ -10,6 +10,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
+use tracing::debug;
 
 impl<G> ARTPublicView<G> for PrivateART<G>
 where

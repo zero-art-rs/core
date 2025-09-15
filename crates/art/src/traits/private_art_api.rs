@@ -38,6 +38,15 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
+    /// Converts a leaf node, which is on the given path, to blank one and update path_secrets
+    fn make_blank_with_options(
+        &mut self,
+        path: &Vec<Direction>,
+        temporary_secret_key: &G::ScalarField,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+
     /// Append new node to the tree or replace the blank one, and update path_secrets.
     fn append_or_replace_node(
         &mut self,

@@ -506,6 +506,8 @@ mod tests {
 
     #[test]
     fn test_key_update_proof() {
+        init_tracing_for_test();
+
         let mut rng = StdRng::seed_from_u64(rand::random());
         let secrets = create_random_secrets(100);
         let (mut art, _) =
@@ -1196,6 +1198,154 @@ mod tests {
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
         }
+    }
+
+    #[test]
+    fn test_merge_for_multi_removal() -> Result<(), ARTError> {
+        init_tracing_for_test();
+
+        let mut rng = StdRng::seed_from_u64(rand::random());
+
+        // init test
+        let art_size = 9;
+        let secrets = create_random_secrets(art_size);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
+            .unwrap()
+            .0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..art_size {
+            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        // choose some users for main test subjects
+        let mut art0 = user_arts.remove(0);
+        let mut art1 = user_arts.remove(3);
+        let mut art2 = user_arts.remove(4);
+        let mut art3 = user_arts.remove(3);
+
+        // sanity check
+        assert_eq!(art1.get_root(), art0.get_root());
+        assert_eq!(art2.get_root(), art0.get_root());
+        assert_eq!(art3.get_root(), art0.get_root());
+
+        let target_node_path = art3.get_path_to_leaf(&art0.public_key_of(&art3.secret_key))?;
+        let target_index = NodeIndex::from(target_node_path.clone());
+
+        let new_node1_sk: Fr = create_random_secrets(1)[0];
+        let new_node2_sk: Fr = create_random_secrets(1)[0];
+        let new_node3_sk: Fr = create_random_secrets(1)[0];
+        let second_key = new_node1_sk + new_node2_sk;
+        let final_sk = new_node1_sk + new_node2_sk + new_node3_sk;
+        // debug!("new_node1_sk: {}", new_node1_sk);
+        // debug!("new_node2_sk: {}", new_node2_sk);
+        // debug!("new_node3_sk: {}", new_node3_sk);
+        //
+        // debug!("new_node1_pk: {}", art0.public_key_of(&new_node1_sk).x);
+        // debug!("new_node2_pk: {}", art0.public_key_of(&new_node2_sk).x);
+        // debug!("new_node3_pk: {}", art0.public_key_of(&new_node3_sk).x);
+        // debug!("second_key: {}", second_key);
+        // debug!("final_sk: {}", final_sk);
+
+        debug!("User 0 blanks member ...");
+        let (_, remove_change0, _) = art0.make_blank(&target_node_path, &new_node1_sk)?;
+
+        art1.update_private_art(&remove_change0).unwrap();
+        art2.update_private_art(&remove_change0).unwrap();
+        assert_eq!(art0.root, art1.root);
+        assert_eq!(art0.root, art2.root);
+        assert_eq!(
+            art0.get_node(&target_index)?.public_key,
+            art0.public_key_of(&new_node1_sk)
+        );
+        assert_eq!(
+            art1.get_node(&target_index)?.public_key,
+            art1.public_key_of(&new_node1_sk)
+        );
+        assert_eq!(
+            art2.get_node(&target_index)?.public_key,
+            art2.public_key_of(&new_node1_sk)
+        );
+
+        debug!("User 1 blanks member ...");
+        let (_, remove_change1, _) =
+            art1.make_blank_with_options(&target_node_path, &new_node2_sk, true, false)?;
+        art2.update_private_art_with_options(&remove_change1, true, false)?;
+        art0.update_private_art_with_options(&remove_change1, true, false)?;
+
+        assert_eq!(
+            art1.get_node(&target_index)?.public_key,
+            art1.public_key_of(&second_key)
+        );
+        assert_eq!(
+            art0.get_node(&target_index)?.public_key,
+            art0.public_key_of(&second_key)
+        );
+        assert_eq!(
+            art2.get_node(&target_index)?.public_key,
+            art2.public_key_of(&second_key)
+        );
+        assert_eq!(art0.root, art1.root);
+        assert_eq!(art0.root, art2.root);
+
+        assert_eq!(art0.root, art2.root);
+        assert_eq!(art0.root, art1.root);
+
+        debug!("User 2 blanks member ...");
+        let (tk2, remove_change3, _) =
+            art2.make_blank_with_options(&target_node_path, &new_node3_sk, true, false)?;
+
+        art1.update_private_art_with_options(&remove_change3, true, false)?;
+        art0.update_private_art_with_options(&remove_change3, true, false)?;
+
+        assert_eq!(
+            art1.get_node(&target_index)?.public_key,
+            art1.public_key_of(&final_sk)
+        );
+        assert_eq!(
+            art0.get_node(&target_index)?.public_key,
+            art0.public_key_of(&final_sk)
+        );
+        assert_eq!(
+            art2.get_node(&target_index)?.public_key,
+            art2.public_key_of(&final_sk)
+        );
+        assert_eq!(art0.root, art1.root);
+        assert_eq!(art0.root, art2.root);
+
+        assert_eq!(art1.root.public_key, art2.root.public_key);
+        assert_eq!(
+            art1.get_node(&target_index)?.public_key,
+            art2.get_node(&target_index)?.public_key
+        );
+
+        // assert_eq!(art2.public_key_of(&tk2.key), art2.get_root().public_key);
+        // assert_eq!(art2.public_key_of(&art2.get_root_key()?.key), art2.get_root().public_key);
+
+        // let changes = vec![];
+        //
+        // debug!("User 2 merge changes locally ...");
+        // art2
+        //     .recompute_path_secrets_for_observer(&changes)
+        //     .unwrap();
+        // art2.merge(&changes)?;
+        // debug!("User2 MTK_x: {}", art2.root.public_key.x);
+        //
+        // assert_eq!(
+        //     art2
+        //         .public_key_of(&art2.get_root_key().unwrap().key),
+        //     art2.root.public_key,
+        //     "Check if secret on path is the same one used for art root pub key computation."
+        // );
+        //
+        // debug!("User 2 update and send update request with merge resolved");
+        // let new_secret_key2: Fr = create_random_secrets(1)[0];
+        // art2.update_key(&new_secret_key2)?;
+        // debug!("User2 TK_x: {}", art2.root.public_key.x);
+
+        Ok(())
     }
 
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
