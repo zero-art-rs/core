@@ -1081,7 +1081,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(rand::random());
 
-        // init test
+        // initialize test
         let art_size = 9;
         let secrets = create_random_secrets(art_size);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
@@ -1096,17 +1096,23 @@ mod tests {
         }
 
         // choose some users for main test subjects
-        let mut art0 = user_arts.remove(0);
-        let mut art1 = user_arts.remove(3);
-        let mut art2 = user_arts.remove(4);
-        let mut art3 = user_arts.remove(3);
+        let mut user0 = user_arts.remove(0);
+        let mut user1 = user_arts.remove(3);
+        let mut user2 = user_arts.remove(4);
+        let mut user3 = user_arts.remove(3);
+        debug!("User0 Q_pk_x: {}", user0.public_key_of(&user0.get_secret_key()).x);
+
+        debug!("User0 leaf: {}", user0.get_secret_key());
+        debug!("User1 leaf: {}", user1.get_secret_key());
+        debug!("User2 leaf: {}", user2.get_secret_key());
+        debug!("User3 leaf: {}", user3.get_secret_key());
 
         // sanity check
-        assert_eq!(art1.get_root(), art0.get_root());
-        assert_eq!(art2.get_root(), art0.get_root());
-        assert_eq!(art3.get_root(), art0.get_root());
+        assert_eq!(user2.get_root(), user0.get_root());
+        assert_eq!(user1.get_root(), user0.get_root());
+        assert_eq!(user3.get_root(), user0.get_root());
 
-        let target_node_path = art3.get_path_to_leaf(&art0.public_key_of(&art3.secret_key))?;
+        let target_node_path = user3.get_path_to_leaf(&user0.public_key_of(&user3.secret_key))?;
         let target_index = NodeIndex::from(target_node_path.clone());
 
         let new_node1_sk: Fr = create_random_secrets(1)[0];
@@ -1114,88 +1120,92 @@ mod tests {
         let new_node3_sk: Fr = create_random_secrets(1)[0];
         let second_key = new_node1_sk + new_node2_sk;
         let final_sk = new_node1_sk + new_node2_sk + new_node3_sk;
-        // debug!("new_node1_sk: {}", new_node1_sk);
-        // debug!("new_node2_sk: {}", new_node2_sk);
-        // debug!("new_node3_sk: {}", new_node3_sk);
-        //
-        // debug!("new_node1_pk: {}", art0.public_key_of(&new_node1_sk).x);
-        // debug!("new_node2_pk: {}", art0.public_key_of(&new_node2_sk).x);
-        // debug!("new_node3_pk: {}", art0.public_key_of(&new_node3_sk).x);
-        // debug!("second_key: {}", second_key);
-        // debug!("final_sk: {}", final_sk);
 
-        debug!("User 0 blanks member ...");
-        let (_, remove_change0, _) = art0.make_blank(&target_node_path, &new_node1_sk)?;
-
-        art1.update_private_art(&remove_change0).unwrap();
-        art2.update_private_art(&remove_change0).unwrap();
-        assert_eq!(art0.root, art1.root);
-        assert_eq!(art0.root, art2.root);
+        debug!("User 0 update key ...");
+        let (_, change0, _) = user0.make_blank(&target_node_path, &new_node1_sk)?;
         assert_eq!(
-            art0.get_node(&target_index)?.public_key,
-            art0.public_key_of(&new_node1_sk)
+            user0.get_node(&target_index)?.public_key,
+            user0.public_key_of(&new_node1_sk)
         );
         assert_eq!(
-            art1.get_node(&target_index)?.public_key,
-            art1.public_key_of(&new_node1_sk)
+            user0.public_key_of(&user0.get_root_key()?.key),
+            user0.get_root().public_key
+        );
+        // user0.update_key(None).await?;
+        debug!("User0 TK_x: {}", user0.root.public_key.x);
+        debug!("User0 tk: {}", user0.get_root_key().unwrap().key);
+
+        debug!("User1 receive changes ..");
+        // let blank_user_0 = user1.get_changes(20, 0, None).await?;
+        user1.update_private_art(&change0).unwrap();
+        assert_eq!(
+            user1.get_node(&target_index)?.public_key,
+            user1.public_key_of(&new_node1_sk)
         );
         assert_eq!(
-            art2.get_node(&target_index)?.public_key,
-            art2.public_key_of(&new_node1_sk)
+            user1.public_key_of(&user1.get_root_key()?.key),
+            user1.get_root().public_key
         );
+        // user1.epoch += 1;
+        debug!("User1 tk: {}", user1.get_root_key().unwrap().key);
+        for key in user1.get_path_secrets() {
+            debug!("    User1 path key: {}", key);
+        }
+        assert_eq!(user1.get_root(), user0.get_root());
 
-        debug!("User 1 blanks member ...");
-        let (_, remove_change1, _) =
-            art1.make_blank(&target_node_path, &new_node2_sk)?;
-        art2.update_private_art_with_options(&remove_change1, true, false)?;
-        art0.update_private_art_with_options(&remove_change1, true, false)?;
-
+        debug!("User 1 update key ...");
+        let (_, change1, _) = user1.make_blank(&target_node_path, &new_node2_sk)?;
         assert_eq!(
-            art1.get_node(&target_index)?.public_key,
-            art1.public_key_of(&second_key)
+            user1.get_node(&target_index)?.public_key,
+            user1.public_key_of(&second_key)
         );
+        debug!("User1 TK_x: {}", user1.root.public_key.x);
+        debug!("User1 tk: {}", user1.get_root_key().unwrap().key);
+        for key in user1.get_path_secrets() {
+            debug!("    User1 path key: {}", key);
+        }
         assert_eq!(
-            art0.get_node(&target_index)?.public_key,
-            art0.public_key_of(&second_key)
-        );
-        assert_eq!(
-            art2.get_node(&target_index)?.public_key,
-            art2.public_key_of(&second_key)
-        );
-        assert_eq!(art0.root, art1.root);
-        assert_eq!(art0.root, art2.root);
-
-        assert_eq!(art0.root, art2.root);
-        assert_eq!(art0.root, art1.root);
-
-        debug!("User 2 blanks member ...");
-        let (tk2, remove_change3, _) =
-            art2.make_blank(&target_node_path, &new_node3_sk)?;
-
-        art1.update_private_art_with_options(&remove_change3, true, false)?;
-        art0.update_private_art_with_options(&remove_change3, true, false)?;
-
-        assert_eq!(
-            art1.get_node(&target_index)?.public_key,
-            art1.public_key_of(&final_sk)
-        );
-        assert_eq!(
-            art0.get_node(&target_index)?.public_key,
-            art0.public_key_of(&final_sk)
-        );
-        assert_eq!(
-            art2.get_node(&target_index)?.public_key,
-            art2.public_key_of(&final_sk)
-        );
-        assert_eq!(art0.root, art1.root);
-        assert_eq!(art0.root, art2.root);
-
-        assert_eq!(art1.root.public_key, art2.root.public_key);
-        assert_eq!(
-            art1.get_node(&target_index)?.public_key,
-            art2.get_node(&target_index)?.public_key
+            user1.public_key_of(&user1.get_root_key()?.key),
+            user1.get_root().public_key
         );
 
+        debug!("User 2 receive changes ...");
+        // let blank_user_1 = user2.get_changes(20, 0, None).await?;
+        user2.update_private_art(&change0).unwrap();
+        // user2.epoch += 1;
+        debug!("User2 tk: {}", user2.get_root_key().unwrap().key);
+        for key in user2.get_path_secrets() {
+            debug!("    User2 path key: {}", key);
+        }
+        // debug!("art2:\n{}", user2.art.get_root());
+        assert_eq!(user2.get_root(), user0.get_root());
+        assert_eq!(
+            user2.public_key_of(&user2.get_root_key()?.key),
+            user0.public_key_of(&user0.get_root_key()?.key),
+        );
+
+        debug!("User 2 receive seccond changes ...");
+        user2.update_private_art(&change1)?;
+        assert_eq!(
+            user2.get_node(&target_index)?.public_key,
+            user1.public_key_of(&second_key)
+        );
+        debug!("User2 tk: {}", user2.get_root_key().unwrap().key);
+        for key in user2.get_path_secrets() {
+            debug!("    User2 path key: {}", key);
+        }
+        // user2.epoch += 1;
+        // debug!("art2:\n{}", user2.art.get_root());
+        assert_eq!(user2.get_root(), user1.get_root());
+        assert_eq!(
+            user2.public_key_of(&user2.get_root_key()?.key),
+            user1.public_key_of(&user1.get_root_key()?.key),
+        );
+        assert_eq!(user2.public_key_of(&user2.get_root_key()?.key), user1.get_root().public_key);
+
+        debug!("User 2 make blank ...");
+        let (_, change2, _) = user2.make_blank(&target_node_path, &new_node3_sk)?;
+        debug!("User2 TK_x: {}", user2.root.public_key.x);
         Ok(())
     }
 

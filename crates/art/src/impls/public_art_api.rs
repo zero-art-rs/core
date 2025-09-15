@@ -372,7 +372,7 @@ where
         changes: &BranchChanges<G>,
         mut fork: Self,
     ) -> Result<Vec<G::ScalarField>, ARTError> {
-        fork.update_public_art(changes)?;
+        fork.update_public_art_with_options(changes, false, true)?;
 
         let co_path_values = fork.get_co_path_values(&node_index)?;
         let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
