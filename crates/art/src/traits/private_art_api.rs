@@ -15,15 +15,11 @@ where
     G::BaseField: PrimeField,
     Self: Sized,
 {
-    /// Recomputes art root key using the given leaf secret key. It might not work if there was
-    /// merge operation recently.
-    fn recompute_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
+    /// Recomputes ProverArtefacts for proof generation. Uses path secrets.
+    fn recompute_prover_artefacts(&self) -> Result<ProverArtefacts<G>, ARTError>;
 
     /// Returns actual root key, stored at the end of path_secrets.
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
-
-    /// Recomputes art root key and prover artefacts using secret keys stored in the path_secrets.
-    fn get_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
     /// Changes old_secret_key of a user leaf to the new_secret_key and update path_secrets.
     fn update_key(

@@ -9,7 +9,6 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 
 pub trait ARTPublicAPI<G>
 where
@@ -29,16 +28,11 @@ where
     /// index of a node. Searching algorithm is depth-first search.
     fn get_leaf_index(&self, user_val: &G) -> Result<u64, ARTError>;
 
-    /// Recomputes art root key using the given leaf secret key. It progressively goes from leaf to
-    /// root, computing secret keys using Diffie–Hellman key exchange.
-    fn recompute_root_key_using_secret_key(
-        &self,
-        secret_key: G::ScalarField,
-        node_index: &NodeIndex,
-    ) -> Result<ARTRootKey<G>, ARTError>;
-
     /// Recomputes art root key using the given leaf secret key. Returns additional artifacts for
-    /// proof creation.
+    /// proof creation. The method will work only if all the nodes on path from root to leaf are
+    /// the result of Diffie-Hellman key exchanged. The result might be unpredictable, is case when
+    /// there is any node on a path which where merged from several changes. Users, which want
+    /// to join the art, should update their secret key to initialize the `path_secrets`.
     fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
@@ -49,7 +43,7 @@ where
     fn recompute_root_key_with_artefacts_using_path_secrets(
         &self,
         node_index: &NodeIndex,
-        path_secrets: Vec<Scalar>,
+        path_secrets: Vec<G::ScalarField>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
     /// Returns helper structure for verification of art update.
@@ -132,7 +126,7 @@ where
         secret_key: G::ScalarField,
         changes: &BranchChanges<G>,
         fork: Self,
-    ) -> Result<Vec<Scalar>, ARTError>;
+    ) -> Result<Vec<G::ScalarField>, ARTError>;
 
     /// Returns node by the given NodeIndex
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;

@@ -7,7 +7,6 @@ use crate::{
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
 use tracing::debug;
@@ -71,20 +70,20 @@ where
         Self::from_public_art(public_art, secret_key)
     }
 
-    fn get_path_secrets(&self) -> &Vec<Scalar> {
+    fn get_path_secrets(&self) -> &Vec<G::ScalarField> {
         &self.path_secrets
     }
-    fn get_mut_path_secrets(&mut self) -> &mut Vec<Scalar> {
+    fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField> {
         &mut self.path_secrets
     }
 
-    fn set_path_secrets(&mut self, new_path_secrets: Vec<Scalar>) -> Vec<Scalar> {
+    fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField> {
         mem::replace(&mut self.path_secrets, new_path_secrets)
     }
 
     fn update_path_secrets_with(
         &mut self,
-        other_path_secrets: &Vec<Scalar>,
+        other_path_secrets: &Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError> {
         let node_path = self.get_node_index().get_path()?;
@@ -111,7 +110,7 @@ where
 
     fn merge_path_secrets(
         &mut self,
-        other_path_secrets: &Vec<Scalar>,
+        other_path_secrets: &Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError> {
         let node_path = self.get_node_index().get_path()?;
@@ -122,17 +121,11 @@ where
 
         let path_secrets = self.get_mut_path_secrets();
 
-        path_secrets[last_index + 1] = to_dalek_scalar::<G>(
-            to_ark_scalar::<G>(path_secrets[last_index + 1])
-                + to_ark_scalar::<G>(other_path_secrets[other_last_index + 1]),
-        )?;
+        path_secrets[last_index + 1] = path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
 
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
-                path_secrets[last_index - i] = to_dalek_scalar::<G>(
-                    to_ark_scalar::<G>(path_secrets[last_index - i])
-                        + to_ark_scalar::<G>(other_path_secrets[other_last_index - i]),
-                )?;
+                path_secrets[last_index - i] = path_secrets[last_index - i] + other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());
             }
@@ -218,7 +211,8 @@ where
     type Error = ARTError;
 
     fn try_from((mut other, secret_key): (A, G::ScalarField)) -> Result<Self, Self::Error> {
-        let node_index = NodeIndex::from(other.get_leaf_index(&other.public_key_of(&secret_key))?);
+        // let node_index = NodeIndex::from(other.get_leaf_index(&other.public_key_of(&secret_key))?);
+        let node_index = NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?).as_index()?;
         let (_, artefacts) =
             other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
         let root = other.replace_root(Box::new(ARTNode::default()));

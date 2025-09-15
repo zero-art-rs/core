@@ -40,15 +40,12 @@ where
 
             level_secrets.remove(0); // skip the first secret
 
-            let common_secret = iota_function(
+            let ark_common_secret = iota_function(
                 &left_node
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
             )?;
-
-            let ark_common_secret =
-                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
 
             let node = ARTNode::new_internal_node(
                 generator.mul(&ark_common_secret).into_affine(),
@@ -95,15 +92,12 @@ where
 
             level_secrets.remove(0); // skip the first secret
 
-            let common_secret = iota_function(
+            let ark_common_secret = iota_function(
                 &left_node
                     .get_public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
             )?;
-
-            let ark_common_secret =
-                G::ScalarField::from_le_bytes_mod_order(&common_secret.to_bytes());
 
             let node = ARTNode::new_internal_node(
                 generator.mul(&ark_common_secret).into_affine(),

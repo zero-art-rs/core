@@ -48,7 +48,7 @@ mod tests {
         for i in 0..number_of_users {
             // Assert creator and users computed the same tree key.
             assert_eq!(
-                users_arts[i].recompute_root_key().unwrap().key,
+                users_arts[i].get_root_key().unwrap().key,
                 root_key.key
             );
         }
@@ -65,7 +65,7 @@ mod tests {
         for i in 0..number_of_users {
             if i != main_user_id {
                 users_arts[i].update_private_art(&changes).unwrap();
-                assert_eq!(users_arts[i].recompute_root_key().unwrap().key, new_key.key);
+                assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
                 assert_eq!(new_key, users_arts[i].get_root_key().unwrap());
             }
         }
@@ -78,7 +78,7 @@ mod tests {
             if i != main_user_id {
                 users_arts[i].update_private_art(&changes).unwrap();
                 assert_eq!(
-                    users_arts[i].recompute_root_key().unwrap().key,
+                    users_arts[i].get_root_key().unwrap().key,
                     recomputed_old_key.key
                 );
                 assert_eq!(recomputed_old_key, users_arts[i].get_root_key().unwrap());
@@ -160,7 +160,7 @@ mod tests {
         for i in 0..number_of_users {
             // Assert all the users computed the same tree key.
             assert_eq!(
-                users_arts[i].recompute_root_key().unwrap().key,
+                users_arts[i].get_root_key().unwrap().key,
                 root_key.key
             );
         }
@@ -181,19 +181,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            main_user_art.recompute_root_key().unwrap().key,
+            main_user_art.get_root_key().unwrap().key,
             root_key.key
         );
 
         for i in 0..number_of_users {
             if i != blank_user_id && i != main_user_id {
                 assert_ne!(
-                    users_arts[i].recompute_root_key().unwrap().key,
+                    users_arts[i].get_root_key().unwrap().key,
                     root_key.key
                 );
 
                 users_arts[i].update_private_art(&changes).unwrap();
-                let user_root_key = users_arts[i].recompute_root_key().unwrap();
+                let user_root_key = users_arts[i].get_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().weight, number_of_users - 1);
@@ -211,7 +211,7 @@ mod tests {
                 users_arts[i].update_private_art(&changes2).unwrap();
 
                 assert_eq!(
-                    users_arts[i].recompute_root_key().unwrap().key,
+                    users_arts[i].get_root_key().unwrap().key,
                     root_key2.key
                 );
                 assert_eq!(users_arts[i].get_root().weight, number_of_users);
@@ -242,7 +242,7 @@ mod tests {
         for i in 0..number_of_users {
             // Assert all the users computed the same tree key.
             assert_eq!(
-                users_arts[i].recompute_root_key().unwrap().key,
+                users_arts[i].get_root_key().unwrap().key,
                 init_root_key.key
             );
         }
@@ -263,7 +263,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            main_user_art.recompute_root_key().unwrap().key,
+            main_user_art.get_root_key().unwrap().key,
             root_key1.key
         );
 
@@ -303,7 +303,7 @@ mod tests {
 
         for i in 0..users_arts.len() {
             assert_ne!(
-                users_arts[i].recompute_root_key().unwrap().key,
+                users_arts[i].get_root_key().unwrap().key,
                 root_key.key
             );
 
@@ -333,7 +333,7 @@ mod tests {
             users_arts[i].update_private_art(&changes2).unwrap();
 
             assert_eq!(
-                users_arts[i].recompute_root_key().unwrap().key,
+                users_arts[i].get_root_key().unwrap().key,
                 root_key2.key
             );
             assert_eq!(users_arts[i].get_root().weight, number_of_users);
@@ -1102,21 +1102,15 @@ mod tests {
         // Sanity check
         assert_eq!(
             art1.root.public_key,
-            art1.public_key_of(&to_ark_scalar::<CortadoAffine>(
-                *art1.path_secrets.last().unwrap()
-            ))
+            art1.public_key_of(&*art1.path_secrets.last().unwrap())
         );
         assert_eq!(
             art2.root.public_key,
-            art3.public_key_of(&to_ark_scalar::<CortadoAffine>(
-                *art2.path_secrets.last().unwrap()
-            ))
+            art3.public_key_of(&*art2.path_secrets.last().unwrap())
         );
         assert_eq!(
             art3.root.public_key,
-            art4.public_key_of(&to_ark_scalar::<CortadoAffine>(
-                *art3.path_secrets.last().unwrap()
-            ))
+            art4.public_key_of(&*art3.path_secrets.last().unwrap())
         );
 
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1.key));
@@ -1136,7 +1130,7 @@ mod tests {
 
         // Check if new tk is correctly computed
         assert_eq!(
-            to_ark_scalar::<CortadoAffine>(*art1.path_secrets.last().unwrap()),
+            *art1.path_secrets.last().unwrap(),
             merged_tk.key
         );
 

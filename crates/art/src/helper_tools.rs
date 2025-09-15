@@ -28,16 +28,17 @@ where
 /// Iota function is a function which converts computed public secret to scalar field. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
-pub fn iota_function<G>(point: &G) -> Result<Scalar, ARTError>
+pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
     let x = point.x().ok_or(ARTError::XCoordinateError)?;
-
-    Ok(Scalar::from_bytes_mod_order(
+    let secret = Scalar::from_bytes_mod_order(
         (&x.into_bigint().to_bytes_le()[..]).try_into()?,
-    ))
+    );
+
+    Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
 }
 
 pub fn to_ark_scalar<G>(point: Scalar) -> G::ScalarField

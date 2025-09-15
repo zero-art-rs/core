@@ -1,5 +1,3 @@
-use crate::impls::artefacts;
-use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
     helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar},
@@ -13,7 +11,6 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::Zero;
-use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{PartialEq, max, min};
@@ -60,25 +57,6 @@ where
         )?)
     }
 
-    fn recompute_root_key_using_secret_key(
-        &self,
-        secret_key: G::ScalarField,
-        node_index: &NodeIndex,
-    ) -> Result<ARTRootKey<G>, ARTError> {
-        let co_path_values = self.get_co_path_values(&node_index)?;
-
-        let mut ark_secret = secret_key.clone();
-        for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
-        }
-
-        Ok(ARTRootKey {
-            key: ark_secret,
-            generator: self.get_generator().clone(),
-        })
-    }
-
     fn recompute_root_key_with_artefacts_using_secret_key(
         &self,
         secret_key: G::ScalarField,
@@ -87,12 +65,11 @@ where
         let co_path_values = self.get_co_path_values(node_index)?;
 
         let mut ark_secret = secret_key.clone();
-        let mut secrets: Vec<Scalar> = vec![to_dalek_scalar::<G>(secret_key)?];
+        let mut secrets: Vec<G::ScalarField> = vec![secret_key];
         let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(secret.clone());
-            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
+            ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+            secrets.push(ark_secret.clone());
             path_values.push(G::generator().mul(ark_secret).into_affine());
         }
 
@@ -112,7 +89,7 @@ where
     fn recompute_root_key_with_artefacts_using_path_secrets(
         &self,
         node_index: &NodeIndex,
-        path_secrets: Vec<Scalar>,
+        path_secrets: Vec<G::ScalarField>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
         let co_path_values = self.get_co_path_values(&node_index)?;
         if co_path_values.len() != path_secrets.len() {
@@ -121,17 +98,14 @@ where
 
         let mut path_values = Vec::with_capacity(co_path_values.len());
         for (sk, pk) in path_secrets.iter().zip(co_path_values.iter()) {
-            path_values.push(pk.mul(to_ark_scalar::<G>(*sk)).into_affine());
+            path_values.push(pk.mul(sk).into_affine());
         }
 
         Ok((
             ARTRootKey {
-                key: G::ScalarField::from_le_bytes_mod_order(
-                    &path_secrets
+                key: *path_secrets
                         .last()
-                        .ok_or(ARTError::InvalidInput)?
-                        .to_bytes(),
-                ),
+                        .ok_or(ARTError::InvalidInput)?,
                 generator: self.get_generator(),
             },
             ProverArtefacts {
@@ -186,7 +160,7 @@ where
 
         let mut co_path_values = vec![];
         let mut path_values = vec![];
-        let mut secrets = vec![to_dalek_scalar::<G>(*secret_key)?];
+        let mut secrets = vec![*secret_key];
 
         let mut ark_level_secret_key = *secret_key;
         while let Some(next_child) = next.pop() {
@@ -208,11 +182,8 @@ where
                 .mul(ark_level_secret_key)
                 .into_affine();
 
-            let level_secret_key = iota_function(&common_secret)?;
-            secrets.push(level_secret_key);
-
-            ark_level_secret_key =
-                G::ScalarField::from_le_bytes_mod_order(&level_secret_key.to_bytes());
+            ark_level_secret_key = iota_function(&common_secret)?;
+            secrets.push(ark_level_secret_key);
 
             public_key = self.public_key_of(&ark_level_secret_key);
         }
@@ -396,19 +367,16 @@ where
         secret_key: G::ScalarField,
         changes: &BranchChanges<G>,
         mut fork: Self,
-    ) -> Result<Vec<Scalar>, ARTError> {
+    ) -> Result<Vec<G::ScalarField>, ARTError> {
         fork.update_public_art(changes, false, true)?;
 
         let co_path_values = fork.get_co_path_values(&node_index)?;
         let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
-        secrets.push(Scalar::from_bytes_mod_order(
-            secret_key.into_bigint().to_bytes_le().try_into().unwrap(),
-        ));
+        secrets.push(secret_key);
         let mut ark_secret = secret_key;
         for public_key in co_path_values.iter() {
-            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(secret);
-            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
+            ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+            secrets.push(ark_secret);
         }
 
         Ok(secrets)

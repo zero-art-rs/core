@@ -20,5 +20,6 @@ where
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub secret_key: G::ScalarField,
     pub node_index: NodeIndex,
-    pub path_secrets: Vec<Scalar>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    pub path_secrets: Vec<G::ScalarField>,
 }

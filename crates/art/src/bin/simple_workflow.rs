@@ -53,7 +53,7 @@ fn private_example() {
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
     art_0.update_private_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
-    let tk_0 = art_0.recompute_root_key().unwrap();
+    let tk_0 = art_0.get_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
@@ -85,12 +85,12 @@ fn private_example() {
     art_0.update_private_art(&changes_3).unwrap();
     art_0.update_private_art(&changes_4).unwrap();
     art_0.update_private_art(&changes_5).unwrap();
-    let tk_0 = art_0.recompute_root_key().unwrap();
+    let tk_0 = art_0.get_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
     // For proof generation, there might be useful the next method.
-    let (_, artefacts) = art_1.get_root_key_with_artefacts().unwrap();
+    let artefacts = art_1.recompute_prover_artefacts().unwrap();
     assert_eq!(artefacts.path, artefacts_4.path);
     assert_eq!(artefacts.co_path, artefacts_4.co_path);
     assert_eq!(artefacts.secrets, artefacts_4.secrets);

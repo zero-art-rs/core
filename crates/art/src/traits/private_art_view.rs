@@ -6,7 +6,6 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 
 pub trait ARTPrivateView<G>: ARTPublicView<G>
 where
@@ -38,20 +37,20 @@ where
     /// Returns path secrets: secret keys corresponding to the public key of node o path from
     /// user leaf to root. The first one is users node leaf key, and the last one is the root
     /// secret key.
-    fn get_path_secrets(&self) -> &Vec<Scalar>;
+    fn get_path_secrets(&self) -> &Vec<G::ScalarField>;
 
     /// Returns mutable set of path secrets.
-    fn get_mut_path_secrets(&mut self) -> &mut Vec<Scalar>;
+    fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField>;
 
     /// Changes path_secrets to the given ones.
-    fn set_path_secrets(&mut self, new_path_secrets: Vec<Scalar>) -> Vec<Scalar>;
+    fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField>;
 
     /// changes path secrets on path from the root to leaf with `other_path_secrets`. If the node
     /// is on path from root to `other` node and to user's, then the key is changed. In other case,
     /// it isn't. Can be used to update path secrets after applied art changes.
     fn update_path_secrets_with(
         &mut self,
-        other_path_secrets: &Vec<Scalar>,
+        other_path_secrets: &Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError>;
 
@@ -61,7 +60,7 @@ where
     /// added together. In other case, those keys will not affect each other.
     fn merge_path_secrets(
         &mut self,
-        other_path_secrets: &Vec<Scalar>,
+        other_path_secrets: &Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError>;
 }
