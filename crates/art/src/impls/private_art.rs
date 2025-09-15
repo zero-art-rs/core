@@ -97,7 +97,8 @@ where
         // Update root, as any change will affect it
         path_secrets[last_index + 1] = other_path_secrets[other_last_index + 1];
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
-            if a == b { // if path to next node is the same
+            if a == b {
+                // if path to next node is the same
                 path_secrets[last_index - i] = other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());

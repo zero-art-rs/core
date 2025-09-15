@@ -22,7 +22,7 @@ where
     /// Returns the path to the users node
     fn get_node_index(&self) -> &NodeIndex;
 
-    /// Changes User node index to the given one 
+    /// Changes User node index to the given one
     fn set_node_index(&mut self, node_index: NodeIndex);
 
     /// Updates users node index by researching it in a tree.
@@ -48,7 +48,7 @@ where
 
     /// changes path secrets on path from the root to leaf with `other_path_secrets`. If the node
     /// is on path from root to `other` node and to user's, then the key is changed. In other case,
-    /// it isn't. Can be used to update path secrets after applied art changes. 
+    /// it isn't. Can be used to update path secrets after applied art changes.
     fn update_path_secrets_with(
         &mut self,
         other_path_secrets: &Vec<Scalar>,

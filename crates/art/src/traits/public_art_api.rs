@@ -1,3 +1,4 @@
+use crate::types::LeafIterWithPath;
 use crate::{
     errors::ARTError,
     types::{
@@ -9,7 +10,6 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
-use crate::types::LeafIterWithPath;
 
 pub trait ARTPublicAPI<G>
 where
@@ -69,7 +69,7 @@ where
         secret_key: &G::ScalarField,
         path: &[Direction],
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
-    
+
     /// Searches for the left most blank node and returns the vector of directions to it.
     fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>>;
 
@@ -98,10 +98,10 @@ where
     /// Converts the type of leaf on a given path to blank leaf by changing its public key on a temporary one.
     /// This method doesn't change other art nodes. To update art afterward, use update_art_with_secret_key
     /// or update_art_with_changes.
-    fn make_blank_without_changes(
+    fn make_blank_without_changes_with_options(
         &mut self,
         path: &[Direction],
-        temporary_public_key: &G,
+        update_weights: bool,
     ) -> Result<(), ARTError>;
 
     /// Converts the leaf on a given path to temporary by changing its public key on given temporary
@@ -115,7 +115,21 @@ where
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
     /// structure.
-    fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
+    fn update_art_with_changes(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+    ) -> Result<(), ARTError>;
+
+    /// Returns secrets from changes. It works by applying 'changes' to the 'fork' and recomputing
+    /// changes in usual way.
+    fn get_artefact_secrets_from_change(
+        &self,
+        node_index: &NodeIndex,
+        secret_key: G::ScalarField,
+        changes: &BranchChanges<G>,
+        fork: Self,
+    ) -> Result<Vec<Scalar>, ARTError>;
 
     /// Returns node by the given NodeIndex
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
@@ -145,7 +159,12 @@ where
     fn get_disbalance(&self) -> Result<u64, ARTError>;
 
     /// Updates art with given changes.
-    fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
+    fn update_public_art(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError>;
 
     /// Merge ART changes into self. `merged_changes` are merge conflict changes, which are
     /// conflicting with `target_change` but are already merged. After calling of this method,

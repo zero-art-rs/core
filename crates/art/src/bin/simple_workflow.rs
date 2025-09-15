@@ -51,7 +51,7 @@ fn private_example() {
     let (tk_1, changes_1, _) = art_1.update_key(&new_secret_key_1).unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_public_art(&changes_1).unwrap();
+    art_0.update_private_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
     let tk_0 = art_0.recompute_root_key().unwrap();
 
@@ -60,24 +60,31 @@ fn private_example() {
     // Users can further modify art as next.
     // Upend new node for new member.
     let some_secret_key1 = ScalarField::rand(&mut rng);
-    let (_, changes_2, artefacts_2) = art_1.append_or_replace_node_in_public_art(&some_secret_key1).unwrap();
+    let (_, changes_2, _) = art_1
+        .append_or_replace_node_in_public_art(&some_secret_key1)
+        .unwrap();
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
-    let (_, changes_3, artefacts_3) = art_1.update_key(&some_secret_key2).unwrap();
+    let (_, changes_3, _) = art_1.update_key(&some_secret_key2).unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
-    let (_, changes_4, artefacts_4) = art_1.append_or_replace_node_in_public_art(&some_secret_key3).unwrap();
+    let (_, changes_4, artefacts_4) = art_1
+        .append_or_replace_node_in_public_art(&some_secret_key3)
+        .unwrap();
     // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5, artefacts_5) = art_1
-        .make_blank_in_public_art(&art_1.get_path_to_leaf(&public_key).unwrap(), &some_secret_key2)
+    let (tk_1, changes_5, _) = art_1
+        .make_blank_in_public_art(
+            &art_1.get_path_to_leaf(&public_key).unwrap(),
+            &some_secret_key2,
+        )
         .unwrap();
 
     // Other users will update their trees correspondingly.
-    art_0.update_public_art(&changes_2).unwrap();
-    art_0.update_public_art(&changes_3).unwrap();
-    art_0.update_public_art(&changes_4).unwrap();
-    art_0.update_public_art(&changes_5).unwrap();
+    art_0.update_private_art(&changes_2).unwrap();
+    art_0.update_private_art(&changes_3).unwrap();
+    art_0.update_private_art(&changes_4).unwrap();
+    art_0.update_private_art(&changes_5).unwrap();
     let tk_0 = art_0.recompute_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);

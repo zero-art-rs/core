@@ -1,6 +1,7 @@
 // Asynchronous Ratchet Tree implementation
 
 use crate::helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar};
+use crate::types::Direction;
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
@@ -12,7 +13,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use crate::types::Direction;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -38,9 +38,7 @@ where
         })
     }
 
-    fn get_root_key_with_artefacts(
-        &self,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
+    fn get_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
         self.recompute_root_key_with_artefacts_using_path_secrets(
             self.get_node_index(),
             self.get_path_secrets().clone(),
@@ -53,8 +51,10 @@ where
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         self.set_secret_key(new_secret_key);
 
-        let (tk, changers, artefacts) =
-            self.update_art_branch_with_leaf_secret_key(new_secret_key, &self.get_node_index().get_path()?)?;
+        let (tk, changers, artefacts) = self.update_art_branch_with_leaf_secret_key(
+            new_secret_key,
+            &self.get_node_index().get_path()?,
+        )?;
         self.update_node_index()?;
         self.set_path_secrets(artefacts.secrets.clone());
 
@@ -66,8 +66,7 @@ where
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (tk, changes, artefacts) =
-            self.make_blank_in_public_art(path, temporary_secret_key)?;
+        let (tk, changes, artefacts) = self.make_blank_in_public_art(path, temporary_secret_key)?;
         self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
 
         Ok((tk, changes, artefacts))
@@ -84,19 +83,34 @@ where
     }
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
-        self.update_public_art(changes)?;
+        self.update_private_art_with_options(changes, false, true)
+    }
+
+    fn update_private_art_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError> {
+        let fork = self.clone();
+        self.update_public_art(changes, append_changes, update_weights)?;
 
         match &changes.change_type {
             BranchChangesType::AppendNode => self.update_node_index()?,
             _ => {}
         };
 
-        let (_, artefacts) = self
-            .recompute_root_key_with_artefacts_using_secret_key(
-                self.get_secret_key(),
-                self.get_node_index(),
-            )?;
-        self.set_path_secrets(artefacts.secrets);
+        let artefact_secrets = self.get_artefact_secrets_from_change(
+            self.get_node_index(),
+            self.get_secret_key(),
+            changes,
+            fork,
+        )?;
+
+        match append_changes {
+            true => self.merge_path_secrets(&artefact_secrets, &changes.node_index)?,
+            false => _ = self.set_path_secrets(artefact_secrets),
+        }
 
         Ok(())
     }

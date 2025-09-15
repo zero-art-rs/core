@@ -49,9 +49,13 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// If the node is a leaf node, converts the node to blank, else return error
-    pub fn make_blank(&mut self, temporary_public_key: &G) -> Result<(), ARTNodeError> {
+    pub fn make_blank(
+        &mut self,
+        temporary_public_key: &G,
+        append: bool,
+    ) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            self.set_public_key(temporary_public_key.clone());
+            self.set_public_key_with_options(temporary_public_key.clone(), append);
             self.is_blank = true;
             self.weight = 0;
             Ok(())
@@ -114,7 +118,14 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     pub fn set_public_key(&mut self, public_key: G) {
-        self.public_key = public_key;
+        self.set_public_key_with_options(public_key, false)
+    }
+
+    pub fn set_public_key_with_options(&mut self, public_key: G, append: bool) {
+        match append {
+            true => self.public_key = public_key.add(self.public_key).into_affine(),
+            false => self.public_key = public_key,
+        }
     }
 
     /// Returns a reference on a child of a given inner node by a given direction to the child.

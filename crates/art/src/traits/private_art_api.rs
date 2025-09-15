@@ -1,3 +1,4 @@
+use crate::types::Direction;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
@@ -7,7 +8,6 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use curve25519_dalek::Scalar;
-use crate::types::Direction;
 
 pub trait ARTPrivateAPI<G>: ARTPublicAPI<G>
 where
@@ -23,9 +23,7 @@ where
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
 
     /// Recomputes art root key and prover artefacts using secret keys stored in the path_secrets.
-    fn get_root_key_with_artefacts(
-        &self,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
+    fn get_root_key_with_artefacts(&self) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
     /// Changes old_secret_key of a user leaf to the new_secret_key and update path_secrets.
     fn update_key(
@@ -48,6 +46,14 @@ where
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
+
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    fn update_private_art_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError>;
 
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if the user
     /// didn't make any changes, which where merged.

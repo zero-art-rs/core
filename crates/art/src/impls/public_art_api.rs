@@ -312,7 +312,7 @@ where
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let mut path = match self.find_path_to_left_most_blank_node() {
             Some(path) => path,
-            None => self.find_path_to_lowest_leaf()?
+            None => self.find_path_to_lowest_leaf()?,
         };
 
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
@@ -325,26 +325,28 @@ where
         }
 
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
-        self.update_art_branch_with_leaf_secret_key(secret_key, &path).map(
-            |(root_key, mut changes, artefacts)| {
+        self.update_art_branch_with_leaf_secret_key(secret_key, &path)
+            .map(|(root_key, mut changes, artefacts)| {
                 changes.node_index = node_index;
                 changes.change_type = BranchChangesType::AppendNode;
                 (root_key, changes, artefacts)
-            },
-        )
+            })
     }
 
-    fn make_blank_without_changes(
+    fn make_blank_without_changes_with_options(
         &mut self,
         path: &[Direction],
-        temporary_public_key: &G,
+        update_weights: bool,
     ) -> Result<(), ARTError> {
         let mut target_node = self.get_mut_root();
         for direction in path {
-            target_node.weight -= 1;
+            if update_weights {
+                target_node.weight -= 1;
+            }
             target_node = target_node.get_mut_child(direction)?;
         }
-        target_node.make_blank(temporary_public_key)?;
+
+        target_node.is_blank = true;
 
         Ok(())
     }
@@ -354,7 +356,7 @@ where
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        self.make_blank_without_changes(&path, &self.public_key_of(temporary_secret_key))?;
+        self.make_blank_without_changes_with_options(&path, true)?;
 
         self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path)
             .map(|(root_key, mut changes, artefacts)| {
@@ -363,10 +365,14 @@ where
             })
     }
 
-    fn update_art_with_changes(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+    fn update_art_with_changes(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+    ) -> Result<(), ARTError> {
         let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
-            current_node.set_public_key(changes.public_keys[i]);
+            current_node.set_public_key_with_options(changes.public_keys[i], append_changes);
             current_node = current_node.get_mut_child(
                 changes
                     .node_index
@@ -376,9 +382,36 @@ where
             )?;
         }
 
-        current_node.set_public_key(changes.public_keys[changes.public_keys.len() - 1]);
+        current_node.set_public_key_with_options(
+            changes.public_keys[changes.public_keys.len() - 1],
+            append_changes,
+        );
 
         Ok(())
+    }
+
+    fn get_artefact_secrets_from_change(
+        &self,
+        node_index: &NodeIndex,
+        secret_key: G::ScalarField,
+        changes: &BranchChanges<G>,
+        mut fork: Self,
+    ) -> Result<Vec<Scalar>, ARTError> {
+        fork.update_public_art(changes, false, true)?;
+
+        let co_path_values = fork.get_co_path_values(&node_index)?;
+        let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
+        secrets.push(Scalar::from_bytes_mod_order(
+            secret_key.into_bigint().to_bytes_le().try_into().unwrap(),
+        ));
+        let mut ark_secret = secret_key;
+        for public_key in co_path_values.iter() {
+            let secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+            secrets.push(secret);
+            ark_secret = G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes());
+        }
+
+        Ok(secrets)
     }
 
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
@@ -475,9 +508,14 @@ where
         Ok(max_height - min_height)
     }
 
-    fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+    fn update_public_art(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError> {
         match &changes.change_type {
-            BranchChangesType::UpdateKey => self.update_art_with_changes(changes),
+            BranchChangesType::UpdateKey => {}
             BranchChangesType::AppendNode => {
                 let leaf = ARTNode::new_leaf(
                     changes
@@ -487,18 +525,17 @@ where
                         .clone(),
                 );
                 self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
-                self.update_art_with_changes(changes)
             }
             BranchChangesType::MakeBlank => {
-                let temporary_public_key = changes.public_keys.last().ok_or(ARTError::NoChanges)?;
-                self.make_blank_without_changes(
+                self.make_blank_without_changes_with_options(
                     &changes.node_index.get_path()?,
-                    temporary_public_key,
+                    update_weights,
                 )?;
-                self.update_art_with_changes(changes)
             }
-            BranchChangesType::RemoveNode => Err(ARTError::RemoveError),
+            BranchChangesType::RemoveNode => return Err(ARTError::RemoveError),
         }
+
+        self.update_art_with_changes(changes, append_changes)
     }
 
     fn merge_change(

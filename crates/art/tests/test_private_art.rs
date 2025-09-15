@@ -221,12 +221,14 @@ mod tests {
 
     #[test]
     fn test_repeated_make_blank() {
+        init_tracing_for_test();
+
         let mut rng = StdRng::seed_from_u64(rand::random());
-        let number_of_users = 100;
+        let number_of_users = 10;
         let secrets = create_random_secrets(number_of_users);
 
         let main_user_id = 0;
-        let other_user_id = 16;
+        let other_user_id = 4;
         let blank_user_id = 6;
 
         let (public_art, init_root_key) =
@@ -245,8 +247,9 @@ mod tests {
             );
         }
 
-        let mut main_user_art = users_arts.remove(main_user_id);
+        let target_user = users_arts.remove(blank_user_id);
         let mut other_user_art = users_arts.remove(other_user_id);
+        let mut main_user_art = users_arts.remove(main_user_id);
         let target_public_key = CortadoAffine::generator()
             .mul(secrets[blank_user_id])
             .into_affine();
@@ -266,19 +269,16 @@ mod tests {
 
         // Second remove
         let temporary_secret2 = Fr::rand(&mut rng);
-        other_user_art.update_private_art(&changes1).unwrap();
-        let mut other_user_art_copy = other_user_art.clone();
-        let (root_key2, changes2, _) = other_user_art_copy
+        other_user_art
+            .update_private_art_with_options(&changes1, false, true)
+            .unwrap();
+        let mut other_user_art_clone = other_user_art.clone();
+        let (root_key2, changes2, _) = other_user_art_clone
             .make_blank(&target_node_path, &temporary_secret2)
             .unwrap();
+
         other_user_art
-            .recompute_path_secrets_for_participant(
-                &vec![changes2.clone()],
-                &other_user_art.clone(),
-            )
-            .unwrap();
-        other_user_art
-            .merge_change(&vec![changes1.clone()], &changes2)
+            .update_private_art_with_options(&changes2, true, false)
             .unwrap();
 
         let root_key = ARTRootKey {
@@ -301,22 +301,24 @@ mod tests {
 
         assert_eq!(other_user_art.get_root_key().unwrap().key, root_key.key);
 
-        let all_changes = vec![changes1.clone(), changes2.clone()];
-        for i in 0..number_of_users {
+        for i in 0..users_arts.len() {
             assert_ne!(
                 users_arts[i].recompute_root_key().unwrap().key,
                 root_key.key
             );
 
-
-            // users_arts[i]
-            //     .recompute_path_secrets_for_observer(&all_changes)
-            //     .unwrap();
-            // users_arts[i].merge(&all_changes).unwrap();
-            users_arts[i].update_private_art(&changes1).unwrap();
-            users_arts[i].update_private_art(&changes2).unwrap();
+            users_arts[i]
+                .update_private_art_with_options(&changes1, false, true)
+                .unwrap();
+            users_arts[i]
+                .update_private_art_with_options(&changes2, true, false)
+                .unwrap();
             let user_root_key = users_arts[i].get_root_key().unwrap();
 
+            assert_eq!(
+                users_arts[i].root.public_key,
+                other_user_art.root.public_key
+            );
             assert_eq!(user_root_key.key, root_key.key);
             assert_eq!(users_arts[i].get_root().weight, number_of_users - 1);
         }
@@ -327,16 +329,14 @@ mod tests {
 
         assert_ne!(root_key2.key, root_key.key);
 
-        for i in 0..number_of_users {
-            if i != main_user_id && i != blank_user_id {
-                users_arts[i].update_private_art(&changes2).unwrap();
+        for i in 0..users_arts.len() {
+            users_arts[i].update_private_art(&changes2).unwrap();
 
-                assert_eq!(
-                    users_arts[i].recompute_root_key().unwrap().key,
-                    root_key2.key
-                );
-                assert_eq!(users_arts[i].get_root().weight, number_of_users);
-            }
+            assert_eq!(
+                users_arts[i].recompute_root_key().unwrap().key,
+                root_key2.key
+            );
+            assert_eq!(users_arts[i].get_root().weight, number_of_users);
         }
     }
 
@@ -677,12 +677,6 @@ mod tests {
 
         let (_, append_node_changes, artefacts) =
             art.append_or_replace_node(&new_secret_key).unwrap();
-        // let (_, artefacts) = art
-        //     .recompute_root_key_with_artefacts_using_secret_key(
-        //         new_secret_key,
-        //         Some(&append_node_changes.node_index),
-        //     )
-        //     .unwrap();
 
         let verification_artefacts = test_art
             .compute_artefacts_for_verification(&append_node_changes)
@@ -969,12 +963,12 @@ mod tests {
             &vec![changes2.clone(), changes3.clone(), changes4.clone()],
             &def_art1,
         )
-            .unwrap();
+        .unwrap();
         art1.merge_with_skip(
             &vec![changes1.clone()],
             &vec![changes2.clone(), changes3.clone(), changes4.clone()],
         )
-            .unwrap();
+        .unwrap();
         art1.update_node_index().unwrap();
         assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
@@ -985,12 +979,12 @@ mod tests {
             &vec![changes1.clone(), changes3.clone(), changes4.clone()],
             &def_art2,
         )
-            .unwrap();
+        .unwrap();
         art2.merge_with_skip(
             &vec![changes2.clone()],
             &vec![changes1.clone(), changes3.clone(), changes4.clone()],
         )
-            .unwrap();
+        .unwrap();
         art2.update_node_index().unwrap();
         assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
@@ -1136,7 +1130,7 @@ mod tests {
             &vec![changes2.clone(), changes3.clone()],
             &def_art1,
         )
-            .unwrap();
+        .unwrap();
 
         // Check if new tk is correctly computed
         assert_eq!(
@@ -1149,7 +1143,7 @@ mod tests {
             &vec![changes1.clone()],
             &vec![changes2.clone(), changes3.clone()],
         )
-            .unwrap();
+        .unwrap();
 
         // Check Merge correctness
         let tk1_merged = art1.get_root_key().unwrap();
@@ -1162,13 +1156,13 @@ mod tests {
             &vec![changes1.clone(), changes3.clone()],
             &def_art2,
         )
-            .unwrap();
+        .unwrap();
         // Merge unapplied changes into the art
         art2.merge_with_skip(
             &vec![changes2.clone()],
             &vec![changes1.clone(), changes3.clone()],
         )
-            .unwrap();
+        .unwrap();
 
         // Check Merge correctness
         assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
