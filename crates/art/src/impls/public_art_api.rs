@@ -16,6 +16,7 @@ use serde::de::DeserializeOwned;
 use std::cmp::{PartialEq, max, min};
 use std::collections::HashMap;
 use tracing::{debug, error};
+use crate::traits::ARTPrivateAPI;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -324,9 +325,12 @@ where
         &mut self,
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
-        append_changes: bool,
-        update_weights: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+        let (append_changes, update_weights) = match self.get_node(&NodeIndex::from(path.clone()))?.is_blank {
+            true => (true, false),
+            false => (false, true),
+        };
+
         self.make_blank_without_changes_with_options(&path, update_weights)?;
 
         self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path, append_changes)
@@ -368,7 +372,7 @@ where
         changes: &BranchChanges<G>,
         mut fork: Self,
     ) -> Result<Vec<G::ScalarField>, ARTError> {
-        fork.update_public_art(changes, false, true)?;
+        fork.update_public_art(changes)?;
 
         let co_path_values = fork.get_co_path_values(&node_index)?;
         let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
@@ -478,6 +482,17 @@ where
     }
 
     fn update_public_art(
+        &mut self,
+        changes: &BranchChanges<G>,
+    ) -> Result<(), ARTError> {
+        if let BranchChangesType::MakeBlank = changes.change_type && self.get_node(&changes.node_index)?.is_blank {
+            self.update_public_art_with_options(changes, true, false)
+        } else {
+            self.update_public_art_with_options(changes, false, true)
+        }
+    }
+
+    fn update_public_art_with_options(
         &mut self,
         changes: &BranchChanges<G>,
         append_changes: bool,

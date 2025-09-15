@@ -1,7 +1,7 @@
 // Asynchronous Ratchet Tree implementation
 
 use crate::helper_tools::{iota_function};
-use crate::types::Direction;
+use crate::types::{Direction, NodeIndex};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
@@ -61,22 +61,12 @@ where
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        self.make_blank_with_options(path, temporary_secret_key, false, true)
-    }
-
-    fn make_blank_with_options(
-        &mut self,
-        path: &Vec<Direction>,
-        temporary_secret_key: &G::ScalarField,
-        append_changes: bool,
-        update_weights: bool,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+        let append_changes = self.get_node(&NodeIndex::from(path.clone()))?.is_blank;
         let (mut tk, changes, artefacts) = self.make_blank_in_public_art(
             path,
             temporary_secret_key,
-            append_changes,
-            update_weights,
         )?;
+
         match append_changes {
             true => {
                 self.merge_path_secrets(&artefacts.secrets, &changes.node_index)?;
@@ -99,7 +89,11 @@ where
     }
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
-        self.update_private_art_with_options(changes, false, true)
+        if let BranchChangesType::MakeBlank = changes.change_type && self.get_node(&changes.node_index)?.is_blank {
+            self.update_private_art_with_options(changes, true, false)
+        } else {
+            self.update_private_art_with_options(changes, false, true)
+        }
     }
 
     fn update_private_art_with_options(
@@ -109,7 +103,7 @@ where
         update_weights: bool,
     ) -> Result<(), ARTError> {
         let fork = self.clone();
-        self.update_public_art(changes, append_changes, update_weights)?;
+        self.update_public_art_with_options(changes, append_changes, update_weights)?;
 
         match &changes.change_type {
             BranchChangesType::AppendNode => self.update_node_index()?,

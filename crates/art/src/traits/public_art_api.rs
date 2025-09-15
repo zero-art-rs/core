@@ -106,8 +106,6 @@ where
         &mut self,
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
-        append_changes: bool,
-        update_weights: bool,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
@@ -158,6 +156,11 @@ where
 
     /// Updates art with given changes.
     fn update_public_art(
+        &mut self,
+        changes: &BranchChanges<G>,
+    ) -> Result<(), ARTError>;
+
+    fn update_public_art_with_options(
         &mut self,
         changes: &BranchChanges<G>,
         append_changes: bool,
