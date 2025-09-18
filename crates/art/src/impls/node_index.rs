@@ -121,6 +121,10 @@ impl NodeIndex {
     }
 
     fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u64, u64), ARTError> {
+        if path.len() == 0 {
+            return Ok((0, 0));
+        }
+
         let mut position = 0u64;
 
         for next in path {
@@ -130,7 +134,7 @@ impl NodeIndex {
             }
         }
 
-        Ok((path.len() as u64 - 1, position))
+        Ok((path.len() as u64, position))
     }
 
     fn get_intersection(&self, other: &NodeIndex) -> Result<NodeIndex, ARTError> {

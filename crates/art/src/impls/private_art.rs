@@ -9,7 +9,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
-use tracing::debug;
+use tracing::{debug, error};
 
 impl<G> ARTPublicView<G> for PrivateART<G>
 where
@@ -89,16 +89,40 @@ where
         let node_path = self.get_node_index().get_path()?;
         let other_node_path = other.get_path()?;
 
+        let path_secrets = self.get_mut_path_secrets();
+
+        if path_secrets.len() == 0 {
+            return Err(ARTError::EmptyART)
+        }
+
+        if path_secrets.len() == 1 {
+            // ART has only one node
+            if other_path_secrets.len() != 1 {
+                return Err(ARTError::InvalidInput)
+            }
+
+            path_secrets[0] = other_path_secrets[0];
+            return Ok(());
+        }
+
         // Minus 2, because we skip root index
-        let last_index = self.get_path_secrets().len() - 2;
+        let last_index = path_secrets.len() - 2;
         let other_last_index = other_path_secrets.len() - 2;
 
-        let path_secrets = self.get_mut_path_secrets();
         // Update root, as any change will affect it
         path_secrets[last_index + 1] = other_path_secrets[other_last_index + 1];
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
+            // if path to next node is the same, then the secret where updated for both, else not.
             if a == b {
-                // if path to next node is the same
+                if other_last_index < i {
+                    return Ok(())
+                }
+
+                if last_index < i {
+                    error!("Failed to update path secrets, because provided path points on child node.");
+                    return Err(ARTError::InvalidInput)
+                }
+
                 path_secrets[last_index - i] = other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());
@@ -115,16 +139,38 @@ where
     ) -> Result<(), ARTError> {
         let node_path = self.get_node_index().get_path()?;
         let other_node_path = other.get_path()?;
-
-        let last_index = self.get_path_secrets().len() - 2;
-        let other_last_index = other_path_secrets.len() - 2;
-
         let path_secrets = self.get_mut_path_secrets();
 
-        path_secrets[last_index + 1] = path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
+        if path_secrets.len() == 0 {
+            return Err(ARTError::EmptyART)
+        }
 
+        if path_secrets.len() == 1 {
+            // ART has only one node
+            if other_path_secrets.len() != 1 {
+                // If path_secrets.len() is 1, then there are no other leaves
+                return Err(ARTError::InvalidInput)
+            }
+
+            path_secrets[0] = path_secrets[0] + other_path_secrets[0];
+            return Ok(());
+        }
+
+        let last_index = path_secrets.len() - 2;
+        let other_last_index = other_path_secrets.len() - 2;
+
+        path_secrets[last_index + 1] = path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
+                if other_last_index < i {
+                    return Ok(())
+                }
+
+                if last_index < i {
+                    error!("Failed to update path secrets, because provided path points on child node.");
+                    return Err(ARTError::InvalidInput)
+                }
+
                 path_secrets[last_index - i] = path_secrets[last_index - i] + other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());
@@ -144,7 +190,7 @@ where
         secrets: &Vec<G::ScalarField>,
         generator: &G,
     ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        let secret_key = secrets[0];
+        let secret_key = *secrets.get(0).ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
         Ok((Self::from_public_art(art, secret_key)?, root_key))

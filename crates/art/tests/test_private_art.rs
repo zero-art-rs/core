@@ -24,28 +24,29 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
-    use tracing::debug;
+    use tracing::{debug, warn};
     use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+
+    pub const TEST_GROUP_SIZE: usize = 100;
 
     #[test]
     fn test_art_key_update() {
         init_tracing_for_test();
 
-        let number_of_users = 5;
-        let main_user_id = rng().random_range(0..number_of_users);
-        let secrets = create_random_secrets(number_of_users);
+        let main_user_id = rng().random_range(0..TEST_GROUP_SIZE);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
 
         let (public_art, root_key) =
             PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut users_arts = Vec::new();
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             // Assert creator and users computed the same tree key.
             assert_eq!(
                 users_arts[i].get_root_key().unwrap().key,
@@ -62,7 +63,7 @@ mod tests {
 
         assert_ne!(new_key.key, main_old_key);
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id {
                 users_arts[i].update_private_art(&changes).unwrap();
                 assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
@@ -74,7 +75,7 @@ mod tests {
 
         assert_eq!(root_key.key, recomputed_old_key.key);
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id {
                 users_arts[i].update_private_art(&changes).unwrap();
                 assert_eq!(
@@ -88,14 +89,13 @@ mod tests {
 
     #[test]
     fn test_art_weights_correctness() {
-        let number_of_users = 10;
-        let secrets = create_random_secrets(number_of_users);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
 
         let (mut tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
-        for _ in 0..number_of_users {
+        for _ in 1..TEST_GROUP_SIZE {
             let _ = tree.append_or_replace_node(&Fr::rand(&mut rng)).unwrap();
         }
 
@@ -117,8 +117,14 @@ mod tests {
 
     #[test]
     fn test_art_tree_serialization() {
-        let number_of_users = 100;
-        let secrets = create_random_secrets(number_of_users);
+        init_tracing_for_test();
+
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test: test_art_tree_serialization, as group size is to small");
+            return;
+        }
+
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
 
         let (tree, _) =
             PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
@@ -140,13 +146,17 @@ mod tests {
         init_tracing_for_test();
 
         let mut rng = rng();
-        let number_of_users = 100;
-        let secrets = create_random_secrets(number_of_users);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
 
-        let main_user_id = rng.random_range(0..(number_of_users - 2));
-        let mut blank_user_id = rng.random_range(0..(number_of_users - 3));
+        if TEST_GROUP_SIZE < 4 {
+            warn!("Cant run the test, as group size is to small");
+            return;
+        }
+
+        let main_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 2));
+        let mut blank_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 3));
         while blank_user_id >= main_user_id && blank_user_id <= main_user_id + 2 {
-            blank_user_id = rng.random_range(0..(number_of_users - 3));
+            blank_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 3));
         }
 
         let mut rng = StdRng::seed_from_u64(rand::random());
@@ -155,11 +165,11 @@ mod tests {
             PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let mut users_arts = Vec::new();
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             // Assert all the users computed the same tree key.
             assert_eq!(
                 users_arts[i].get_root_key().unwrap().key,
@@ -187,7 +197,7 @@ mod tests {
             root_key.key
         );
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             if i != blank_user_id && i != main_user_id {
                 assert_ne!(
                     users_arts[i].get_root_key().unwrap().key,
@@ -198,7 +208,7 @@ mod tests {
                 let user_root_key = users_arts[i].get_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
-                assert_eq!(users_arts[i].get_root().weight, number_of_users - 1);
+                assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE - 1);
             }
         }
 
@@ -208,7 +218,7 @@ mod tests {
 
         assert_ne!(root_key2.key, root_key.key);
 
-        for i in 0..number_of_users {
+        for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id && i != blank_user_id {
                 users_arts[i].update_private_art(&changes2).unwrap();
 
@@ -216,7 +226,7 @@ mod tests {
                     users_arts[i].get_root_key().unwrap().key,
                     root_key2.key
                 );
-                assert_eq!(users_arts[i].get_root().weight, number_of_users);
+                assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE);
             }
         }
     }
@@ -224,7 +234,6 @@ mod tests {
     #[test]
     fn test_art_node_coordinate_enumeration() {
         let number_of_users = 32;
-
         let secrets = create_random_secrets(number_of_users);
 
         let (mut tree, _) =
@@ -377,7 +386,7 @@ mod tests {
 
     #[test]
     fn art_balance() {
-        for i in 1..100 {
+        for i in 1..TEST_GROUP_SIZE {
             let secrets = create_random_secrets(i);
             let (art, _) =
                 PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
@@ -389,12 +398,17 @@ mod tests {
     fn test_key_update_proof() {
         init_tracing_for_test();
 
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test: test_key_update_proof, as group size is to small");
+            return;
+        }
+
         let mut rng = StdRng::seed_from_u64(rand::random());
-        let secrets = create_random_secrets(100);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let (mut art, _) =
             PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
-        let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[2])
+        let mut test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[1])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
@@ -431,12 +445,19 @@ mod tests {
 
     #[test]
     fn test_make_blank_proof() {
+        init_tracing_for_test();
+
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test: test_make_blank_proof, as group size is to small");
+            return;
+        }
+
         let mut rng = StdRng::seed_from_u64(rand::random());
-        let secrets = create_random_secrets(100);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let (mut art, _) =
             PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
-        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
+        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[1])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
@@ -481,12 +502,17 @@ mod tests {
     fn test_append_node_proof() {
         init_tracing_for_test();
 
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test: test_append_node_proof, as group size is to small");
+            return;
+        }
+
         let mut rng = StdRng::seed_from_u64(rand::random());
-        let secrets = create_random_secrets(8);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let (mut art, _) =
             PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
-        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[4])
+        let test_art = PrivateART::deserialize(&art.serialize().unwrap(), &secrets[1])
             .expect("Failed to deserialize art");
 
         let secret_key = art.secret_key.clone();
@@ -581,22 +607,25 @@ mod tests {
     fn test_merge_for_key_updates() {
         init_tracing_for_test();
 
-        let art_size = 7;
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
+            return;
+        }
 
-        let secrets = create_random_secrets(art_size);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
             .unwrap()
             .0;
 
         let mut user_arts = Vec::new();
-        for i in 0..art_size {
+        for i in 0..TEST_GROUP_SIZE {
             let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
 
-        let mut first = user_arts.remove(3);
-        let mut second = user_arts.remove(4);
+        let mut first = user_arts.remove(0);
+        let mut second = user_arts.remove(0);
 
         let first_secret = create_random_secrets(1)[0];
         let second_secret = create_random_secrets(1)[0];
@@ -639,7 +668,7 @@ mod tests {
         );
 
         let mut rng = rand::rng();
-        for i in 0..art_size - 2 {
+        for i in 0..TEST_GROUP_SIZE - 2 {
             match rng.random_bool(0.5) {
                 true => {
                     user_arts[i].update_private_art(&first_changes).unwrap();
@@ -675,22 +704,25 @@ mod tests {
     fn test_general_merge_for_key_updates() {
         init_tracing_for_test();
 
-        let art_size = 7;
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_remove_member, as the group size is to small");
+            return;
+        }
 
-        let secrets = create_random_secrets(art_size);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
             .unwrap()
             .0;
 
         let mut user_arts = Vec::new();
-        for i in 0..art_size {
+        for i in 0..TEST_GROUP_SIZE {
             let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
 
-        let mut first = user_arts.remove(3);
-        let mut second = user_arts.remove(4);
+        let mut first = user_arts.remove(0);
+        let mut second = user_arts.remove(0);
 
         let first_secret = create_random_secrets(1)[0];
         let second_secret = create_random_secrets(1)[0];
@@ -748,7 +780,7 @@ mod tests {
         }
         assert_ne!(root_key_from_changes, CortadoAffine::zero());
         let mut rng = rand::rng();
-        for i in 0..art_size - 2 {
+        for i in 0..TEST_GROUP_SIZE - 2 {
             match rng.random_bool(0.5) {
                 true => {
                     user_arts[i].merge(&all_changes).unwrap();
@@ -783,15 +815,18 @@ mod tests {
     fn test_merge_for_add_member() {
         init_tracing_for_test();
 
-        let art_size = 9;
+        if TEST_GROUP_SIZE < 5 {
+            warn!("Cant run the test test_merge_for_add_member, as group size is to small");
+            return;
+        }
 
-        let secrets = create_random_secrets(art_size);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
             .unwrap()
             .0;
 
         let mut user_arts = Vec::new();
-        for i in 0..art_size {
+        for i in 0..TEST_GROUP_SIZE {
             let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
                 .expect("Failed to deserialize art");
             user_arts.push(art);
@@ -900,7 +935,7 @@ mod tests {
         assert_eq!(art1.root, art2.root);
 
         let all_changes = vec![changes1, changes2, changes3, changes4];
-        for i in 0..art_size - 4 {
+        for i in 0..TEST_GROUP_SIZE - 4 {
             user_arts[i]
                 .recompute_path_secrets_for_observer(&all_changes)
                 .unwrap();
@@ -921,15 +956,19 @@ mod tests {
     fn test_merge_for_remove_member() {
         init_tracing_for_test();
 
+        if TEST_GROUP_SIZE < 4 {
+            warn!("Cant run the test test_merge_for_remove_member, as the group size is to small");
+            return;
+        }
+
         // init test
-        let art_size = 9;
-        let secrets = create_random_secrets(art_size);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
             .unwrap()
             .0;
 
         let mut user_arts = Vec::new();
-        for i in 0..art_size {
+        for i in 0..TEST_GROUP_SIZE {
             let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
                 .expect("Failed to deserialize art");
             user_arts.push(art);
@@ -1058,7 +1097,7 @@ mod tests {
 
         // Check merge correctness for other users
         let all_changes = vec![changes1, changes2, changes3];
-        for i in 0..art_size - 4 {
+        for i in 0..TEST_GROUP_SIZE - 4 {
             user_arts[i]
                 .recompute_path_secrets_for_observer(&all_changes)
                 .unwrap();
@@ -1079,17 +1118,21 @@ mod tests {
     fn test_merge_for_multi_removal() -> Result<(), ARTError> {
         init_tracing_for_test();
 
+        if TEST_GROUP_SIZE < 4 {
+            warn!("Can't run the test: test_merge_for_multi_removal, as the group size is too small");
+            return Ok(());
+        }
+
         let mut rng = StdRng::seed_from_u64(rand::random());
 
         // initialize test
-        let art_size = 9;
-        let secrets = create_random_secrets(art_size);
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
         let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
             .unwrap()
             .0;
 
         let mut user_arts = Vec::new();
-        for i in 0..art_size {
+        for i in 0..TEST_GROUP_SIZE {
             let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
                 .expect("Failed to deserialize art");
             user_arts.push(art);
@@ -1097,9 +1140,9 @@ mod tests {
 
         // choose some users for main test subjects
         let mut user0 = user_arts.remove(0);
-        let mut user1 = user_arts.remove(3);
-        let mut user2 = user_arts.remove(4);
-        let mut user3 = user_arts.remove(3);
+        let mut user1 = user_arts.remove(0);
+        let mut user2 = user_arts.remove(0);
+        let mut user3 = user_arts.remove(0);
         debug!("User0 Q_pk_x: {}", user0.public_key_of(&user0.get_secret_key()).x);
 
         debug!("User0 leaf: {}", user0.get_secret_key());

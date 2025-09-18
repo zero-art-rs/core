@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{PartialEq, max, min};
 use std::collections::HashMap;
+use ark_std::iterable::Iterable;
 use tracing::{debug, error};
 use crate::traits::ARTPrivateAPI;
 
@@ -345,6 +346,10 @@ where
         changes: &BranchChanges<G>,
         append_changes: bool,
     ) -> Result<(), ARTError> {
+        if changes.public_keys.len() == 0 {
+            return Err(ARTError::InvalidInput);
+        }
+        
         let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
             current_node.set_public_key_with_options(changes.public_keys[i], append_changes);
@@ -413,6 +418,10 @@ where
 
         let path_to_other = self.get_path_to_leaf(public_key)?;
         let path_to_self = self.get_path_to_leaf(&users_public_key)?;
+        
+        if path_to_other.len() < 2 {
+            return Ok(true);
+        }
 
         if path_to_other.len().abs_diff(path_to_self.len()) > 1 {
             return Ok(false);
@@ -428,6 +437,10 @@ where
     }
 
     fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
+        if path.len() == 0 {
+            return Err(ARTError::InvalidInput);
+        }
+        
         let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;

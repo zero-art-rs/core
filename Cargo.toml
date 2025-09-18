@@ -11,6 +11,9 @@ resolver = "2"
 
 [profile.test]
     inherits = "release"
+    overflow-checks = true
+
+
 
 [workspace.dependencies]
 ark-ec = { version = "0.5.0" }
