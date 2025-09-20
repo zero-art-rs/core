@@ -34,9 +34,7 @@ where
     G::BaseField: PrimeField,
 {
     let x = point.x().ok_or(ARTError::XCoordinateError)?;
-    let secret = Scalar::from_bytes_mod_order(
-        (&x.into_bigint().to_bytes_le()[..]).try_into()?,
-    );
+    let secret = Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?);
 
     Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
 }

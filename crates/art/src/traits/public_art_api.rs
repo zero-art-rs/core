@@ -155,10 +155,7 @@ where
     fn get_disbalance(&self) -> Result<u64, ARTError>;
 
     /// Updates art with given changes.
-    fn update_public_art(
-        &mut self,
-        changes: &BranchChanges<G>,
-    ) -> Result<(), ARTError>;
+    fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
     fn update_public_art_with_options(
         &mut self,

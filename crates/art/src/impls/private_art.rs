@@ -1,3 +1,4 @@
+use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
     helper_tools::{to_ark_scalar, to_dalek_scalar},
@@ -97,12 +98,17 @@ where
             let node_path = self.get_node_index().get_path()?;
             let other_node_path = other.get_path()?;
 
-            return if node_path.len() == other_node_path.len() || node_path.len() + 1 == other_node_path.len() {
+            return if node_path.len() == other_node_path.len() {
                 self.set_path_secrets(other_path_secrets);
+                Ok(())
+            } else if node_path.len() + 1 == other_node_path.len() {
+                other_path_secrets[0] = path_secrets.pop().ok_or(ARTError::EmptyART)?;
+                self.set_path_secrets(other_path_secrets);
+
                 Ok(())
             } else {
                 Err(ARTError::InvalidInput)
-            }
+            };
         }
 
         // It is a partial update of the path.
@@ -130,8 +136,7 @@ where
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
                 path_secrets[i + 1] = other_path_secrets[i + 1];
-            }
-            else {
+            } else {
                 break;
             }
         }
@@ -153,14 +158,14 @@ where
         let path_secrets = self.get_mut_path_secrets();
 
         if path_secrets.len() == 0 {
-            return Err(ARTError::EmptyART)
+            return Err(ARTError::EmptyART);
         }
 
         if path_secrets.len() == 1 {
             // ART has only one node
             if other_path_secrets.len() != 1 {
                 // If path_secrets.len() is 1, then there are no other leaves
-                return Err(ARTError::InvalidInput)
+                return Err(ARTError::InvalidInput);
             }
 
             path_secrets[0] = path_secrets[0] + other_path_secrets[0];
@@ -170,19 +175,23 @@ where
         let last_index = path_secrets.len() - 2;
         let other_last_index = other_path_secrets.len() - 2;
 
-        path_secrets[last_index + 1] = path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
+        path_secrets[last_index + 1] =
+            path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
                 if other_last_index < i {
-                    return Ok(())
+                    return Ok(());
                 }
 
                 if last_index < i {
-                    error!("Failed to update path secrets, because provided path points on child node.");
-                    return Err(ARTError::InvalidInput)
+                    error!(
+                        "Failed to update path secrets, because provided path points on child node."
+                    );
+                    return Err(ARTError::InvalidInput);
                 }
 
-                path_secrets[last_index - i] = path_secrets[last_index - i] + other_path_secrets[other_last_index - i];
+                path_secrets[last_index - i] =
+                    path_secrets[last_index - i] + other_path_secrets[other_last_index - i];
             } else {
                 return Ok(());
             }
@@ -269,7 +278,9 @@ where
 
     fn try_from((mut other, secret_key): (A, G::ScalarField)) -> Result<Self, Self::Error> {
         // let node_index = NodeIndex::from(other.get_leaf_index(&other.public_key_of(&secret_key))?);
-        let node_index = NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?).as_index()?;
+        let node_index =
+            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
+                .as_index()?;
         let (_, artefacts) =
             other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
         let root = other.replace_root(Box::new(ARTNode::default()));
@@ -281,5 +292,23 @@ where
             node_index,
             path_secrets: artefacts.secrets,
         })
+    }
+}
+
+impl<G> PartialEq for PrivateART<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+    Self: ARTPublicAPI<G>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        if self.root == other.root
+            && self.generator == other.generator
+            && self.get_root_key().ok() == other.get_root_key().ok()
+        {
+            return true;
+        }
+
+        false
     }
 }

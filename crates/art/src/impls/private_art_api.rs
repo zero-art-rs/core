@@ -1,6 +1,6 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::{iota_function};
+use crate::helper_tools::iota_function;
 use crate::types::{Direction, NodeIndex};
 use crate::{
     errors::ARTError,
@@ -8,7 +8,7 @@ use crate::{
     types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField};
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -22,11 +22,10 @@ where
     A: ARTPrivateView<G>,
 {
     fn recompute_prover_artefacts(&self) -> Result<ProverArtefacts<G>, ARTError> {
-        let (_, artefacts) = self
-            .recompute_root_key_with_artefacts_using_path_secrets(
-                self.get_node_index(),
-                self.get_path_secrets().clone()
-            )?;
+        let (_, artefacts) = self.recompute_root_key_with_artefacts_using_path_secrets(
+            self.get_node_index(),
+            self.get_path_secrets().clone(),
+        )?;
 
         Ok(artefacts)
     }
@@ -34,9 +33,9 @@ where
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         Ok(ARTRootKey {
             key: *self
-                    .get_path_secrets()
-                    .last()
-                    .ok_or(ARTError::ARTLogicError)?,
+                .get_path_secrets()
+                .last()
+                .ok_or(ARTError::ARTLogicError)?,
             generator: self.get_generator(),
         })
     }
@@ -65,10 +64,8 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let append_changes = self.get_node(&NodeIndex::from(path.clone()))?.is_blank;
-        let (mut tk, changes, artefacts) = self.make_blank_in_public_art(
-            path,
-            temporary_secret_key,
-        )?;
+        let (mut tk, changes, artefacts) =
+            self.make_blank_in_public_art(path, temporary_secret_key)?;
 
         match append_changes {
             true => {
@@ -93,7 +90,9 @@ where
     }
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
-        if let BranchChangesType::MakeBlank = changes.change_type && self.get_node(&changes.node_index)?.is_blank {
+        if let BranchChangesType::MakeBlank = changes.change_type
+            && self.get_node(&changes.node_index)?.is_blank
+        {
             self.update_private_art_with_options(changes, true, false)
         } else {
             self.update_private_art_with_options(changes, false, true)

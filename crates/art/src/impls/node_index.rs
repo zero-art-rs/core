@@ -53,7 +53,7 @@ impl NodeIndex {
 
         Ok(index)
     }
-    
+
     pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ARTError> {
         let mut is_subpath = true;
         for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
@@ -62,7 +62,7 @@ impl NodeIndex {
                 break;
             }
         }
-        
+
         Ok(is_subpath)
     }
 

@@ -1,3 +1,4 @@
+use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
     helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar},
@@ -11,13 +12,12 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::Zero;
+use ark_std::iterable::Iterable;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{PartialEq, max, min};
 use std::collections::HashMap;
-use ark_std::iterable::Iterable;
 use tracing::{debug, error};
-use crate::traits::ARTPrivateAPI;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -105,9 +105,7 @@ where
 
         Ok((
             ARTRootKey {
-                key: *path_secrets
-                        .last()
-                        .ok_or(ARTError::InvalidInput)?,
+                key: *path_secrets.last().ok_or(ARTError::InvalidInput)?,
                 generator: self.get_generator(),
             },
             ProverArtefacts {
@@ -327,10 +325,11 @@ where
         path: &Vec<Direction>,
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (append_changes, update_weights) = match self.get_node(&NodeIndex::from(path.clone()))?.is_blank {
-            true => (true, false),
-            false => (false, true),
-        };
+        let (append_changes, update_weights) =
+            match self.get_node(&NodeIndex::from(path.clone()))?.is_blank {
+                true => (true, false),
+                false => (false, true),
+            };
 
         self.make_blank_without_changes_with_options(&path, update_weights)?;
 
@@ -349,7 +348,7 @@ where
         if changes.public_keys.len() == 0 {
             return Err(ARTError::InvalidInput);
         }
-        
+
         let mut current_node = self.get_mut_root();
         for i in 0..changes.public_keys.len() - 1 {
             current_node.set_public_key_with_options(changes.public_keys[i], append_changes);
@@ -418,7 +417,7 @@ where
 
         let path_to_other = self.get_path_to_leaf(public_key)?;
         let path_to_self = self.get_path_to_leaf(&users_public_key)?;
-        
+
         if path_to_other.len() < 2 {
             return Ok(true);
         }
@@ -440,7 +439,7 @@ where
         if path.len() == 0 {
             return Err(ARTError::InvalidInput);
         }
-        
+
         let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
@@ -494,11 +493,10 @@ where
         Ok(max_height - min_height)
     }
 
-    fn update_public_art(
-        &mut self,
-        changes: &BranchChanges<G>,
-    ) -> Result<(), ARTError> {
-        if let BranchChangesType::MakeBlank = changes.change_type && self.get_node(&changes.node_index)?.is_blank {
+    fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+        if let BranchChangesType::MakeBlank = changes.change_type
+            && self.get_node(&changes.node_index)?.is_blank
+        {
             self.update_public_art_with_options(changes, true, false)
         } else {
             self.update_public_art_with_options(changes, false, true)
