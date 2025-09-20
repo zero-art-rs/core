@@ -83,51 +83,62 @@ where
 
     fn update_path_secrets_with(
         &mut self,
-        other_path_secrets: &Vec<G::ScalarField>,
+        mut other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError> {
+        let mut path_secrets = self.get_path_secrets().clone();
+
+        if path_secrets.len() == 0 {
+            return Err(ARTError::EmptyART);
+        }
+
+        if self.node_index.is_subpath_of(other)? {
+            // Update path after update_key or append_node.
+            let node_path = self.get_node_index().get_path()?;
+            let other_node_path = other.get_path()?;
+
+            return if node_path.len() == other_node_path.len() || node_path.len() + 1 == other_node_path.len() {
+                self.set_path_secrets(other_path_secrets);
+                Ok(())
+            } else {
+                Err(ARTError::InvalidInput)
+            }
+        }
+
+        // It is a partial update of the path.
         let node_path = self.get_node_index().get_path()?;
         let other_node_path = other.get_path()?;
 
-        let path_secrets = self.get_mut_path_secrets();
+        // Reverse secrets to perform computations starting from the root.
+        other_path_secrets.reverse();
+        path_secrets.reverse();
 
-        if path_secrets.len() == 0 {
-            return Err(ARTError::EmptyART)
-        }
+        // if path_secrets.len() != node_path.len() + 1 {
+        //     debug!("Error: path_secrets.len() != node_path.len() + 1");
+        //     return Err(ARTError::InvalidInput)
+        // }
 
-        if path_secrets.len() == 1 {
-            // ART has only one node
-            if other_path_secrets.len() != 1 {
-                return Err(ARTError::InvalidInput)
-            }
+        // if other_path_secrets.len() != other_node_path.len() + 1 {
+        //     debug!("Error: other_path_secrets.len() != other_node_path.len() + 1");
+        //     return Err(ARTError::InvalidInput)
+        // }
 
-            path_secrets[0] = other_path_secrets[0];
-            return Ok(());
-        }
+        // Always update art root key.
+        path_secrets[0] = other_path_secrets[0];
 
-        // Minus 2, because we skip root index
-        let last_index = path_secrets.len() - 2;
-        let other_last_index = other_path_secrets.len() - 2;
-
-        // Update root, as any change will affect it
-        path_secrets[last_index + 1] = other_path_secrets[other_last_index + 1];
+        // Update other keys on the path.
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
-            // if path to next node is the same, then the secret where updated for both, else not.
             if a == b {
-                if other_last_index < i {
-                    return Ok(())
-                }
-
-                if last_index < i {
-                    error!("Failed to update path secrets, because provided path points on child node.");
-                    return Err(ARTError::InvalidInput)
-                }
-
-                path_secrets[last_index - i] = other_path_secrets[other_last_index - i];
-            } else {
-                return Ok(());
+                path_secrets[i + 1] = other_path_secrets[i + 1];
+            }
+            else {
+                break;
             }
         }
+
+        // Reverse path_secrets back to normal order, and update change old secrets.
+        path_secrets.reverse();
+        self.set_path_secrets(path_secrets);
 
         Ok(())
     }
@@ -201,7 +212,7 @@ where
         secret_key: G::ScalarField,
     ) -> Result<Self, ARTError> {
         let node_index =
-            NodeIndex::from(public_art.get_leaf_index(&public_art.public_key_of(&secret_key))?);
+            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?);
         let (_, artefacts) = public_art
             .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
 

@@ -50,7 +50,7 @@ where
     /// it isn't. Can be used to update path secrets after applied art changes.
     fn update_path_secrets_with(
         &mut self,
-        other_path_secrets: &Vec<G::ScalarField>,
+        other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
     ) -> Result<(), ARTError>;
 

@@ -53,6 +53,18 @@ impl NodeIndex {
 
         Ok(index)
     }
+    
+    pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ARTError> {
+        let mut is_subpath = true;
+        for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
+            if a != b {
+                is_subpath = false;
+                break;
+            }
+        }
+        
+        Ok(is_subpath)
+    }
 
     /// Computes the path to the node starting from the root.
     fn get_path_from_index(index: u64) -> Result<Vec<Direction>, ARTError> {

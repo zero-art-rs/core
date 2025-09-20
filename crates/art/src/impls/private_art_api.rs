@@ -12,6 +12,7 @@ use ark_ff::{PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tracing::debug;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -51,7 +52,9 @@ where
             &self.get_node_index().get_path()?,
             false,
         )?;
+
         self.set_path_secrets(artefacts.secrets.clone());
+        self.update_node_index()?;
 
         Ok((tk, changers, artefacts))
     }
@@ -83,7 +86,8 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let (tk, changes, artefacts) = self.append_or_replace_node_in_public_art(secret_key)?;
-        self.update_path_secrets_with(&artefacts.secrets, &changes.node_index)?;
+        self.update_path_secrets_with(artefacts.secrets.clone(), &changes.node_index)?;
+        self.update_node_index()?;
 
         Ok((tk, changes, artefacts))
     }
@@ -105,9 +109,8 @@ where
         let fork = self.clone();
         self.update_public_art_with_options(changes, append_changes, update_weights)?;
 
-        match &changes.change_type {
-            BranchChangesType::AppendNode => self.update_node_index()?,
-            _ => {}
+        if let BranchChangesType::AppendNode = &changes.change_type {
+            self.update_node_index()?;
         };
 
         let artefact_secrets = self.get_artefact_secrets_from_change(
@@ -119,7 +122,7 @@ where
 
         match append_changes {
             true => self.merge_path_secrets(&artefact_secrets, &changes.node_index)?,
-            false => _ = self.update_path_secrets_with(&artefact_secrets, &changes.node_index),
+            false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
         }
 
         Ok(())

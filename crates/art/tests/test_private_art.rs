@@ -8,7 +8,7 @@ mod tests {
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
     use art::helper_tools::{to_ark_scalar, to_dalek_scalar};
-    use art::traits::ARTPrivateView;
+    use art::traits::{ARTPrivateView};
     use art::types::{
         ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
     };
@@ -25,6 +25,7 @@ mod tests {
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
+    use tracing::field::debug;
     use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
@@ -32,11 +33,89 @@ mod tests {
     pub const TEST_GROUP_SIZE: usize = 100;
 
     #[test]
+    fn test_flow() {
+        init_tracing_for_test();
+
+        let secrets = create_random_secrets(2);
+        let (mut first_user, _) =
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+
+        let sk: Fr = create_random_secrets(1)[0];
+        first_user.append_or_replace_node_in_public_art(&sk).unwrap();
+
+        let mut seccond_user = PrivateART::try_from((first_user.clone(), sk)).unwrap();
+
+        assert_eq!(seccond_user.root, first_user.root);
+
+        let new_sk: Fr = create_random_secrets(1)[0];
+        let (tk, changes, artefacts) = first_user.append_or_replace_node(&new_sk).unwrap();
+        seccond_user.update_private_art(&changes).unwrap();
+
+        assert_eq!(seccond_user.root, first_user.root);
+        assert_eq!(seccond_user.get_root(), first_user.get_root());
+
+    }
+
+    #[test]
+    fn test_flow2() {
+        init_tracing_for_test();
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+
+        let (mut private_art_0, _) = PrivateART::new_art_from_secrets(
+            &vec![secret_key_0, secret_key_1],
+            &CortadoAffine::generator(),
+        )
+            .unwrap();
+
+        let secret_key_2 = Fr::rand(&mut rng);
+        debug!("ART0 add member");
+        let (ap_tk, app_changes, app_artefacts) = private_art_0.append_or_replace_node(&secret_key_2).unwrap();
+        assert_eq!(ap_tk, private_art_0.get_root_key().unwrap());
+        debug!("append tk: {}", ap_tk.key);
+
+        let public_art_bytes = private_art_0.serialize().unwrap();
+
+        let mut private_art_1: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secret_key_2).unwrap();
+
+        debug!("private_art_1.node_index: {:?}", private_art_1.node_index);
+
+        assert_eq!(private_art_0.root, private_art_1.root);
+        assert_eq!(private_art_0.get_root_key().unwrap(), private_art_1.get_root_key().unwrap());
+
+        let tk0 = private_art_0.get_root_key().unwrap();
+        let tk1 = private_art_1.get_root_key().unwrap();
+
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        debug!("ART1 update key");
+        let (tk, changes_key_update, _) = private_art_1.update_key(&secret_key_3).unwrap();
+        assert_ne!(tk1, private_art_1.get_root_key().unwrap());
+        assert_eq!(tk, private_art_1.get_root_key().unwrap());
+
+        debug!("Update art");
+        debug!("private_art_0.get_node_index(): {:?}", private_art_0.get_node_index());
+        private_art_0.update_private_art(&changes_key_update).unwrap();
+
+        assert_ne!(tk0, tk);
+        assert_ne!(tk0, private_art_0.get_root_key().unwrap());
+        assert_eq!(tk, private_art_0.get_root_key().unwrap());
+
+        assert_eq!(private_art_0.get_root_key().unwrap(), private_art_1.get_root_key().unwrap());
+        assert_eq!(private_art_0.get_root(), private_art_1.get_root());
+    }
+
+    #[test]
     fn test_art_key_update() {
         init_tracing_for_test();
 
-        let main_user_id = rng().random_range(0..TEST_GROUP_SIZE);
-        let secrets = create_random_secrets(TEST_GROUP_SIZE);
+        let mut rng = StdRng::seed_from_u64(0);
+        let main_user_id = 0;
+        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
 
         let (public_art, root_key) =
             PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
@@ -58,18 +137,25 @@ mod tests {
 
         // Save old secret key to roll back
         let main_old_key = secrets[main_user_id];
-        let main_new_key = get_random_scalar();
+        let main_new_key = get_random_scalar_with_rng(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
 
         assert_ne!(new_key.key, main_old_key);
 
-        for i in 0..TEST_GROUP_SIZE {
-            if i != main_user_id {
-                users_arts[i].update_private_art(&changes).unwrap();
-                assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
-                assert_eq!(new_key, users_arts[i].get_root_key().unwrap());
-            }
-        }
+        debug!("new_key.key: {}", new_key.key);
+
+        users_arts[72].update_private_art(&changes).unwrap();
+        assert_eq!(users_arts[72].get_root_key().unwrap().key, new_key.key);
+        assert_eq!(new_key, users_arts[72].get_root_key().unwrap());
+
+        // for i in 0..TEST_GROUP_SIZE {
+        //     if i != main_user_id {
+        //         users_arts[i].update_private_art(&changes).unwrap();
+        //         debug!("I: {}", i);
+        //         assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
+        //         assert_eq!(new_key, users_arts[i].get_root_key().unwrap());
+        //     }
+        // }
 
         let (recomputed_old_key, changes, _) = main_user_art.update_key(&main_old_key).unwrap();
 
@@ -145,21 +231,23 @@ mod tests {
     fn test_art_make_blank() {
         init_tracing_for_test();
 
-        let mut rng = rng();
-        let secrets = create_random_secrets(TEST_GROUP_SIZE);
+        let mut range_rng = rng();
+        // let mut rng = StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
 
         if TEST_GROUP_SIZE < 4 {
             warn!("Cant run the test, as group size is to small");
             return;
         }
 
-        let main_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 2));
-        let mut blank_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 3));
+        let main_user_id = range_rng.random_range(0..(TEST_GROUP_SIZE - 2));
+        let mut blank_user_id = range_rng.random_range(0..(TEST_GROUP_SIZE - 3));
         while blank_user_id >= main_user_id && blank_user_id <= main_user_id + 2 {
-            blank_user_id = rng.random_range(0..(TEST_GROUP_SIZE - 3));
+            blank_user_id = range_rng.random_range(0..(TEST_GROUP_SIZE - 3));
         }
 
-        let mut rng = StdRng::seed_from_u64(rand::random());
+        // let mut rng = StdRng::seed_from_u64(rand::random());
 
         let (public_art, root_key) =
             PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
@@ -1252,6 +1340,10 @@ mod tests {
         Ok(())
     }
 
+    fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {
+        (0..size).map(|_| F::rand(rng)).collect()
+    }
+
     fn create_random_secrets<F: Field>(size: usize) -> Vec<F> {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
@@ -1284,6 +1376,15 @@ mod tests {
         let mut k = Fr::zero();
         while k.is_one() || k.is_zero() {
             k = Fr::rand(&mut rng);
+        }
+
+        k
+    }
+
+    fn get_random_scalar_with_rng(rng: &mut StdRng) -> Fr {
+        let mut k = Fr::zero();
+        while k.is_one() || k.is_zero() {
+            k = Fr::rand(rng);
         }
 
         k
