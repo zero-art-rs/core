@@ -32,6 +32,7 @@ mod tests {
 
     pub const TEST_GROUP_SIZE: usize = 100;
 
+    /// User creates art with one node and appends new user. New user updates his sk.
     #[test]
     fn test_flow1() {
         init_tracing_for_test();
@@ -96,7 +97,7 @@ mod tests {
         let secret_key_3 = Fr::rand(&mut rng);
 
         // New user updates his key
-        let (tk, changes_key_update, _) = user1.update_key(&secret_key_3).unwrap();
+        let (tk, change_key_update, _) = user1.update_key(&secret_key_3).unwrap();
         assert_ne!(
             tk1,
             user1.get_root_key().unwrap(),
@@ -112,7 +113,7 @@ mod tests {
             "Both users have different view on the state of the art, as they are not synced yet"
         );
 
-        user0.update_private_art(&changes_key_update).unwrap();
+        user0.update_private_art(&change_key_update).unwrap();
 
         assert_eq!(
             user0, user1,
@@ -122,15 +123,151 @@ mod tests {
             tk0, tk,
             "Sanity check: old tk is different from the new one."
         );
-        assert_ne!(
-            tk0,
-            user0.get_root_key().unwrap(),
-            "Sanity check: old tk is different from the stored one."
-        );
         assert_eq!(
             tk,
             user0.get_root_key().unwrap(),
             "Sanity check: new tk is the same as the stored one."
+        );
+    }
+
+    /// main user creates art with three users, then removes one of them. The remaining user
+    /// updates his art, and also removes user (instead or changing, he utilizes merge). Removed
+    /// user updates his art. Finally, he verifies, that he was removed.
+    #[test]
+    fn test_flow2() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        assert_ne!(secret_key_0, secret_key_1);
+        assert_ne!(secret_key_1, secret_key_2);
+
+        let (mut user0, def_tk) =
+            PrivateART::<CortadoAffine>::new_art_from_secrets(&vec![secret_key_0, secret_key_1, secret_key_2], &CortadoAffine::generator())
+                .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = user0.serialize().unwrap();
+        let mut user1: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secret_key_1).unwrap();
+
+        let mut user2: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secret_key_2).unwrap();
+
+        assert_ne!(
+            user0.path_secrets, user1.path_secrets,
+            "Sanity check: Both users have different path secrets"
+        );
+        assert_ne!(
+            user0.path_secrets, user2.path_secrets,
+            "Sanity check: Both users have different path secrets"
+        );
+        assert_ne!(
+            user2.path_secrets, user1.path_secrets,
+            "Sanity check: Both users have different path secrets"
+        );
+        assert!(user0.eq(&user1), "New user received the same art");
+        assert!(user0.eq(&user2), "New user received the same art");
+
+        let tk0 = user0.get_root_key().unwrap();
+        let tk1 = user1.get_root_key().unwrap();
+        let tk2 = user2.get_root_key().unwrap();
+
+        let blanking_secret_key_1 = Fr::rand(&mut rng);
+        let blanking_secret_key_2 = Fr::rand(&mut rng);
+
+        // User0 removes second user node from the art.
+        let (tk_r1, remove_member_change1, _) = user0.make_blank(&user2.node_index.get_path().unwrap(), &blanking_secret_key_1).unwrap();
+        assert_ne!(
+            tk1,
+            user0.get_root_key().unwrap(),
+            "Sanity check: old tk is different from the stored one."
+        );
+        assert_eq!(
+            tk_r1,
+            user0.get_root_key().unwrap(),
+            "Sanity check: new tk is the same as the stored one."
+        );
+        assert_ne!(
+            user0, user1,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_ne!(
+            user0, user2,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_eq!(
+            user0.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user0.public_key_of(&blanking_secret_key_1),
+            "The node was removed correctly."
+        );
+
+        // Sync other users art
+        user1.update_private_art(&remove_member_change1).unwrap();
+
+        assert!(
+            matches!(
+                user2.update_private_art(&remove_member_change1).err(),
+                Some(ARTError::InapplicableBlanking)
+            ),
+            "Cant perform art update using blank leaf."
+        );
+
+        assert_eq!(
+            user0, user1,
+            "Both users have the same view on the state of the art"
+        );
+        assert_eq!(
+            user1.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user1.public_key_of(&blanking_secret_key_1),
+            "The node was removed correctly."
+        );
+
+        // User1 removes second user node from the art.
+        let (tk_r2, remove_member_change2, _) = user1.make_blank(&user2.node_index.get_path().unwrap(), &blanking_secret_key_2).unwrap();
+        assert_eq!(
+            user1.get_node(&remove_member_change2.node_index).unwrap().public_key,
+            user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
+            "The node was removed correctly."
+        );
+        assert_eq!(
+            user1.get_root().public_key,
+            user1.public_key_of(&tk_r2.key),
+            "The node was removed correctly."
+        );
+        assert_ne!(
+            tk_r1,
+            tk_r2,
+            "Sanity check: old tk is different from the new one."
+        );
+        assert_eq!(
+            tk_r2,
+            user1.get_root_key().unwrap(),
+            "Sanity check: new tk is the same as the stored one."
+        );
+        assert_ne!(
+            user0, user1,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_ne!(
+            user1, user2,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+
+        // Sync other users art
+        user0.update_private_art(&remove_member_change2).unwrap();
+
+        assert_eq!(
+            user0, user1,
+            "Both users have the same view on the state of the art"
+        );
+        assert_eq!(
+            user1.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
+            "The node was removed correctly."
         );
     }
 

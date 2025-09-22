@@ -45,6 +45,8 @@ where
     /// Changes path_secrets to the given ones.
     fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField>;
 
+    fn update_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>, apend_changes: bool) -> Result<(), ARTError>;
+
     /// Changes path secrets on path from the root to leaf with `other_path_secrets`, using only
     /// those, which are on the path from root to user leaf. Can be used to update path secrets
     /// after applied art changes. On update art, if the other node_index points on the node child,
@@ -61,7 +63,8 @@ where
     /// added together. In other case, those keys will not affect each other.
     fn merge_path_secrets(
         &mut self,
-        other_path_secrets: &Vec<G::ScalarField>,
+        other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
+        preserve_leaf_key: bool,
     ) -> Result<(), ARTError>;
 }

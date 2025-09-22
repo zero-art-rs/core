@@ -34,4 +34,6 @@ pub enum ARTError {
     NoChanges,
     #[error("The art has no nodes")]
     EmptyART,
+    #[error("Can't apply blank changes to itself")]
+    InapplicableBlanking,
 }

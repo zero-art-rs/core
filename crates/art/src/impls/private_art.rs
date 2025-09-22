@@ -82,6 +82,22 @@ where
         mem::replace(&mut self.path_secrets, new_path_secrets)
     }
 
+    fn update_path_secrets(&mut self, other_path_secrets: Vec<G::ScalarField>, append_changes: bool) -> Result<(), ARTError> {
+        if append_changes {
+            if self.path_secrets.len() != other_path_secrets.len() {
+                return Err(ARTError::InvalidInput)
+            } else {
+                for (i, b) in other_path_secrets.iter().enumerate() {
+                    self.path_secrets[i] += b;
+                }
+            }
+        } else {
+            _ = mem::replace(&mut self.path_secrets, other_path_secrets);
+        }
+
+        Ok(())
+    }
+
     fn update_path_secrets_with(
         &mut self,
         mut other_path_secrets: Vec<G::ScalarField>,
@@ -150,52 +166,62 @@ where
 
     fn merge_path_secrets(
         &mut self,
-        other_path_secrets: &Vec<G::ScalarField>,
+        mut other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
+        preserve_leaf_key: bool,
     ) -> Result<(), ARTError> {
-        let node_path = self.get_node_index().get_path()?;
-        let other_node_path = other.get_path()?;
-        let path_secrets = self.get_mut_path_secrets();
+        let mut path_secrets = self.get_path_secrets().clone();
 
         if path_secrets.len() == 0 {
             return Err(ARTError::EmptyART);
         }
 
-        if path_secrets.len() == 1 {
-            // ART has only one node
-            if other_path_secrets.len() != 1 {
-                // If path_secrets.len() is 1, then there are no other leaves
-                return Err(ARTError::InvalidInput);
-            }
+        if self.node_index.is_subpath_of(other)? {
+            // Update path after update_key, append_node, or your node removal.
+            let node_path = self.get_node_index().get_path()?;
+            let other_node_path = other.get_path()?;
 
-            path_secrets[0] = path_secrets[0] + other_path_secrets[0];
-            return Ok(());
+            return if node_path.len() == other_node_path.len() {
+                self.update_path_secrets(other_path_secrets.clone(), true)?;
+                Ok(())
+            } else if node_path.len() + 1 == other_node_path.len() {
+                if preserve_leaf_key {
+                    other_path_secrets[0] = path_secrets.pop().ok_or(ARTError::EmptyART)?;
+                }
+                for (i, a) in path_secrets.iter().enumerate() {
+                    other_path_secrets[i] += a;
+                }
+                self.set_path_secrets(other_path_secrets.clone());
+
+                Ok(())
+            } else {
+                Err(ARTError::InvalidInput)
+            };
         }
 
-        let last_index = path_secrets.len() - 2;
-        let other_last_index = other_path_secrets.len() - 2;
+        // It is a partial update of the path.
+        let node_path = self.get_node_index().get_path()?;
+        let other_node_path = other.get_path()?;
 
-        path_secrets[last_index + 1] =
-            path_secrets[last_index + 1] + other_path_secrets[other_last_index + 1];
+        // Reverse secrets to perform computations starting from the root.
+        other_path_secrets.reverse();
+        path_secrets.reverse();
+
+        // Always update art root key.
+        path_secrets[0] += other_path_secrets[0];
+
+        // Update other keys on the path.
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
-                if other_last_index < i {
-                    return Ok(());
-                }
-
-                if last_index < i {
-                    error!(
-                        "Failed to update path secrets, because provided path points on child node."
-                    );
-                    return Err(ARTError::InvalidInput);
-                }
-
-                path_secrets[last_index - i] =
-                    path_secrets[last_index - i] + other_path_secrets[other_last_index - i];
+                path_secrets[i + 1] += other_path_secrets[i + 1];
             } else {
-                return Ok(());
+                break;
             }
         }
+
+        // Reverse path_secrets back to normal order, and update change old secrets.
+        path_secrets.reverse();
+        self.set_path_secrets(path_secrets);
 
         Ok(())
     }

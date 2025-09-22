@@ -64,13 +64,14 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let append_changes = self.get_node(&NodeIndex::from(path.clone()))?.is_blank;
+        debug!("append_changes: {}", append_changes);
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
         match append_changes {
             true => {
-                self.merge_path_secrets(&artefacts.secrets, &changes.node_index)?;
                 tk.key += *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?;
+                self.merge_path_secrets(artefacts.secrets.clone(), &changes.node_index, !self.get_node(&self.get_node_index())?.is_blank)?;
             }
             false => _ = self.set_path_secrets(artefacts.secrets.clone()),
         }
@@ -105,7 +106,17 @@ where
         append_changes: bool,
         update_weights: bool,
     ) -> Result<(), ARTError> {
+        // If your node is to be blanked, return error, as it is impossible to update
+        // path secrets at that point.
+        if let BranchChangesType::MakeBlank = changes.change_type {
+            if changes.node_index.eq(self.get_node_index()) {
+                return Err(ARTError::InapplicableBlanking);
+            }
+        }
+
+        // create a fork of the art, to correctly append change
         let fork = self.clone();
+
         self.update_public_art_with_options(changes, append_changes, update_weights)?;
 
         if let BranchChangesType::AppendNode = &changes.change_type {
@@ -120,7 +131,7 @@ where
         )?;
 
         match append_changes {
-            true => self.merge_path_secrets(&artefact_secrets, &changes.node_index)?,
+            true => self.merge_path_secrets(artefact_secrets, &changes.node_index, !self.get_node(&self.get_node_index())?.is_blank)?,
             false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
         }
 
@@ -167,7 +178,7 @@ where
                 secrets.push(ark_secret);
             }
 
-            self.merge_path_secrets(&secrets, &change.node_index)?;
+            self.merge_path_secrets(secrets, &change.node_index, !self.get_node(&self.get_node_index())?.is_blank)?;
         }
 
         Ok(())
