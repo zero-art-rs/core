@@ -64,7 +64,6 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let append_changes = self.get_node(&NodeIndex::from(path.clone()))?.is_blank;
-        debug!("append_changes: {}", append_changes);
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
@@ -73,7 +72,7 @@ where
                 tk.key += *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?;
                 self.merge_path_secrets(artefacts.secrets.clone(), &changes.node_index, !self.get_node(&self.get_node_index())?.is_blank)?;
             }
-            false => _ = self.set_path_secrets(artefacts.secrets.clone()),
+            false => _ = self.update_path_secrets_with(artefacts.secrets.clone(), &changes.node_index),
         }
 
         Ok((tk, changes, artefacts))

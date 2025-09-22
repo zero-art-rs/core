@@ -10,6 +10,9 @@ path = "src/lib.rs"
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
 
+[features]
+fuzz_test = []
+
 [dependencies]
 ark-ec = { workspace = true }
 ark-ff = { workspace = true }
@@ -32,3 +35,7 @@ postcard = { workspace = true, features = ["alloc"] }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 log = "0.4.27"
+
+[dev-dependencies]
+strum = "0.27"
+strum_macros = "0.27"

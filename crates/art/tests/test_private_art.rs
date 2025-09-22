@@ -618,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn art_balance() {
+    fn art_balance_at_creation() {
         for i in 1..TEST_GROUP_SIZE {
             let secrets = create_random_secrets(i);
             let (art, _) =

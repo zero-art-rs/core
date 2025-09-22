@@ -56,7 +56,7 @@ where
 
     fn update_node_index(&mut self) -> Result<(), ARTError> {
         let path = self.get_path_to_leaf(&self.public_key_of(&self.get_secret_key()))?;
-        self.set_node_index(NodeIndex::Direction(path));
+        self.set_node_index(NodeIndex::Direction(path).as_index()?);
 
         Ok(())
     }
@@ -131,6 +131,23 @@ where
         let node_path = self.get_node_index().get_path()?;
         let other_node_path = other.get_path()?;
 
+        // Handle case, when the user is the neighbour of the one, who apdated his art
+        if node_path.len() == other_node_path.len() {
+            let mut node_index_clone = node_path.clone();
+            node_index_clone.pop();
+            if NodeIndex::Direction(node_index_clone).is_subpath_of(other)? {
+                match self.path_secrets.first() {
+                    Some(sk) => {
+                        other_path_secrets[0] = *sk;
+                        self.set_path_secrets(other_path_secrets);
+                        return Ok(());
+                    },
+                    None => return Err(ARTError::EmptyART),
+                }
+            }
+
+        }
+
         // Reverse secrets to perform computations starting from the root.
         other_path_secrets.reverse();
         path_secrets.reverse();
@@ -149,9 +166,12 @@ where
         path_secrets[0] = other_path_secrets[0];
 
         // Update other keys on the path.
+        // debug!("path_secrets.len(): {}, other_path_secrets.len(): {}", path_secrets.len(), other_path_secrets.len());
+        // debug!("indexes: {:?} and other is: {:?}", self.get_node_index(), other.as_path());
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
-                path_secrets[i + 1] = other_path_secrets[i + 1];
+                path_secrets[i + 1]
+                    = other_path_secrets[i + 1];
             } else {
                 break;
             }
@@ -247,7 +267,7 @@ where
         secret_key: G::ScalarField,
     ) -> Result<Self, ARTError> {
         let node_index =
-            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?);
+            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?).as_index()?;
         let (_, artefacts) = public_art
             .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
 

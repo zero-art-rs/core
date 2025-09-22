@@ -216,11 +216,14 @@ where
 
     fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
         for (node, path) in LeafIterWithPath::new(self.get_root()) {
-            let mut node_path = Vec::with_capacity(path.len());
             if node.is_blank {
+                let mut node_path = Vec::with_capacity(path.len());
+
                 for (_, dir) in path {
                     node_path.push(dir);
                 }
+
+                return Some(node_path);
             }
         }
 
@@ -265,7 +268,6 @@ where
             node_for_extension.weight += 1; // The weight of every node is increased by 1
             node_for_extension = node_for_extension.get_mut_child(direction)?;
         }
-
         let next_node_direction = match node_for_extension.is_blank {
             true => None,
             false => Some(Direction::Right),
