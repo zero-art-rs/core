@@ -1,5 +1,8 @@
+mod utils;
+
 #[cfg(test)]
 mod tests {
+    use super::utils::init_tracing_for_test;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed25519::EdwardsAffine as Ed25519Affine;
     use ark_ff::{BigInteger, Field, PrimeField};
@@ -132,7 +135,7 @@ mod tests {
 
     /// main user creates art with three users, then removes one of them. The remaining user
     /// updates his art, and also removes user (instead or changing, he utilizes merge). Removed
-    /// user updates his art. Finally, he verifies, that he was removed.
+    /// user fails to update his art.
     #[test]
     fn test_flow2() {
         init_tracing_for_test();
@@ -145,9 +148,11 @@ mod tests {
         assert_ne!(secret_key_0, secret_key_1);
         assert_ne!(secret_key_1, secret_key_2);
 
-        let (mut user0, def_tk) =
-            PrivateART::<CortadoAffine>::new_art_from_secrets(&vec![secret_key_0, secret_key_1, secret_key_2], &CortadoAffine::generator())
-                .unwrap();
+        let (mut user0, def_tk) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![secret_key_0, secret_key_1, secret_key_2],
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
 
         // Serialise and deserialize art for the other users.
         let public_art_bytes = user0.serialize().unwrap();
@@ -180,7 +185,12 @@ mod tests {
         let blanking_secret_key_2 = Fr::rand(&mut rng);
 
         // User0 removes second user node from the art.
-        let (tk_r1, remove_member_change1, _) = user0.make_blank(&user2.node_index.get_path().unwrap(), &blanking_secret_key_1).unwrap();
+        let (tk_r1, remove_member_change1, _) = user0
+            .make_blank(
+                &user2.node_index.get_path().unwrap(),
+                &blanking_secret_key_1,
+            )
+            .unwrap();
         assert_ne!(
             tk1,
             user0.get_root_key().unwrap(),
@@ -200,7 +210,10 @@ mod tests {
             "Both users have different view on the state of the art, as they are not synced yet."
         );
         assert_eq!(
-            user0.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user0
+                .get_node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key,
             user0.public_key_of(&blanking_secret_key_1),
             "The node was removed correctly."
         );
@@ -221,15 +234,26 @@ mod tests {
             "Both users have the same view on the state of the art"
         );
         assert_eq!(
-            user1.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user1
+                .get_node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key,
             user1.public_key_of(&blanking_secret_key_1),
             "The node was removed correctly."
         );
 
         // User1 removes second user node from the art.
-        let (tk_r2, remove_member_change2, _) = user1.make_blank(&user2.node_index.get_path().unwrap(), &blanking_secret_key_2).unwrap();
+        let (tk_r2, remove_member_change2, _) = user1
+            .make_blank(
+                &user2.node_index.get_path().unwrap(),
+                &blanking_secret_key_2,
+            )
+            .unwrap();
         assert_eq!(
-            user1.get_node(&remove_member_change2.node_index).unwrap().public_key,
+            user1
+                .get_node(&remove_member_change2.node_index)
+                .unwrap()
+                .public_key,
             user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
             "The node was removed correctly."
         );
@@ -239,8 +263,7 @@ mod tests {
             "The node was removed correctly."
         );
         assert_ne!(
-            tk_r1,
-            tk_r2,
+            tk_r1, tk_r2,
             "Sanity check: old tk is different from the new one."
         );
         assert_eq!(
@@ -265,7 +288,10 @@ mod tests {
             "Both users have the same view on the state of the art"
         );
         assert_eq!(
-            user1.get_node(&remove_member_change1.node_index).unwrap().public_key,
+            user1
+                .get_node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key,
             user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
             "The node was removed correctly."
         );
@@ -301,8 +327,6 @@ mod tests {
 
         assert_ne!(new_key.key, main_old_key);
 
-        debug!("new_key.key: {}", new_key.key);
-
         users_arts[72].update_private_art(&changes).unwrap();
         assert_eq!(users_arts[72].get_root_key().unwrap().key, new_key.key);
         assert_eq!(new_key, users_arts[72].get_root_key().unwrap());
@@ -330,6 +354,16 @@ mod tests {
                 assert_eq!(recomputed_old_key, users_arts[i].get_root_key().unwrap());
             }
         }
+    }
+
+    #[test]
+    fn test_get_public_art() {
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
+
+        let (mut private_art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+        let public_art = PublicART::from(private_art);
     }
 
     #[test]
@@ -1093,13 +1127,6 @@ mod tests {
             generator: tk1.generator,
         };
 
-        debug!("merged_tk: {}", merged_tk.key);
-
-        debug!("tk1.key: {}", tk1.key);
-        debug!("tk2.key: {}", tk2.key);
-        debug!("tk3.key: {}", tk3.key);
-        debug!("tk4.key: {}", tk4.key);
-
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1.key));
         assert_eq!(art2.root.public_key, art2.public_key_of(&tk2.key));
         assert_eq!(art3.root.public_key, art3.public_key_of(&tk3.key));
@@ -1247,11 +1274,6 @@ mod tests {
 
         let merged_pub_tk = art1.public_key_of(&merged_tk.key);
 
-        debug!("merged_tk: {}", merged_tk.key);
-        debug!("tk1.key: {}", tk1.key);
-        debug!("tk2.key: {}", tk2.key);
-        debug!("tk3.key: {}", tk3.key);
-
         // Sanity check
         assert_eq!(
             art1.root.public_key,
@@ -1375,15 +1397,6 @@ mod tests {
         let mut user1 = user_arts.remove(0);
         let mut user2 = user_arts.remove(0);
         let mut user3 = user_arts.remove(0);
-        debug!(
-            "User0 Q_pk_x: {}",
-            user0.public_key_of(&user0.get_secret_key()).x
-        );
-
-        debug!("User0 leaf: {}", user0.get_secret_key());
-        debug!("User1 leaf: {}", user1.get_secret_key());
-        debug!("User2 leaf: {}", user2.get_secret_key());
-        debug!("User3 leaf: {}", user3.get_secret_key());
 
         // sanity check
         assert_eq!(user2.get_root(), user0.get_root());
@@ -1410,8 +1423,6 @@ mod tests {
             user0.get_root().public_key
         );
         // user0.update_key(None).await?;
-        debug!("User0 TK_x: {}", user0.root.public_key.x);
-        debug!("User0 tk: {}", user0.get_root_key().unwrap().key);
 
         debug!("User1 receive changes ..");
         // let blank_user_0 = user1.get_changes(20, 0, None).await?;
@@ -1425,10 +1436,6 @@ mod tests {
             user1.get_root().public_key
         );
         // user1.epoch += 1;
-        debug!("User1 tk: {}", user1.get_root_key().unwrap().key);
-        for key in user1.get_path_secrets() {
-            debug!("    User1 path key: {}", key);
-        }
         assert_eq!(user1.get_root(), user0.get_root());
 
         debug!("User 1 update key ...");
@@ -1437,11 +1444,6 @@ mod tests {
             user1.get_node(&target_index)?.public_key,
             user1.public_key_of(&second_key)
         );
-        debug!("User1 TK_x: {}", user1.root.public_key.x);
-        debug!("User1 tk: {}", user1.get_root_key().unwrap().key);
-        for key in user1.get_path_secrets() {
-            debug!("    User1 path key: {}", key);
-        }
         assert_eq!(
             user1.public_key_of(&user1.get_root_key()?.key),
             user1.get_root().public_key
@@ -1451,10 +1453,6 @@ mod tests {
         // let blank_user_1 = user2.get_changes(20, 0, None).await?;
         user2.update_private_art(&change0).unwrap();
         // user2.epoch += 1;
-        debug!("User2 tk: {}", user2.get_root_key().unwrap().key);
-        for key in user2.get_path_secrets() {
-            debug!("    User2 path key: {}", key);
-        }
         // debug!("art2:\n{}", user2.art.get_root());
         assert_eq!(user2.get_root(), user0.get_root());
         assert_eq!(
@@ -1462,16 +1460,11 @@ mod tests {
             user0.public_key_of(&user0.get_root_key()?.key),
         );
 
-        debug!("User 2 receive seccond changes ...");
         user2.update_private_art(&change1)?;
         assert_eq!(
             user2.get_node(&target_index)?.public_key,
             user1.public_key_of(&second_key)
         );
-        debug!("User2 tk: {}", user2.get_root_key().unwrap().key);
-        for key in user2.get_path_secrets() {
-            debug!("    User2 path key: {}", key);
-        }
         // user2.epoch += 1;
         // debug!("art2:\n{}", user2.art.get_root());
         assert_eq!(user2.get_root(), user1.get_root());
@@ -1486,7 +1479,6 @@ mod tests {
 
         debug!("User 2 make blank ...");
         let (_, change2, _) = user2.make_blank(&target_node_path, &new_node3_sk)?;
-        debug!("User2 TK_x: {}", user2.root.public_key.x);
         Ok(())
     }
 
@@ -1517,18 +1509,6 @@ mod tests {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)
-    }
-
-    /// Returns random scalar, which is not one or zero.
-    fn get_random_scalar() -> Fr {
-        let mut rng = StdRng::seed_from_u64(rand::random());
-
-        let mut k = Fr::zero();
-        while k.is_one() || k.is_zero() {
-            k = Fr::rand(&mut rng);
-        }
-
-        k
     }
 
     fn get_random_scalar_with_rng(rng: &mut StdRng) -> Fr {
@@ -1589,13 +1569,5 @@ mod tests {
             verification_artefacts.co_path,
             proof.clone(),
         )
-    }
-
-    /// Try to init console logger with RUST_LOG level filter
-    fn init_tracing_for_test() {
-        _ = tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .with_target(false)
-            .try_init();
     }
 }

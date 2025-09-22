@@ -70,9 +70,15 @@ where
         match append_changes {
             true => {
                 tk.key += *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?;
-                self.merge_path_secrets(artefacts.secrets.clone(), &changes.node_index, !self.get_node(&self.get_node_index())?.is_blank)?;
+                self.merge_path_secrets(
+                    artefacts.secrets.clone(),
+                    &changes.node_index,
+                    !self.get_node(&self.get_node_index())?.is_blank,
+                )?;
             }
-            false => _ = self.update_path_secrets_with(artefacts.secrets.clone(), &changes.node_index),
+            false => {
+                _ = self.update_path_secrets_with(artefacts.secrets.clone(), &changes.node_index)
+            }
         }
 
         Ok((tk, changes, artefacts))
@@ -130,7 +136,11 @@ where
         )?;
 
         match append_changes {
-            true => self.merge_path_secrets(artefact_secrets, &changes.node_index, !self.get_node(&self.get_node_index())?.is_blank)?,
+            true => self.merge_path_secrets(
+                artefact_secrets,
+                &changes.node_index,
+                !self.get_node(&self.get_node_index())?.is_blank,
+            )?,
             false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
         }
 
@@ -177,7 +187,11 @@ where
                 secrets.push(ark_secret);
             }
 
-            self.merge_path_secrets(secrets, &change.node_index, !self.get_node(&self.get_node_index())?.is_blank)?;
+            self.merge_path_secrets(
+                secrets,
+                &change.node_index,
+                !self.get_node(&self.get_node_index())?.is_blank,
+            )?;
         }
 
         Ok(())

@@ -45,7 +45,11 @@ where
     /// Changes path_secrets to the given ones.
     fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField>;
 
-    fn update_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>, apend_changes: bool) -> Result<(), ARTError>;
+    fn update_path_secrets(
+        &mut self,
+        new_path_secrets: Vec<G::ScalarField>,
+        apend_changes: bool,
+    ) -> Result<(), ARTError>;
 
     /// Changes path secrets on path from the root to leaf with `other_path_secrets`, using only
     /// those, which are on the path from root to user leaf. Can be used to update path secrets

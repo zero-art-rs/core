@@ -9,13 +9,11 @@ use crate::{
     },
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::Zero;
-use ark_std::iterable::Iterable;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::cmp::{PartialEq, max, min};
+use std::cmp::{max, min};
 use std::collections::HashMap;
 use tracing::{debug, error};
 

@@ -12,6 +12,74 @@ use postcard::{from_bytes, to_allocvec};
 use std::mem;
 use tracing::{debug, error};
 
+impl<G> PrivateART<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
+    pub fn new_art_from_secrets(
+        secrets: &Vec<G::ScalarField>,
+        generator: &G,
+    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
+        let secret_key = *secrets.get(0).ok_or(ARTError::InvalidInput)?;
+        let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
+
+        Ok((Self::from_public_art(art, secret_key)?, root_key))
+    }
+
+    pub fn from_public_art(
+        public_art: PublicART<G>,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError> {
+        let node_index =
+            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?)
+                .as_index()?;
+        let (_, artefacts) = public_art
+            .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
+
+        Ok(Self {
+            root: public_art.root,
+            generator: public_art.generator,
+            secret_key,
+            node_index,
+            path_secrets: artefacts.secrets,
+        })
+    }
+
+    pub fn to_string(&self) -> Result<String, ARTError> {
+        serde_json::to_string(&PublicART {
+            root: self.root.clone(),
+            generator: self.generator,
+        })
+        .map_err(ARTError::SerdeJson)
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
+        to_allocvec(&PublicART {
+            root: self.root.clone(),
+            generator: self.generator,
+        })
+        .map_err(ARTError::Postcard)
+    }
+
+    pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
+        Self::from_public_art(
+            from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
+            *secret_key,
+        )
+    }
+
+    pub fn from_string(
+        canonical_json: &str,
+        secret_key: &G::ScalarField,
+    ) -> Result<Self, ARTError> {
+        Self::from_public_art(
+            serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
+            *secret_key,
+        )
+    }
+}
+
 impl<G> ARTPublicView<G> for PrivateART<G>
 where
     G: AffineRepr + CanonicalDeserialize + CanonicalSerialize,
@@ -82,10 +150,14 @@ where
         mem::replace(&mut self.path_secrets, new_path_secrets)
     }
 
-    fn update_path_secrets(&mut self, other_path_secrets: Vec<G::ScalarField>, append_changes: bool) -> Result<(), ARTError> {
+    fn update_path_secrets(
+        &mut self,
+        other_path_secrets: Vec<G::ScalarField>,
+        append_changes: bool,
+    ) -> Result<(), ARTError> {
         if append_changes {
             if self.path_secrets.len() != other_path_secrets.len() {
-                return Err(ARTError::InvalidInput)
+                return Err(ARTError::InvalidInput);
             } else {
                 for (i, b) in other_path_secrets.iter().enumerate() {
                     self.path_secrets[i] += b;
@@ -141,11 +213,10 @@ where
                         other_path_secrets[0] = *sk;
                         self.set_path_secrets(other_path_secrets);
                         return Ok(());
-                    },
+                    }
                     None => return Err(ARTError::EmptyART),
                 }
             }
-
         }
 
         // Reverse secrets to perform computations starting from the root.
@@ -170,8 +241,7 @@ where
         // debug!("indexes: {:?} and other is: {:?}", self.get_node_index(), other.as_path());
         for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
             if a == b {
-                path_secrets[i + 1]
-                    = other_path_secrets[i + 1];
+                path_secrets[i + 1] = other_path_secrets[i + 1];
             } else {
                 break;
             }
@@ -244,73 +314,6 @@ where
         self.set_path_secrets(path_secrets);
 
         Ok(())
-    }
-}
-
-impl<G> PrivateART<G>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-{
-    pub fn new_art_from_secrets(
-        secrets: &Vec<G::ScalarField>,
-        generator: &G,
-    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        let secret_key = *secrets.get(0).ok_or(ARTError::InvalidInput)?;
-        let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
-
-        Ok((Self::from_public_art(art, secret_key)?, root_key))
-    }
-
-    pub fn from_public_art(
-        public_art: PublicART<G>,
-        secret_key: G::ScalarField,
-    ) -> Result<Self, ARTError> {
-        let node_index =
-            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?).as_index()?;
-        let (_, artefacts) = public_art
-            .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
-
-        Ok(Self {
-            root: public_art.root,
-            generator: public_art.generator,
-            secret_key,
-            node_index,
-            path_secrets: artefacts.secrets,
-        })
-    }
-
-    pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&PublicART {
-            root: self.root.clone(),
-            generator: self.generator,
-        })
-        .map_err(ARTError::SerdeJson)
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        to_allocvec(&PublicART {
-            root: self.root.clone(),
-            generator: self.generator,
-        })
-        .map_err(ARTError::Postcard)
-    }
-
-    pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Self::from_public_art(
-            from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
-            *secret_key,
-        )
-    }
-
-    pub fn from_string(
-        canonical_json: &str,
-        secret_key: &G::ScalarField,
-    ) -> Result<Self, ARTError> {
-        Self::from_public_art(
-            serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
-            *secret_key,
-        )
     }
 }
 
