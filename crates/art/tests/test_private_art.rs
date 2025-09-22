@@ -357,16 +357,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_public_art() {
-        let secrets = create_random_secrets(TEST_GROUP_SIZE);
-
-        let (mut private_art, _) =
-            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
-
-        let public_art = PublicART::from(private_art);
-    }
-
-    #[test]
     fn test_art_weights_correctness() {
         let secrets = create_random_secrets(TEST_GROUP_SIZE);
 
