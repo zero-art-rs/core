@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField};
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -255,7 +255,7 @@ where
         &mut self,
         node: ARTNode<G>,
         path: &[Direction],
-    ) -> Result<Option<Direction>, ARTError> {
+    ) -> Result<bool, ARTError> {
         let mut node_for_extension = self.get_mut_root();
         for direction in path {
             if node_for_extension.is_leaf() {
@@ -267,8 +267,8 @@ where
             node_for_extension = node_for_extension.get_mut_child(direction)?;
         }
         let next_node_direction = match node_for_extension.is_blank {
-            true => None,
-            false => Some(Direction::Right),
+            true => false,
+            false => true,
         };
         node_for_extension.extend_or_replace(node)?;
 
@@ -286,11 +286,9 @@ where
 
         let node = ARTNode::new_leaf(self.public_key_of(secret_key));
 
-        let next = self.append_or_replace_node_without_changes(node.clone(), &path)?;
-        match next {
-            Some(Direction::Right) => path.push(Direction::Right),
-            Some(Direction::Left) => return Err(ARTError::ARTLogicError),
-            None => {}
+        let extend_path = self.append_or_replace_node_without_changes(node.clone(), &path)?;
+        if extend_path {
+            path.push(Direction::Right);
         }
 
         let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);

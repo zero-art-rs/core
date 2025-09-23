@@ -74,12 +74,13 @@ where
 
     /// Extends or replaces a leaf on the end of a given path with the given node. This method
     /// doesn't change other nodes public keys. To update art, use update_art_with_secret_key,
-    /// update_art_with_changes, etc. The return value says if the target node is replaced of extended
+    /// update_art_with_changes, etc. The return value is true if the target node is extended
+    /// with the other. Else it will be replaced.
     fn append_or_replace_node_without_changes(
         &mut self,
         node: ARTNode<G>,
         path: &[Direction],
-    ) -> Result<Option<Direction>, ARTError>;
+    ) -> Result<bool, ARTError>;
 
     /// Extends or replaces the leaf on a path with new node. New node contains public key
     /// corresponding to a given secret key. Then it updates the necessary public keys on a

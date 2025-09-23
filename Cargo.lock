@@ -256,6 +256,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "bulletproofs 5.0.0",
+ "chrono",
  "cortado",
  "criterion",
  "curve25519-dalek",

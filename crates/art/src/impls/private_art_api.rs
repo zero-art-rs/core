@@ -32,10 +32,7 @@ where
 
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         Ok(ARTRootKey {
-            key: *self
-                .get_path_secrets()
-                .last()
-                .ok_or(ARTError::ARTLogicError)?,
+            key: *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?,
             generator: self.get_generator(),
         })
     }
@@ -113,9 +110,11 @@ where
     ) -> Result<(), ARTError> {
         // If your node is to be blanked, return error, as it is impossible to update
         // path secrets at that point.
-        if let BranchChangesType::MakeBlank = changes.change_type {
-            if changes.node_index.eq(self.get_node_index()) {
-                return Err(ARTError::InapplicableBlanking);
+        if changes.node_index.eq(self.get_node_index()) {
+            match changes.change_type {
+                BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
+                BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                _ => {}
             }
         }
 

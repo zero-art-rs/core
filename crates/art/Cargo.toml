@@ -39,3 +39,4 @@ log = "0.4.27"
 [dev-dependencies]
 strum = "0.27"
 strum_macros = "0.27"
+chrono = { version = "0.4.42" }

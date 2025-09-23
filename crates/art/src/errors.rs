@@ -12,28 +12,30 @@ pub enum ARTNodeError {
 
 #[derive(Error, Debug)]
 pub enum ARTError {
-    #[error("Art logic Error.")]
+    #[error("Something vent wrong, while performing operations")]
     ARTLogicError,
-    #[error("Invalid input provided")]
+    #[error("Invalid input provided.")]
     InvalidInput,
     #[error("Postcard error: {0}")]
     Postcard(#[from] postcard::Error),
-    #[error("Serde JSON error: {0}")]
+    #[error("Serde JSON error: {0}.")]
     SerdeJson(#[from] serde_json::Error),
-    #[error("Node error: {0}")]
+    #[error("Node error: {0}.")]
     Node(#[from] ARTNodeError),
     #[error("Cant find path to given node.")]
     PathNotExists,
     #[error("Cant remove th node. It isn't close enough.")]
     RemoveError,
-    #[error("Failed to convert &[u8] into &[u8;32] {0}")]
+    #[error("Failed to convert &[u8] into &[u8;32] {0}.")]
     ConversionError(#[from] std::array::TryFromSliceError),
-    #[error("Failed to retrieve x coordinate of a point")]
+    #[error("Failed to retrieve x coordinate of a point.")]
     XCoordinateError,
-    #[error("No changes provided in given BranchChanges structure")]
+    #[error("No changes provided in given BranchChanges structure.")]
     NoChanges,
-    #[error("The art has no nodes")]
+    #[error("The art has no nodes.")]
     EmptyART,
-    #[error("Can't apply blank changes to itself")]
+    #[error("Can't apply blank changes to itself.")]
     InapplicableBlanking,
+    #[error("Can't apply key update changes to itself.")]
+    InapplicableKeyUpdate,
 }
