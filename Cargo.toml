@@ -11,14 +11,16 @@ resolver = "2"
 
 [profile.test]
     inherits = "release"
+    overflow-checks = true
+
+
 
 [workspace.dependencies]
-ark-ec = { version = "0.5.0" }
-ark-ff = { version = "0.5.0" }
+ark-ec = { version = "0.5.0", git = "https://github.com/arkworks-rs/algebra", rev = "7601bf9" }
+ark-ff = { version = "0.5.0", git = "https://github.com/arkworks-rs/algebra", rev = "7601bf9" }
+ark-serialize = { version = "0.5.0", git = "https://github.com/arkworks-rs/algebra", rev = "7601bf9" }
+ark-ed25519 = { version = "0.5.0", git = "https://github.com/arkworks-rs/algebra", rev = "7601bf9" }
 ark-std = { version = "0.5.0" }
-ark-serialize = { version = "0.5.0" }
-ark-bn254 = { version = "0.5.0" }
-ark-ed25519 = { version = "0.5.0" }
 rand = { version = "0.9.1" }
 serde = { version = "1.0.219" }
 serde_json = { version = "1.0.140" }
@@ -32,3 +34,10 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 zkp = { version = "0.10.0", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
 display_tree = { version = "1.1.2" }
 postcard = { version = "1.1.2" }
+chrono = {  version = "0.4.41" }
+hex = {  version = "0.4.3" }
+merlin = {  version = "3.0.0" }
+rand_core = {  version = "0.6.4" }
+once_cell = { version = "1.21.3" }
+hkdf = { version = "0.12.4"}
+sha3 = {  version = "0.10.8" }

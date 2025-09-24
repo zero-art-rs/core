@@ -11,7 +11,7 @@ where
     S: serde::Serializer,
 {
     let mut bytes = vec![];
-    a.serialize_with_mode(&mut bytes, Compress::No)
+    a.serialize_with_mode(&mut bytes, Compress::Yes)
         .map_err(serde::ser::Error::custom)?;
     s.serialize_bytes(&bytes)
 }
@@ -21,21 +21,36 @@ where
     D: serde::de::Deserializer<'de>,
 {
     let s: ByteBuf = serde::de::Deserialize::deserialize(data)?;
-    let a = A::deserialize_with_mode(s.as_slice(), Compress::No, Validate::Yes);
+    let a = A::deserialize_with_mode(s.as_slice(), Compress::Yes, Validate::Yes);
     a.map_err(serde::de::Error::custom)
 }
 
 /// Iota function is a function which converts computed public secret to scalar field. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
-pub fn iota_function<G>(point: &G) -> Result<Scalar, ARTError>
+pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
     let x = point.x().ok_or(ARTError::XCoordinateError)?;
+    let secret = Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?);
 
+    Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
+}
+
+pub fn to_ark_scalar<G>(point: Scalar) -> G::ScalarField
+where
+    G: AffineRepr,
+{
+    G::ScalarField::from_le_bytes_mod_order(&point.to_bytes())
+}
+
+pub fn to_dalek_scalar<G>(point: G::ScalarField) -> Result<Scalar, ARTError>
+where
+    G: AffineRepr,
+{
     Ok(Scalar::from_bytes_mod_order(
-        (&x.into_bigint().to_bytes_le()[..]).try_into()?,
+        (&point.clone().into_bigint().to_bytes_le()[..]).try_into()?,
     ))
 }

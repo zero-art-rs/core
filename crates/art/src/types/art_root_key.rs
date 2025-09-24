@@ -3,7 +3,7 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(bound = "")]
 pub struct ARTRootKey<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]

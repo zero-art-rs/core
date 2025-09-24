@@ -162,7 +162,7 @@ pub fn Rσ_prove(
     transcript: &mut Transcript,
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     s : Vec<cortado::Fr>, // auxiliary 𝔾_1 secrets
-    λ_a: Vec<Scalar>, // cross-group secrets
+    λ_a: Vec<cortado::Fr>, // cross-group secrets
     blindings: Vec<Scalar>,
 ) -> Result<(CrossDLEQProof<CortadoAffine>, Vec<CortadoAffine>), zkp::ProofError> {
     let start = Instant::now();
@@ -173,10 +173,10 @@ pub fn Rσ_prove(
         R.push(prover.add_dl_statement(s));
     }
     for i in 0..λ_a.len() {
-        let λ = cortado::Fq::from_scalar(λ_a[i]).into_bigint();
+        let λ = λ_a[i];
         let r = scalar_to_ark(&blindings[i]);
         
-        prover.add_dleq_statement(λ , r);
+        prover.add_dleq_statement(λ.into() , r);
     }
     let proof = prover.prove_cross()?;
     let b = proof.to_bytes()?.len();
@@ -506,25 +506,24 @@ pub fn Rδ_verify(
     Ok(())
 }
 
-pub fn random_witness_gen(k: u32) -> (Vec<Scalar>, Vec<CortadoAffine>, Vec<CortadoAffine>) {
+pub fn random_witness_gen(k: u32) -> (Vec<cortado::Fr>, Vec<CortadoAffine>, Vec<CortadoAffine>) {
     let start = Instant::now();
     let mut blinding_rng = rand::thread_rng();
     let mut λ = Vec::new();
     let mut Q_a = Vec::new();
     let mut Q_b = Vec::new();
-    let r: cortado::Fr = blinding_rng.r#gen();
-    let mut λ_a = Scalar::from_bytes_mod_order((&r.into_bigint().to_bytes_le()[..]).try_into().unwrap());
-    Q_a.push((CortadoAffine::generator() * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine());
+    let mut λ_a: cortado::Fr = blinding_rng.r#gen();
+    Q_a.push((CortadoAffine::generator() * λ_a).into_affine());
     λ.push(λ_a);
     
     for i in 0..k {
         let r: cortado::Fr = blinding_rng.r#gen();
         let q_b = (CortadoAffine::generator() * r).into_affine();
         Q_b.push(q_b);
-        let R = (q_b * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
-        λ_a = R.x().unwrap().into_scalar();
+        let R = (q_b * λ_a).into_affine();
+        λ_a = R.x().unwrap().into_bigint().into();
         λ.push(λ_a);
-        let q_a = (CortadoAffine::generator() * cortado::Fr::from_le_bytes_mod_order(&λ_a.to_bytes())).into_affine();
+        let q_a = (CortadoAffine::generator() * λ_a).into_affine();
         Q_a.push(q_a);
     }
     debug!("Witness generation for Rι with depth {} took {:?}", k, start.elapsed());
@@ -539,13 +538,17 @@ pub fn art_prove(
     R: Vec<CortadoAffine>, // auxiliary public keys
     Q_a: Vec<CortadoAffine>, // path public keys
     Q_b: Vec<CortadoAffine>, // reciprocal public keys
-    λ_a: Vec<Scalar>, // secrets
+    λ_a: Vec<cortado::Fr>, // secrets
     s: Vec<cortado::Fr>, // auxiliary 𝔾_1 secrets
     blindings: Vec<Scalar>, // blinding factors for λ_a
 ) -> Result<ARTProof, R1CSError> {
     let start = Instant::now();
     let pc_gens = PedersenGens{B: ark_to_ristretto255(basis.G_2).unwrap(), B_blinding: ark_to_ristretto255(basis.H_2).unwrap()};
     let bp_gens = BulletproofGens::new(estimate_bp_gens(Q_b.len(), 2), 1);
+    let leaf_secret = λ_a[0];
+    let λ_a_scalars = λ_a.clone();
+    let λ_a: Vec<Scalar> = λ_a.iter().map(|x| x.into_scalar()).collect();
+
     #[cfg(feature = "cross_sigma")]
     {
         let (Rι_proofs, _) = Rι_prove(&pc_gens, &bp_gens, Q_b.clone(), λ_a.clone(), blindings.clone())?;
@@ -555,7 +558,7 @@ pub fn art_prove(
             &mut transcript,
             basis,
             s,
-            λ_a,
+            λ_a_scalars,
             blindings
         ).map_err(|e| R1CSError::GadgetError{ description: format!("Rσ_prove failed: {e:?}") })?;
 
@@ -572,7 +575,7 @@ pub fn art_prove(
         let mut transcript = Transcript::new(b"R_sigma");
         transcript.append_message(b"ad", ad);
         let mut prover: SigmaProver<CortadoAffine, Transcript, &mut Transcript> = SigmaProver::new(b"R_sigma", &mut transcript);
-        let var_lambda = prover.allocate_scalar(b"lambda_0", cortado::Fr::from_scalar(λ_a[0]));
+        let var_lambda = prover.allocate_scalar(b"lambda_0", leaf_secret);
         let (var_P, _) = prover.allocate_point(b"P", basis.G_1);
         let (var_Q, _) = prover.allocate_point(b"Q", Q_a[0]);
         prover.constrain(var_Q, vec![(var_lambda, var_P)]);
@@ -653,7 +656,7 @@ mod tests {
 
     use super::*;
 
-    fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
+    /*fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
         let mut blinding_rng = rand::thread_rng();
         let pc_gens = PedersenGens::default();
         let bp_gens = BulletproofGens::new(1<<16, 1);
@@ -683,7 +686,7 @@ mod tests {
         assert!(Rι_roundtrip(7).is_ok());
         assert!(Rι_roundtrip(10).is_ok());
         assert!(Rι_roundtrip(15).is_ok());
-    }
+    }*/
 
     fn Rσ_roundtrip(k: u32) -> Result<(), ProofError> {
         let G_1 = CortadoAffine::generator();

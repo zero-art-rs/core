@@ -48,40 +48,52 @@ fn private_example() {
         PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[1]).unwrap();
     let new_secret_key_1 = ScalarField::rand(&mut rng);
     // Every user will update his leaf secret key after receival.
-    let (tk_1, changes_1) = art_1.update_key(&new_secret_key_1).unwrap();
+    let (tk_1, changes_1, _) = art_1.update_key(&new_secret_key_1).unwrap();
 
     // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_public_art(&changes_1).unwrap();
+    art_0.update_private_art(&changes_1).unwrap();
     // Now, to get common secret, usr can call the next
-    let tk_0 = art_0.recompute_root_key().unwrap();
+    let tk_0 = art_0.get_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
     // Users can further modify art as next.
     // Upend new node for new member.
     let some_secret_key1 = ScalarField::rand(&mut rng);
-    let (_, changes_2) = art_1.append_node(&some_secret_key1).unwrap();
+    let (_, changes_2, _) = art_1
+        .append_or_replace_node_in_public_art(&some_secret_key1)
+        .unwrap();
     // Update secret key
     let some_secret_key2 = ScalarField::rand(&mut rng);
-    let (_, changes_3) = art_1.update_key(&some_secret_key2).unwrap();
+    let (_, changes_3, _) = art_1.update_key(&some_secret_key2).unwrap();
     // Upend new node for new member.
     let some_secret_key3 = ScalarField::rand(&mut rng);
-    let (_, changes_4) = art_1.append_node(&some_secret_key3).unwrap();
+    let (_, changes_4, artefacts_4) = art_1
+        .append_or_replace_node_in_public_art(&some_secret_key3)
+        .unwrap();
     // Remove member from the tree, by making his node temporary.
     let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5) = art_1.make_blank(&public_key, &some_secret_key2).unwrap();
+    let (tk_1, changes_5, _) = art_1
+        .make_blank(
+            &art_1.get_path_to_leaf(&public_key).unwrap(),
+            &some_secret_key2,
+        )
+        .unwrap();
 
     // Other users will update their trees correspondingly.
-    art_0.update_public_art(&changes_2).unwrap();
-    art_0.update_public_art(&changes_3).unwrap();
-    art_0.update_public_art(&changes_4).unwrap();
-    art_0.update_public_art(&changes_5).unwrap();
-    let tk_0 = art_0.recompute_root_key().unwrap();
+    art_0.update_private_art(&changes_2).unwrap();
+    art_0.update_private_art(&changes_3).unwrap();
+    art_0.update_private_art(&changes_4).unwrap();
+    art_0.update_private_art(&changes_5).unwrap();
+    let tk_0 = art_0.get_root_key().unwrap();
 
     assert_eq!(tk_0.key, tk_1.key);
 
     // For proof generation, there might be useful the next method.
-    let (_, artefacts) = art_1.recompute_root_key_with_artefacts().unwrap();
+    let artefacts = art_1.recompute_prover_artefacts().unwrap();
+    assert_eq!(artefacts.path, artefacts_4.path);
+    assert_eq!(artefacts.co_path, artefacts_4.co_path);
+    assert_eq!(artefacts.secrets, artefacts_4.secrets);
 
     let k = artefacts.co_path.len();
 

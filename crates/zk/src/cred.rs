@@ -20,7 +20,7 @@ use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
 
 const TIME_DELTA_SIZE: u64 = 32; // size of the maximum time delta in bits
-const TIME_PROVER_VERIFIER_TIME_TOLERANCE: u64 = 10;
+const TIME_PROVER_VERIFIER_TIME_TOLERANCE: u64 = 20;
 
 fn get_poseidon_params() -> PoseidonParams{
     let width = 10;

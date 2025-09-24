@@ -1,6 +1,6 @@
 [package]
 name = "art"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [lib]
@@ -9,6 +9,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
+
+[features]
+fuzz_test = []
 
 [dependencies]
 ark-ec = { workspace = true }
@@ -29,3 +32,11 @@ bulletproofs = { workspace = true }
 zkp = { workspace = true, features = ["rangeproof", "rangeproof_batchable"]}
 display_tree = {workspace = true}
 postcard = { workspace = true, features = ["alloc"] }
+tracing-subscriber = { workspace = true }
+tracing = { workspace = true }
+log = "0.4.27"
+
+[dev-dependencies]
+strum = "0.27"
+strum_macros = "0.27"
+chrono = { version = "0.4.42" }

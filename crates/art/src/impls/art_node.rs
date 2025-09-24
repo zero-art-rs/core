@@ -2,9 +2,11 @@ use crate::errors::ARTNodeError;
 use crate::types::{
     ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
 };
-use ark_ec::AffineRepr;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
+use std::fmt::{Display, Formatter};
+use tracing::debug;
 
 /// Implementation of main methods for operating with ARTNode
 impl<G: AffineRepr> ARTNode<G> {
@@ -48,9 +50,13 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// If the node is a leaf node, converts the node to blank, else return error
-    pub fn make_blank(&mut self, temporary_public_key: &G) -> Result<(), ARTNodeError> {
+    pub fn make_blank(
+        &mut self,
+        temporary_public_key: &G,
+        append: bool,
+    ) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            self.set_public_key(temporary_public_key.clone());
+            self.set_public_key_with_options(temporary_public_key.clone(), append);
             self.is_blank = true;
             self.weight = 0;
             Ok(())
@@ -113,7 +119,14 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     pub fn set_public_key(&mut self, public_key: G) {
-        self.public_key = public_key;
+        self.set_public_key_with_options(public_key, false)
+    }
+
+    pub fn set_public_key_with_options(&mut self, public_key: G, append: bool) {
+        match append {
+            true => self.public_key = public_key.add(self.public_key).into_affine(),
+            false => self.public_key = public_key,
+        }
     }
 
     /// Returns a reference on a child of a given inner node by a given direction to the child.
@@ -169,8 +182,6 @@ impl<G: AffineRepr> ARTNode<G> {
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
-        let weight = other.weight + self.weight;
-
         let new_self = Self {
             public_key: self.public_key.clone(),
             l: self.l.take(),
@@ -187,13 +198,16 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Changes values of the node with the values of the given one.
-    pub fn replace_with(&mut self, other: Self) {
-        self.set_public_key(other.get_public_key());
-        self.l = other.l;
-        self.r = other.r;
-        self.is_blank = other.is_blank;
-        self.weight = other.weight;
-        self.metadata = other.metadata;
+    pub fn replace_with(&mut self, mut other: Self) -> Self {
+        std::mem::swap(self, &mut other);
+        other
+
+        // self.set_public_key(other.get_public_key());
+        // self.l = other.l;
+        // self.r = other.r;
+        // self.is_blank = other.is_blank;
+        // self.weight = other.weight;
+        // self.metadata = other.metadata;
     }
 
     /// If the node is temporary, replace the node, else moves current node down to left,
@@ -204,7 +218,7 @@ impl<G: AffineRepr> ARTNode<G> {
         }
 
         match self.is_blank {
-            true => self.replace_with(other),
+            true => _ = self.replace_with(other),
             false => self.extend(other),
         }
 
@@ -275,8 +289,116 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
-    pub fn print_as_formated_tree(&self) {
-        println!(
+    pub(crate) fn new_default_tree_with_public_keys(
+        public_keys: &Vec<G>,
+    ) -> Result<Self, ARTNodeError> {
+        if public_keys.is_empty() {
+            return Err(ARTNodeError::InvalidParameters);
+        }
+
+        let mut level_nodes = Vec::new();
+
+        // leaves of the tree
+        for pk in public_keys {
+            level_nodes.push(ARTNode::new_leaf(*pk));
+        }
+
+        // fully fit leaf nodes in the next level by combining only part of them
+        if level_nodes.len() > 2 {
+            level_nodes = Self::fit_leaves_in_one_level(level_nodes)?;
+        }
+
+        // iterate by levels. Go from current level to upper level
+        while level_nodes.len() > 1 {
+            level_nodes = Self::compute_next_layer_of_tree(&mut level_nodes)?;
+        }
+
+        let root = level_nodes.remove(0);
+
+        Ok(root)
+    }
+
+    fn fit_leaves_in_one_level(
+        mut level_nodes: Vec<ARTNode<G>>,
+    ) -> Result<Vec<ARTNode<G>>, ARTNodeError> {
+        let mut level_size = 2;
+        while level_size < level_nodes.len() {
+            level_size <<= 1;
+        }
+
+        if level_size == level_nodes.len() {
+            return Ok(level_nodes);
+        }
+
+        let excess = level_size - level_nodes.len();
+
+        let mut upper_level_nodes = Vec::new();
+        for _ in 0..(level_nodes.len() - excess) >> 1 {
+            let left_node = level_nodes.remove(0);
+            let right_node = level_nodes.remove(0);
+
+            let node = ARTNode::new_internal_node(
+                (left_node.public_key + right_node.public_key).into_affine(),
+                Box::new(left_node),
+                Box::new(right_node),
+            );
+
+            upper_level_nodes.push(node);
+        }
+
+        for _ in 0..excess {
+            let first_node = level_nodes.remove(0);
+            upper_level_nodes.push(first_node);
+        }
+
+        Ok(upper_level_nodes)
+    }
+
+    fn compute_next_layer_of_tree(
+        level_nodes: &mut Vec<ARTNode<G>>,
+    ) -> Result<Vec<ARTNode<G>>, ARTNodeError> {
+        let mut upper_level_nodes = Vec::new();
+
+        // iterate until level_nodes is empty, then swap it with the next layer
+        while level_nodes.len() > 1 {
+            let left_node = level_nodes.remove(0);
+            let right_node = level_nodes.remove(0);
+
+            let node = ARTNode::new_internal_node(
+                (left_node.public_key + right_node.public_key).into_affine(),
+                Box::new(left_node),
+                Box::new(right_node),
+            );
+
+            upper_level_nodes.push(node);
+        }
+
+        // if one have an odd number of nodes, the last one will be added to the next level
+        if level_nodes.len() == 1 {
+            let first_node = level_nodes.remove(0);
+            upper_level_nodes.push(first_node);
+        }
+
+        Ok(upper_level_nodes)
+    }
+}
+
+impl<G> Default for ARTNode<G>
+where
+    G: AffineRepr,
+{
+    fn default() -> Self {
+        Self::new_leaf(G::zero())
+    }
+}
+
+impl<G> Display for ARTNode<G>
+where
+    G: AffineRepr,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "{}",
             format_tree!(
                 self.display_analog(),
@@ -284,7 +406,7 @@ impl<G: AffineRepr> ARTNode<G> {
                     .indentation(4)
                     .char_set(CharSet::DOUBLE_LINE)
             )
-        );
+        )
     }
 }
 
@@ -294,7 +416,7 @@ impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for AR
             || self.l != other.l
             || self.r != other.r
             || self.is_blank != other.is_blank
-            || self.weight != other.weight
+            // || self.weight != other.weight
         {
             true => false,
             false => true,
