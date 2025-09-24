@@ -21,6 +21,7 @@ impl CurveConfig for Parameters {
 }
 
 impl SWCurveConfig for Parameters {
+    type ZeroFlag = ();
     /// COEFF_A = 3
     const COEFF_A: Fq = MontFp!("3");
 
