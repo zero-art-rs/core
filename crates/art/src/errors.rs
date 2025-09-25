@@ -38,4 +38,6 @@ pub enum ARTError {
     InapplicableBlanking,
     #[error("Can't apply key update changes to itself.")]
     InapplicableKeyUpdate,
+    #[error("The method can't be applied to the non leaf node.")]
+    NonLeafNode,
 }

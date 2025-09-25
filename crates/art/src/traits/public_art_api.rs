@@ -16,6 +16,10 @@ where
     G::BaseField: PrimeField,
     Self: Sized,
 {
+    /// Returns a set opf public keys of nodes on path from leaf to root. Co-path is a vector of public keys
+    /// of nodes on path from user's leaf to root
+    fn get_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError>;
+    
     /// Returns a co-path to the leaf with a given public key. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
     fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError>;
@@ -37,13 +41,6 @@ where
         &self,
         secret_key: G::ScalarField,
         node_index: &NodeIndex,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
-
-    /// Recomputes art root key and ProverArtefacts by given path secrets and path to node, which knows them
-    fn recompute_root_key_with_artefacts_using_path_secrets(
-        &self,
-        node_index: &NodeIndex,
-        path_secrets: Vec<G::ScalarField>,
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError>;
 
     /// Returns helper structure for verification of art update.
@@ -100,9 +97,13 @@ where
         update_weights: bool,
     ) -> Result<(), ARTError>;
 
-    /// Converts the leaf on a given path to temporary by changing its public key on given temporary
-    /// one. At the end, updates the necessary public keys on a path to root. Returns BranchChanges for
-    /// other users and new ARTRootKey.
+    /// Replaces the leaf at the given `path` with a given `temporary_secret_key`. Also updates
+    /// the branch up to the root.
+    ///
+    /// # Returns
+    /// * `ARTRootKey<G>` – New root key after applying the change.
+    /// * `BranchChanges<G>` – Helper data for other users to apply the same update of the art.
+    /// * `ProverArtefacts<G>` – Artefacts required for proving correctness of the update.
     fn make_blank_in_public_art(
         &mut self,
         path: &Vec<Direction>,
@@ -137,7 +138,8 @@ where
     /// specific, so in general don't remove nodes and make them temporary instead
     fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError>;
 
-    /// Remove the last node in the given path if can
+    /// Remove the last node in the given path if can. Fail if provided path points on the
+    /// non-leaf node.
     fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError>;
 
     /// Remove the last node in the given path if can and update public keys on a path from root to
@@ -167,7 +169,8 @@ where
 
     /// Merge ART changes into self. `merged_changes` are merge conflict changes, which are
     /// conflicting with `target_change` but are already merged. After calling of this method,
-    /// `target_change` will become merged one.
+    /// `target_change` will become merged one. This method doesn't change the the art structure,
+    /// so MakeBlank and AppendNode changes are not fully applied
     fn merge_change(
         &mut self,
         merged_changes: &[BranchChanges<G>],

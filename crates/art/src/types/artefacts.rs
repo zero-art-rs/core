@@ -3,7 +3,7 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ProverArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
@@ -22,7 +22,7 @@ where
     pub secrets: Vec<G::ScalarField>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct VerifierArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,

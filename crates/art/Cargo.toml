@@ -37,6 +37,7 @@ tracing = { workspace = true }
 log = "0.4.27"
 
 [dev-dependencies]
-strum = "0.27"
-strum_macros = "0.27"
-chrono = { version = "0.4.42" }
+strum ={ workspace = true }
+strum_macros = { workspace = true }
+chrono = { workspace = true }
+itertools = { workspace = true}

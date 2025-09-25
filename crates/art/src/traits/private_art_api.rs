@@ -15,9 +15,6 @@ where
     G::BaseField: PrimeField,
     Self: Sized,
 {
-    /// Recomputes ProverArtefacts for proof generation. Uses path secrets.
-    fn recompute_prover_artefacts(&self) -> Result<ProverArtefacts<G>, ARTError>;
-
     /// Returns actual root key, stored at the end of path_secrets.
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
 
@@ -34,7 +31,7 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
 
-    /// Append new node to the tree or replace the blank one, and update path_secrets.
+    /// Append new node to the tree or replace the blank one. It also updates `path_secrets`.
     fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
@@ -52,7 +49,9 @@ where
     ) -> Result<(), ARTError>;
 
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if the user
-    /// didn't make any changes, which where merged.
+    /// didn't make any changes, which where merged. It is a wrapper for
+    /// `recompute_path_secrets_for_participant`. The difference, is then for observer we cant
+    /// merge all secrets, we need to apply one and then append others.
     fn recompute_path_secrets_for_observer(
         &mut self,
         target_changes: &Vec<BranchChanges<G>>,
@@ -60,7 +59,8 @@ where
 
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if user
     /// had made change for merge. The state of the ART without that change is the base_fork,
-    /// which is required to properly merge changes
+    /// which is required to properly merge changes. Note, that `target_changes` doesnt contain
+    /// users update, because it merges all path_secrets to the self path_secrets.
     fn recompute_path_secrets_for_participant(
         &mut self,
         target_changes: &Vec<BranchChanges<G>>,
