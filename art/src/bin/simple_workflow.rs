@@ -3,17 +3,17 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
 use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
-use art::{
-    traits::{ARTPrivateAPI, ARTPublicAPI},
-    types::PrivateART,
-};
 use bulletproofs::PedersenGens;
 use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
-use zk::art::{art_prove, art_verify};
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+use zrt_art::{
+    traits::{ARTPrivateAPI, ARTPublicAPI},
+    types::PrivateART,
+};
+use zrt_zk::art::{art_prove, art_verify};
 
 /// PrivateART usage example. PrivateART contain handle key management, while ART isn't.
 fn general_example() {
@@ -64,9 +64,7 @@ fn general_example() {
     // Other art modifications include addition and blanking.
     // Addition of a new node can be done as next:
     let new_node1_secret_key = Fr::rand(&mut rng);
-    let (_, changes_2, _) = art_1
-        .append_or_replace_node(&new_node1_secret_key)
-        .unwrap();
+    let (_, changes_2, _) = art_1.append_or_replace_node(&new_node1_secret_key).unwrap();
     art_0.update_private_art(&changes_2).unwrap();
     assert_eq!(art_0, art_1);
 
@@ -85,8 +83,7 @@ fn general_example() {
     // For proof generation, use `ProverArtefacts` structure. They are returned with every art update.
     // Lets prove key update:
     let some_secret_key4 = Fr::rand(&mut rng);
-    let (_, changes_4, prover_artefacts) = art_1
-        .update_key(&some_secret_key4).unwrap();
+    let (_, changes_4, prover_artefacts) = art_1.update_key(&some_secret_key4).unwrap();
 
     let k = prover_artefacts.co_path.len();
 
@@ -126,7 +123,9 @@ fn general_example() {
     .unwrap();
 
     // To verify the proof one need to have only part of artefacts stored in VerifierArtefacts plus changes
-    let verifier_artefacts = art_1.compute_artefacts_for_verification(&changes_4).unwrap();
+    let verifier_artefacts = art_1
+        .compute_artefacts_for_verification(&changes_4)
+        .unwrap();
 
     let verification_result = art_verify(
         basis,
@@ -142,9 +141,7 @@ fn general_example() {
 
 fn merge_conflict_changes() {
     let mut rng = &mut StdRng::seed_from_u64(0);
-    let secrets: Vec<Fr> = (0..100)
-        .map(|_| Fr::rand(&mut rng))
-        .collect::<Vec<_>>();
+    let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
     let (art0, _) =
         PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
@@ -172,7 +169,6 @@ fn merge_conflict_changes() {
     let mut user5: PrivateART<CortadoAffine> =
         PrivateART::deserialize(&public_art_bytes, &secrets[67]).unwrap();
 
-
     let sk0 = Fr::rand(&mut rng);
     let (_, change0, _) = user0.update_key(&sk0).unwrap();
 
@@ -188,17 +184,22 @@ fn merge_conflict_changes() {
 
     // Merge for users which participated in the merge
     let mut participant = user0.clone();
-    participant.recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone()).unwrap();
-    participant.merge_with_skip(&applied_change, &all_but_0_changes).unwrap();
+    participant
+        .recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone())
+        .unwrap();
+    participant
+        .merge_with_skip(&applied_change, &all_but_0_changes)
+        .unwrap();
 
     // Merge for users which only observed the merge conflict
     let mut observer = art1.clone();
-    observer.recompute_path_secrets_for_observer(&all_changes).unwrap();
+    observer
+        .recompute_path_secrets_for_observer(&all_changes)
+        .unwrap();
     observer.merge(&all_changes).unwrap();
 
     assert_eq!(
-        participant,
-        observer,
+        participant, observer,
         "Observer and participant have the same wiev on the state of the art."
     );
 }

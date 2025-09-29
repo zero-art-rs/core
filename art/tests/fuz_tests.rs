@@ -9,13 +9,13 @@ mod tests {
     use ark_std::rand::Rng;
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
-    use art::traits::ARTPrivateView;
-    use art::{
+    use cortado::{CortadoAffine, Fr};
+    use tracing::{info, warn};
+    use zrt_art::traits::ARTPrivateView;
+    use zrt_art::{
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
         types::PrivateART,
     };
-    use cortado::{CortadoAffine, Fr};
-    use tracing::{info, warn};
 
     pub const SEED: u64 = 23;
     pub const GROUP_SIZE: usize = 500;
