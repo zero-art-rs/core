@@ -41,3 +41,6 @@ rand_core = {  version = "0.6.4" }
 once_cell = { version = "1.21.3" }
 hkdf = { version = "0.12.4"}
 sha3 = {  version = "0.10.8" }
+strum = {  version = "0.27" }
+strum_macros = {  version = "0.27" }
+itertools = { version = "0.14.0"}

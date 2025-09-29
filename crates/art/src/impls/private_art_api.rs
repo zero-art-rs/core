@@ -12,7 +12,6 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tracing::debug;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -21,15 +20,6 @@ where
     G::BaseField: PrimeField,
     A: ARTPrivateView<G>,
 {
-    fn recompute_prover_artefacts(&self) -> Result<ProverArtefacts<G>, ARTError> {
-        let (_, artefacts) = self.recompute_root_key_with_artefacts_using_path_secrets(
-            self.get_node_index(),
-            self.get_path_secrets().clone(),
-        )?;
-
-        Ok(artefacts)
-    }
-
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         Ok(ARTRootKey {
             key: *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?,

@@ -24,6 +24,19 @@ where
     G::BaseField: PrimeField,
     A: ARTPublicView<G>,
 {
+    fn get_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError> {
+        let mut path_values = Vec::new();
+
+        let mut parent = self.get_root();
+        for direction in &index.get_path()? {
+            path_values.push(parent.get_child(direction)?.public_key);
+            parent = parent.get_child(direction)?;
+        }
+
+        path_values.reverse();
+        Ok(path_values)
+    }
+
     fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
 
@@ -82,34 +95,6 @@ where
                 path: path_values,
                 co_path: co_path_values,
                 secrets,
-            },
-        ))
-    }
-
-    fn recompute_root_key_with_artefacts_using_path_secrets(
-        &self,
-        node_index: &NodeIndex,
-        path_secrets: Vec<G::ScalarField>,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        let co_path_values = self.get_co_path_values(&node_index)?;
-        if co_path_values.len() != path_secrets.len() {
-            return Err(ARTError::InvalidInput);
-        }
-
-        let mut path_values = Vec::with_capacity(co_path_values.len());
-        for (sk, pk) in path_secrets.iter().zip(co_path_values.iter()) {
-            path_values.push(pk.mul(sk).into_affine());
-        }
-
-        Ok((
-            ARTRootKey {
-                key: *path_secrets.last().ok_or(ARTError::InvalidInput)?,
-                generator: self.get_generator(),
-            },
-            ProverArtefacts {
-                path: path_values,
-                co_path: co_path_values,
-                secrets: path_secrets,
             },
         ))
     }
@@ -434,14 +419,14 @@ where
     }
 
     fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
-        if path.len() == 0 {
-            return Err(ARTError::InvalidInput);
-        }
-
         let mut target_node = self.get_mut_root();
         for direction in &path[..path.len() - 1] {
             target_node.weight -= 1;
             target_node = target_node.get_mut_child(direction)?;
+        }
+
+        if !target_node.is_leaf() {
+            return Err(ARTError::NonLeafNode);
         }
 
         target_node.shrink_to_other(path[path.len() - 1])?;

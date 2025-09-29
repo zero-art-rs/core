@@ -17,6 +17,8 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
+    /// Creates new PrivateART from provided `secrets`. The order of secrets is preserved:
+    /// the leftmost leaf corresponds to the firsts secret in `secrets`.
     pub fn new_art_from_secrets(
         secrets: &Vec<G::ScalarField>,
         generator: &G,

@@ -18,7 +18,7 @@ mod tests {
     use crate::types::{Direction, NodeIndex};
 
     #[test]
-    fn test_path_to_index() {
+    fn test_path_to_index_conversion() {
         assert_eq!(
             NodeIndex::Direction(vec![]).get_index().unwrap(),
             1,
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    fn test_index_to_path() {
+    fn test_index_to_path_conversion() {
         assert_eq!(
             Vec::<Direction>::new(),
             NodeIndex::Index(1).get_path().unwrap(),

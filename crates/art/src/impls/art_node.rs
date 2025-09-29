@@ -261,27 +261,31 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     pub fn display_analog(&self) -> ARTDisplayTree {
+        let blank_marker = match self.is_blank {
+            true => "blank ",
+            false => "",
+        };
+
+        let pk_marker = match self.public_key.x() {
+            Some(x) => x.to_string(),
+            None => "None".to_string()
+        };
+
         match self.is_leaf() {
             true => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{}leaf of weight: {}, x: {}",
-                    match self.is_blank {
-                        true => "temporary ",
-                        false => "",
-                    },
+                    blank_marker,
                     self.weight,
-                    self.public_key.x().unwrap(),
+                    pk_marker,
                 ),
             },
             false => ARTDisplayTree::Inner {
                 public_key: format!(
                     "{}node of weight: {}, x: {}",
-                    match self.is_blank {
-                        true => "blank ",
-                        false => "",
-                    },
+                    blank_marker,
                     self.weight,
-                    self.public_key.x().unwrap(),
+                    pk_marker,
                 ),
                 left: Box::new(self.get_left().unwrap().display_analog()),
                 right: Box::new(self.get_right().unwrap().display_analog()),

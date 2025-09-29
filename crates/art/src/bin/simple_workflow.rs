@@ -8,7 +8,7 @@ use art::{
     types::PrivateART,
 };
 use bulletproofs::PedersenGens;
-use cortado::{self, CortadoAffine, Fr as ScalarField};
+use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
 use zk::art::{art_prove, art_verify};
@@ -16,8 +16,8 @@ use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
 /// PrivateART usage example. PrivateART contain handle key management, while ART isn't.
-fn private_example() {
-    let number_of_users = 100;
+fn general_example() {
+    let number_of_users = 8;
     let generator = CortadoAffine::generator();
     let mut rng = StdRng::seed_from_u64(rand::random());
 
@@ -25,80 +25,74 @@ fn private_example() {
     // Those invitations contain leaf secret keys, which are elements of curve scalar field.
     // Note, that the first secret in a set, must be a creators secret key, because the
     // owner of group is defined as a left most node in a tree.
-    let secrets: Vec<ScalarField> = (0..number_of_users)
-        .map(|_| ScalarField::rand(&mut rng))
+    let secrets: Vec<Fr> = (0..number_of_users)
+        .map(|_| Fr::rand(&mut rng))
         .collect::<Vec<_>>();
 
     // For new art, creator provides the next method with set of secrets and some generator.
     let (art, _) = PrivateART::new_art_from_secrets(&secrets, &generator).unwrap();
 
-    // This art can be converted to string using serde serialize as serde_json::to_string(&art)
-    // or using build in method.
-
+    // PrivateART implements Serialize and Deserialize, however there is a default implementation
+    // for serialization with postcard. It will return bytes for serialized PublicART, which
+    // doesn't contain any secret keys.
     let encoded_representation = art.serialize().unwrap();
+    // The deserialization method requires leaf secret key, as the encoded_representation is
+    // the encoding of PrivateART.
     let recovered_art =
         PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[0]).unwrap();
 
-    assert_eq!(recovered_art.root, art.root);
+    assert_eq!(recovered_art, art);
 
-    // Assume art_i is i-th user art. i-th user knows i-th secret key
+    // Assume art_i is i-th user art, which also knows i-th secret key.
     let mut art_0 =
         PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[0]).unwrap();
     let mut art_1 =
         PrivateART::<CortadoAffine>::deserialize(&encoded_representation, &secrets[1]).unwrap();
-    let new_secret_key_1 = ScalarField::rand(&mut rng);
-    // Every user will update his leaf secret key after receival.
-    let (tk_1, changes_1, _) = art_1.update_key(&new_secret_key_1).unwrap();
+    let new_secret_key_1 = Fr::rand(&mut rng);
 
-    // Root key tk is a new common secret. Other users can use returned changes to update theirs trees.
-    art_0.update_private_art(&changes_1).unwrap();
-    // Now, to get common secret, usr can call the next
-    let tk_0 = art_0.get_root_key().unwrap();
+    // Any user can update his public art with the next method.
+    let (tk_1, change_1, _) = art_1.update_key(&new_secret_key_1).unwrap();
+    // Root key tk is a new common secret. Other users can use returned change to update
+    // theirs trees. Fot example, it can be done as next:
+    art_0.update_private_art(&change_1).unwrap();
+    assert_eq!(art_0, art_1);
 
-    assert_eq!(tk_0.key, tk_1.key);
+    // To get common secret, user can call the next method
+    let retrieved_tk_1 = art_0.get_root_key().unwrap();
+    assert_eq!(retrieved_tk_1, tk_1);
 
-    // Users can further modify art as next.
-    // Upend new node for new member.
-    let some_secret_key1 = ScalarField::rand(&mut rng);
+    // Other art modifications include addition and blanking.
+    // Addition of a new node can be done as next:
+    let new_node1_secret_key = Fr::rand(&mut rng);
     let (_, changes_2, _) = art_1
-        .append_or_replace_node_in_public_art(&some_secret_key1)
+        .append_or_replace_node(&new_node1_secret_key)
         .unwrap();
-    // Update secret key
-    let some_secret_key2 = ScalarField::rand(&mut rng);
-    let (_, changes_3, _) = art_1.update_key(&some_secret_key2).unwrap();
-    // Upend new node for new member.
-    let some_secret_key3 = ScalarField::rand(&mut rng);
-    let (_, changes_4, artefacts_4) = art_1
-        .append_or_replace_node_in_public_art(&some_secret_key3)
-        .unwrap();
+    art_0.update_private_art(&changes_2).unwrap();
+    assert_eq!(art_0, art_1);
+
     // Remove member from the tree, by making his node temporary.
-    let public_key = generator.mul(&some_secret_key3).into_affine();
-    let (tk_1, changes_5, _) = art_1
+    let new_node1_public_key = generator.mul(&new_node1_secret_key).into_affine();
+    let some_secret_key1 = Fr::rand(&mut rng);
+    let (tk_3, changes_3, _) = art_1
         .make_blank(
-            &art_1.get_path_to_leaf(&public_key).unwrap(),
-            &some_secret_key2,
+            &art_1.get_path_to_leaf(&new_node1_public_key).unwrap(),
+            &some_secret_key1,
         )
         .unwrap();
-
-    // Other users will update their trees correspondingly.
-    art_0.update_private_art(&changes_2).unwrap();
     art_0.update_private_art(&changes_3).unwrap();
-    art_0.update_private_art(&changes_4).unwrap();
-    art_0.update_private_art(&changes_5).unwrap();
-    let tk_0 = art_0.get_root_key().unwrap();
+    assert_eq!(art_0, art_1);
 
-    assert_eq!(tk_0.key, tk_1.key);
+    // For proof generation, use `ProverArtefacts` structure. They are returned with every art update.
+    // Lets prove key update:
+    let some_secret_key4 = Fr::rand(&mut rng);
+    let (_, changes_4, prover_artefacts) = art_1
+        .update_key(&some_secret_key4).unwrap();
 
-    // For proof generation, there might be useful the next method.
-    let artefacts = art_1.recompute_prover_artefacts().unwrap();
-    assert_eq!(artefacts.path, artefacts_4.path);
-    assert_eq!(artefacts.co_path, artefacts_4.co_path);
-    assert_eq!(artefacts.secrets, artefacts_4.secrets);
+    let k = prover_artefacts.co_path.len();
 
-    let k = artefacts.co_path.len();
-
+    // Generate pedersen basis
     let g_1 = CortadoAffine::generator();
-    let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+    let h_1 = CortadoAffine::new_unchecked(ALT_GENERATOR_X, ALT_GENERATOR_Y);
 
     let gens = PedersenGens::default();
     let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
@@ -108,40 +102,108 @@ fn private_example() {
         ristretto255_to_ark(gens.B_blinding).unwrap(),
     );
 
-    let aux_keys = (0..2)
-        .map(|_| cortado::Fr::rand(&mut rng))
-        .collect::<Vec<_>>();
+    // Append auxiliary keys to proof, for example old root key or old leaf key
+    let aux_keys = vec![tk_3.key];
     let public_aux_keys = aux_keys
         .iter()
         .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
         .collect::<Vec<_>>();
+    // Generate blinding vector
     let blinding_vector: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
-    let associated_data = vec![0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65];
+    // Pass some associated data
+    let associated_data = b"associated data".to_vec();
 
     let proof = art_prove(
         basis.clone(),
         &associated_data,
         public_aux_keys.clone(),
-        artefacts.path.clone(),
-        artefacts.co_path.clone(),
-        artefacts.secrets.clone(),
+        prover_artefacts.path.clone(),
+        prover_artefacts.co_path.clone(),
+        prover_artefacts.secrets.clone(),
         aux_keys.clone(),
         blinding_vector,
     )
     .unwrap();
 
+    // To verify the proof one need to have only part of artefacts stored in VerifierArtefacts plus changes
+    let verifier_artefacts = art_1.compute_artefacts_for_verification(&changes_4).unwrap();
+
     let verification_result = art_verify(
         basis,
         &associated_data,
         public_aux_keys.clone(),
-        artefacts.path.clone(),
-        artefacts.co_path.clone(),
+        verifier_artefacts.path.clone(),
+        verifier_artefacts.co_path.clone(),
         proof,
     );
 
     assert!(verification_result.is_ok());
 }
 
+fn merge_conflict_changes() {
+    let mut rng = &mut StdRng::seed_from_u64(0);
+    let secrets: Vec<Fr> = (0..100)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let (art0, _) =
+        PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+    // Serialise and deserialize art for the other users.
+    let public_art_bytes = art0.serialize().unwrap();
+
+    // Store the basic art1.
+    let art1: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[1]).unwrap();
+
+    // Create new users arts
+    let mut user0: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[0]).unwrap();
+
+    let mut user2: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+
+    let mut user3: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[8]).unwrap();
+
+    let mut user4: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[10]).unwrap();
+
+    let mut user5: PrivateART<CortadoAffine> =
+        PrivateART::deserialize(&public_art_bytes, &secrets[67]).unwrap();
+
+
+    let sk0 = Fr::rand(&mut rng);
+    let (_, change0, _) = user0.update_key(&sk0).unwrap();
+
+    let sk2 = Fr::rand(&mut rng);
+    let (_, change2, _) = user2.update_key(&sk2).unwrap();
+
+    let sk3 = Fr::rand(&mut rng);
+    let (_, change3, _) = user3.update_key(&sk3).unwrap();
+
+    let applied_change = vec![change0.clone()];
+    let all_but_0_changes = vec![change2.clone(), change3.clone()];
+    let all_changes = vec![change0, change2, change3];
+
+    // Merge for users which participated in the merge
+    let mut participant = user0.clone();
+    participant.recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone()).unwrap();
+    participant.merge_with_skip(&applied_change, &all_but_0_changes).unwrap();
+
+    // Merge for users which only observed the merge conflict
+    let mut observer = art1.clone();
+    observer.recompute_path_secrets_for_observer(&all_changes).unwrap();
+    observer.merge(&all_changes).unwrap();
+
+    assert_eq!(
+        participant,
+        observer,
+        "Observer and participant have the same wiev on the state of the art."
+    );
+}
+
 fn main() {
-    private_example();
+    general_example();
+    merge_conflict_changes();
 }
