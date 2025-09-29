@@ -2,8 +2,6 @@ mod utils;
 
 #[cfg(test)]
 mod tests {
-    use itertools::{assert_equal, Itertools};
-    use rand::seq::IteratorRandom;
     use super::utils::init_tracing_for_test;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed25519::EdwardsAffine as Ed25519Affine;
@@ -12,27 +10,29 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
-    use art::traits::ARTPrivateView;
-    use art::types::{
-        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
-    };
-    use art::{
-        errors::ARTError,
-        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-        types::{PrivateART, PublicART},
-    };
     use bulletproofs::PedersenGens;
     use bulletproofs::r1cs::R1CSError;
     use cortado::{CortadoAffine, Fr};
     use curve25519_dalek::Scalar;
+    use itertools::{Itertools, assert_equal};
+    use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::mem::uninitialized;
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
-    use zk::art::{art_prove, art_verify};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+    use zrt_art::traits::ARTPrivateView;
+    use zrt_art::types::{
+        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
+    };
+    use zrt_art::{
+        errors::ARTError,
+        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
+        types::{PrivateART, PublicART},
+    };
+    use zrt_zk::art::{art_prove, art_verify};
 
     pub const TEST_GROUP_SIZE: usize = 100;
 
@@ -491,7 +491,9 @@ mod tests {
         let main_new_key = get_random_scalar_with_rng(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
         assert_ne!(new_key.key, main_old_key);
-        let pub_keys = main_user_art.get_path_values(&main_user_art.node_index).unwrap();
+        let pub_keys = main_user_art
+            .get_path_values(&main_user_art.node_index)
+            .unwrap();
         for (secret_key, corr_pk) in main_user_art.path_secrets.iter().zip(pub_keys.iter()) {
             assert_eq!(
                 CortadoAffine::generator().mul(secret_key).into_affine(),
@@ -591,7 +593,6 @@ mod tests {
         let mut user5: PrivateART<CortadoAffine> =
             PrivateART::deserialize(&public_art_bytes, &secrets[67]).unwrap();
 
-
         let sk0 = Fr::rand(&mut rng);
         let (_, change0, _) = user0.update_key(&sk0).unwrap();
 
@@ -602,7 +603,14 @@ mod tests {
         let (_, change2, _) = user2.update_key(&sk2).unwrap();
 
         let sk3 = Fr::rand(&mut rng);
-        let (_, change3, _) = user3.make_blank(&user3.get_path_to_leaf(&user3.public_key_of(&secrets[25])).unwrap(), &sk3).unwrap();
+        let (_, change3, _) = user3
+            .make_blank(
+                &user3
+                    .get_path_to_leaf(&user3.public_key_of(&secrets[25]))
+                    .unwrap(),
+                &sk3,
+            )
+            .unwrap();
 
         let sk4 = Fr::rand(&mut rng);
         let (_, change4, _) = user4.update_key(&sk4).unwrap();
@@ -611,44 +619,62 @@ mod tests {
         let (_, change5, _) = user5.update_key(&sk5).unwrap();
 
         let applied_change = vec![change0.clone()];
-        let all_but_0_changes = vec![change2.clone(), change3.clone(), change4.clone(), change5.clone()];
+        let all_but_0_changes = vec![
+            change2.clone(),
+            change3.clone(),
+            change4.clone(),
+            change5.clone(),
+        ];
         let all_changes = vec![change0, change2, change3, change4, change5];
 
         // Check correctness of the merge
         let mut art_def0 = user0.clone();
-        art_def0.recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone()).unwrap();
-        art_def0.merge_with_skip(&applied_change, &all_but_0_changes).unwrap();
+        art_def0
+            .recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone())
+            .unwrap();
+        art_def0
+            .merge_with_skip(&applied_change, &all_but_0_changes)
+            .unwrap();
 
         let mut art_def1 = art1.clone();
-        art_def1.recompute_path_secrets_for_observer(&all_changes).unwrap();
+        art_def1
+            .recompute_path_secrets_for_observer(&all_changes)
+            .unwrap();
         art_def1.merge(&all_changes).unwrap();
 
         assert_eq!(
-            art_def0,
-            art_def1,
+            art_def0, art_def1,
             "Observer and participant have the same wiev on the state of the art."
         );
 
-        for permutation in all_but_0_changes.iter().cloned().permutations(all_but_0_changes.len()) {
+        for permutation in all_but_0_changes
+            .iter()
+            .cloned()
+            .permutations(all_but_0_changes.len())
+        {
             let mut art_0_analog = user0.clone();
-            art_0_analog.recompute_path_secrets_for_participant(&permutation, &art0.clone()).unwrap();
-            art_0_analog.merge_with_skip(&applied_change, &permutation).unwrap();
+            art_0_analog
+                .recompute_path_secrets_for_participant(&permutation, &art0.clone())
+                .unwrap();
+            art_0_analog
+                .merge_with_skip(&applied_change, &permutation)
+                .unwrap();
 
             assert_eq!(
-                art_0_analog,
-                art_def0,
+                art_0_analog, art_def0,
                 "The order of changes applied doesn't affect the result."
             );
         }
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
             let mut art_1_analog = art1.clone();
-            art_1_analog.recompute_path_secrets_for_observer(&permutation).unwrap();
+            art_1_analog
+                .recompute_path_secrets_for_observer(&permutation)
+                .unwrap();
             art_1_analog.merge(&permutation).unwrap();
 
             assert_eq!(
-                art_1_analog,
-                art_def0,
+                art_1_analog, art_def0,
                 "The order of changes applied doesn't affect the result."
             );
         }
@@ -687,7 +713,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_art_make_blank() {
         init_tracing_for_test();
@@ -715,11 +740,10 @@ mod tests {
             users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
-            // Assert all the users computed the same tree key.
+        // Assert all the users computed the same tree key.
         for i in 0..TEST_GROUP_SIZE {
             assert_eq!(
-                users_arts[i],
-                users_arts[0],
+                users_arts[i], users_arts[0],
                 "All the users have the same view on the state of the art"
             );
         }
@@ -1240,7 +1264,7 @@ mod tests {
         for i in 0..TEST_GROUP_SIZE {
             user_arts.push(
                 PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
-                    .expect("Failed to deserialize art")
+                    .expect("Failed to deserialize art"),
             );
         }
 

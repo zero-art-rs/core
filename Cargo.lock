@@ -334,37 +334,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
-name = "art"
-version = "0.1.1"
-dependencies = [
- "ark-ec 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-ed25519",
- "ark-ff 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-std",
- "bulletproofs 5.0.0",
- "chrono",
- "cortado",
- "criterion",
- "curve25519-dalek",
- "display_tree",
- "itertools 0.14.0",
- "log",
- "postcard",
- "rand 0.9.2",
- "serde",
- "serde_bytes",
- "serde_json",
- "strum",
- "strum_macros",
- "thiserror 2.0.16",
- "tracing",
- "tracing-subscriber",
- "zk",
- "zkp",
-]
-
-[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -641,20 +610,6 @@ name = "crunchy"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
-
-[[package]]
-name = "crypto"
-version = "0.1.0"
-dependencies = [
- "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "cortado",
- "hkdf",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "sha3",
- "thiserror 2.0.16",
- "zkp",
-]
 
 [[package]]
 name = "crypto-common"
@@ -1971,29 +1926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zk"
-version = "0.1.0"
-dependencies = [
- "ark-ec 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-ed25519",
- "ark-ff 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "ark-std",
- "bulletproofs 5.0.0",
- "chrono",
- "cortado",
- "curve25519-dalek",
- "hex",
- "merlin",
- "once_cell",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "tracing",
- "tracing-subscriber",
- "zkp",
-]
-
-[[package]]
 name = "zkp"
 version = "0.10.0"
 source = "git+https://github.com/juja256/zkp#2ad090e1c4c1fa4af137f140b4ac9cb73b84c2d9"
@@ -2016,4 +1948,72 @@ dependencies = [
  "thiserror 2.0.16",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "zrt-art"
+version = "0.1.1"
+dependencies = [
+ "ark-ec 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-ed25519",
+ "ark-ff 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-std",
+ "bulletproofs 5.0.0",
+ "chrono",
+ "cortado",
+ "criterion",
+ "curve25519-dalek",
+ "display_tree",
+ "itertools 0.14.0",
+ "log",
+ "postcard",
+ "rand 0.9.2",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "thiserror 2.0.16",
+ "tracing",
+ "tracing-subscriber",
+ "zkp",
+ "zrt-zk",
+]
+
+[[package]]
+name = "zrt-crypto"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "cortado",
+ "hkdf",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "sha3",
+ "thiserror 2.0.16",
+ "zkp",
+]
+
+[[package]]
+name = "zrt-zk"
+version = "0.1.0"
+dependencies = [
+ "ark-ec 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-ed25519",
+ "ark-ff 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-serialize 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
+ "ark-std",
+ "bulletproofs 5.0.0",
+ "chrono",
+ "cortado",
+ "curve25519-dalek",
+ "hex",
+ "merlin",
+ "once_cell",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "tracing",
+ "tracing-subscriber",
+ "zkp",
 ]
