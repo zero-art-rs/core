@@ -47,10 +47,10 @@ where
 
     fn make_blank(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = self.get_node(&NodeIndex::from(path.clone()))?.is_blank;
+        let append_changes = self.get_node(&NodeIndex::from(path.to_vec()))?.is_blank;
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
@@ -60,7 +60,7 @@ where
                 self.merge_path_secrets(
                     artefacts.secrets.clone(),
                     &changes.node_index,
-                    !self.get_node(&self.get_node_index())?.is_blank,
+                    !self.get_node(self.get_node_index())?.is_blank,
                 )?;
             }
             false => {
@@ -128,7 +128,7 @@ where
             true => self.merge_path_secrets(
                 artefact_secrets,
                 &changes.node_index,
-                !self.get_node(&self.get_node_index())?.is_blank,
+                !self.get_node(self.get_node_index())?.is_blank,
             )?,
             false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
         }
@@ -138,7 +138,7 @@ where
 
     fn recompute_path_secrets_for_observer(
         &mut self,
-        target_changes: &Vec<BranchChanges<G>>,
+        target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError> {
         let old_secrets = self.get_path_secrets().clone();
 
@@ -148,8 +148,7 @@ where
         let path_secrets = self.get_mut_path_secrets();
         for i in (0..old_secrets.len()).rev() {
             if path_secrets[i] != old_secrets[i] {
-                // path_secrets[i] -= old_secrets[i];
-                path_secrets[i] = path_secrets[i] - old_secrets[i];
+                path_secrets[i] -= old_secrets[i];
             } else {
                 return Ok(());
             }
@@ -160,7 +159,7 @@ where
 
     fn recompute_path_secrets_for_participant(
         &mut self,
-        target_changes: &Vec<BranchChanges<G>>,
+        target_changes: &[BranchChanges<G>],
         base_fork: &A,
     ) -> Result<(), ARTError> {
         for change in target_changes {
@@ -179,7 +178,7 @@ where
             self.merge_path_secrets(
                 secrets,
                 &change.node_index,
-                !self.get_node(&self.get_node_index())?.is_blank,
+                !self.get_node(self.get_node_index())?.is_blank,
             )?;
         }
 

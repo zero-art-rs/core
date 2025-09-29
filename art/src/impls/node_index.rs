@@ -133,7 +133,7 @@ impl NodeIndex {
     }
 
     fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u64, u64), ARTError> {
-        if path.len() == 0 {
+        if path.is_empty() {
             return Ok((0, 0));
         }
 
@@ -147,19 +147,6 @@ impl NodeIndex {
         }
 
         Ok((path.len() as u64, position))
-    }
-
-    fn get_intersection(&self, other: &NodeIndex) -> Result<NodeIndex, ARTError> {
-        let mut intersection = Vec::new();
-        for (a, b) in self.get_path()?.iter().zip(other.get_path()?.iter()) {
-            if a == b {
-                intersection.push(*a);
-            } else {
-                return Ok(NodeIndex::Direction(intersection));
-            }
-        }
-
-        Ok(NodeIndex::Direction(intersection))
     }
 }
 

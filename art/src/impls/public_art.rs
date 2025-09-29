@@ -11,6 +11,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
 
+pub(crate) type ArtLevel<G> = (Vec<ARTNode<G>>, Vec<<G as AffineRepr>::ScalarField>);
+
 impl<G> PublicART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
@@ -20,7 +22,7 @@ where
         level_nodes: &mut Vec<ARTNode<G>>,
         level_secrets: &mut Vec<G::ScalarField>,
         generator: &G,
-    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<ArtLevel<G>, ARTError> {
         let mut upper_level_nodes = Vec::new();
         let mut upper_level_secrets = Vec::new();
 
@@ -63,7 +65,7 @@ where
         mut level_nodes: Vec<ARTNode<G>>,
         mut level_secrets: Vec<G::ScalarField>,
         generator: &G,
-    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<ArtLevel<G>, ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
             level_size <<= 1;

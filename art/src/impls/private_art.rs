@@ -1,16 +1,14 @@
 use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
-    helper_tools::{to_ark_scalar, to_dalek_scalar},
     traits::{ARTPrivateView, ARTPublicAPI, ARTPublicView},
     types::{ARTNode, ARTRootKey, NodeIndex, PrivateART, PublicART},
 };
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
-use tracing::{debug, error};
 
 impl<G> PrivateART<G>
 where
@@ -23,7 +21,7 @@ where
         secrets: &Vec<G::ScalarField>,
         generator: &G,
     ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        let secret_key = *secrets.get(0).ok_or(ARTError::InvalidInput)?;
+        let secret_key = *secrets.first().ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
         Ok((Self::from_public_art(art, secret_key)?, root_key))
@@ -113,7 +111,7 @@ where
         self.secret_key
     }
     fn set_secret_key(&mut self, secret_key: &G::ScalarField) {
-        self.secret_key = secret_key.clone();
+        self.secret_key = *secret_key;
     }
 
     fn get_node_index(&self) -> &NodeIndex {
@@ -179,7 +177,7 @@ where
     ) -> Result<(), ARTError> {
         let mut path_secrets = self.get_path_secrets().clone();
 
-        if path_secrets.len() == 0 {
+        if path_secrets.is_empty() {
             return Err(ARTError::EmptyART);
         }
 
@@ -264,7 +262,7 @@ where
     ) -> Result<(), ARTError> {
         let mut path_secrets = self.get_path_secrets().clone();
 
-        if path_secrets.len() == 0 {
+        if path_secrets.is_empty() {
             return Err(ARTError::EmptyART);
         }
 

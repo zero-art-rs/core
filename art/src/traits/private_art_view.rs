@@ -1,7 +1,7 @@
 use crate::{
     errors::ARTError,
     traits::ARTPublicView,
-    types::{ARTNode, ARTRootKey, NodeIndex},
+    types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -45,10 +45,12 @@ where
     /// Changes path_secrets to the given ones.
     fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField>;
 
+    /// If `append_changes` is false, works as set_path_secrets. In the other case, it will
+    /// append secrets to available ones. Can be used for make blank to update secrets correctly.
     fn update_path_secrets(
         &mut self,
         new_path_secrets: Vec<G::ScalarField>,
-        apend_changes: bool,
+        append_changes: bool,
     ) -> Result<(), ARTError>;
 
     /// Changes path secrets on path from the root to leaf with `other_path_secrets`, using only

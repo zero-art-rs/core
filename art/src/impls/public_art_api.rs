@@ -1,7 +1,6 @@
-use crate::traits::ARTPrivateAPI;
 use crate::{
     errors::ARTError,
-    helper_tools::{iota_function, to_ark_scalar, to_dalek_scalar},
+    helper_tools::iota_function,
     traits::{ARTPublicAPI, ARTPublicView},
     types::{
         ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
@@ -15,7 +14,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::cmp::{max, min};
 use std::collections::HashMap;
-use tracing::{debug, error};
+use tracing::error;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -65,9 +64,7 @@ where
     }
 
     fn get_leaf_index(&self, user_val: &G) -> Result<u64, ARTError> {
-        Ok(NodeIndex::get_index_from_path(
-            &self.get_path_to_leaf(user_val)?,
-        )?)
+        NodeIndex::get_index_from_path(&self.get_path_to_leaf(user_val)?)
     }
 
     fn recompute_root_key_with_artefacts_using_secret_key(
@@ -77,12 +74,12 @@ where
     ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
         let co_path_values = self.get_co_path_values(node_index)?;
 
-        let mut ark_secret = secret_key.clone();
+        let mut ark_secret = secret_key;
         let mut secrets: Vec<G::ScalarField> = vec![secret_key];
         let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
         for public_key in co_path_values.iter() {
             ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(ark_secret.clone());
+            secrets.push(ark_secret);
             path_values.push(G::generator().mul(ark_secret).into_affine());
         }
 
@@ -156,7 +153,7 @@ where
             parent
                 .get_mut_child(&next_child)?
                 .set_public_key_with_options(public_key, append_changes);
-            let other_child_public_key = parent.get_other_child(&next_child)?.public_key.clone();
+            let other_child_public_key = parent.get_other_child(&next_child)?.public_key;
 
             path_values.push(public_key);
             co_path_values.push(other_child_public_key);
@@ -191,7 +188,7 @@ where
         let changes = BranchChanges {
             change_type: BranchChangesType::UpdateKey,
             public_keys: path_values,
-            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(&path.to_vec())?),
+            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(path)?),
         };
 
         Ok((key, changes, artefacts))
@@ -305,18 +302,18 @@ where
 
     fn make_blank_in_public_art(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let (append_changes, update_weights) =
-            match self.get_node(&NodeIndex::from(path.clone()))?.is_blank {
+            match self.get_node(&NodeIndex::from(path.to_vec()))?.is_blank {
                 true => (true, false),
                 false => (false, true),
             };
 
-        self.make_blank_without_changes_with_options(&path, update_weights)?;
+        self.make_blank_without_changes_with_options(path, update_weights)?;
 
-        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, &path, append_changes)
+        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, path, append_changes)
             .map(|(root_key, mut changes, artefacts)| {
                 changes.change_type = BranchChangesType::MakeBlank;
                 (root_key, changes, artefacts)
@@ -328,7 +325,7 @@ where
         changes: &BranchChanges<G>,
         append_changes: bool,
     ) -> Result<(), ARTError> {
-        if changes.public_keys.len() == 0 {
+        if changes.public_keys.is_empty() {
             return Err(ARTError::InvalidInput);
         }
 
@@ -361,7 +358,7 @@ where
     ) -> Result<Vec<G::ScalarField>, ARTError> {
         fork.update_public_art_with_options(changes, false, true)?;
 
-        let co_path_values = fork.get_co_path_values(&node_index)?;
+        let co_path_values = fork.get_co_path_values(node_index)?;
         let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
         secrets.push(secret_key);
         let mut ark_secret = secret_key;
@@ -495,13 +492,8 @@ where
         match &changes.change_type {
             BranchChangesType::UpdateKey => {}
             BranchChangesType::AppendNode => {
-                let leaf = ARTNode::new_leaf(
-                    changes
-                        .public_keys
-                        .last()
-                        .ok_or(ARTError::NoChanges)?
-                        .clone(),
-                );
+                let leaf =
+                    ARTNode::new_leaf(*changes.public_keys.last().ok_or(ARTError::NoChanges)?);
                 self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
             }
             BranchChangesType::MakeBlank => {
@@ -529,10 +521,10 @@ where
         let target_path = target_change.node_index.get_path()?;
         for level in 0..=target_path.len() {
             let node = self.get_mut_node(&NodeIndex::Direction(target_path[0..level].to_vec()))?;
-            if let BranchChangesType::AppendNode = target_change.change_type {
-                if level < target_path.len() {
-                    node.weight += 1;
-                }
+            if let BranchChangesType::AppendNode = target_change.change_type
+                && level < target_path.len()
+            {
+                node.weight += 1;
                 // The last node weight will be computed when the structure is updated
             }
 
@@ -575,7 +567,7 @@ where
                 .entry(key.clone())
                 .and_modify(|subtree_leaves| {
                     subtree_leaves.sort_by(|&a, &b| match a.x() == b.x() {
-                        false => return a.x().cmp(&b.x()),
+                        false => a.x().cmp(&b.x()),
                         true => a.y().cmp(&b.y()),
                     });
                 });
@@ -600,14 +592,14 @@ where
         Ok(())
     }
 
-    fn merge(&mut self, target_changes: &Vec<BranchChanges<G>>) -> Result<(), ARTError> {
-        self.merge_with_skip(&vec![], target_changes)
+    fn merge(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError> {
+        self.merge_with_skip(&[], target_changes)
     }
 
     fn merge_with_skip(
         &mut self,
-        applied_changes: &Vec<BranchChanges<G>>,
-        target_changes: &Vec<BranchChanges<G>>,
+        applied_changes: &[BranchChanges<G>],
+        target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError> {
         for change in applied_changes {
             match change.change_type {
@@ -634,7 +626,7 @@ where
 
         // merge all key update changes but skip whose from applied_changes
         let merge_limit = non_structural_changes.len() + applied_changes.len();
-        let mut changes = applied_changes.clone();
+        let mut changes = applied_changes.to_vec();
         changes.extend(non_structural_changes);
 
         for i in applied_changes.len()..changes.len() {

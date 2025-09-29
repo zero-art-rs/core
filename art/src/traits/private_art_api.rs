@@ -1,13 +1,12 @@
-use crate::types::Direction;
+use crate::types::{Direction, UpdateData};
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
-    types::{ARTRootKey, BranchChanges, ProverArtefacts},
+    types::{ARTRootKey, BranchChanges},
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 
 pub trait ARTPrivateAPI<G>: ARTPublicAPI<G>
 where
@@ -19,23 +18,20 @@ where
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError>;
 
     /// Changes old_secret_key of a user leaf to the new_secret_key and update path_secrets.
-    fn update_key(
-        &mut self,
-        new_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    fn update_key(&mut self, new_secret_key: &G::ScalarField) -> Result<UpdateData<G>, ARTError>;
 
     /// Converts a leaf node, which is on the given path, to blank one and update path_secrets
     fn make_blank(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Append new node to the tree or replace the blank one. It also updates `path_secrets`.
     fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
@@ -54,7 +50,7 @@ where
     /// merge all secrets, we need to apply one and then append others.
     fn recompute_path_secrets_for_observer(
         &mut self,
-        target_changes: &Vec<BranchChanges<G>>,
+        target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError>;
 
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if user
@@ -63,7 +59,7 @@ where
     /// users update, because it merges all path_secrets to the self path_secrets.
     fn recompute_path_secrets_for_participant(
         &mut self,
-        target_changes: &Vec<BranchChanges<G>>,
+        target_changes: &[BranchChanges<G>],
         base_fork: &Self,
     ) -> Result<(), ARTError>;
 }
