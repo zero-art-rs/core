@@ -24,7 +24,7 @@ serde_bytes = { version = "0.11.17" }
 criterion = { version = "0.6.0" }
 thiserror = {version = "2.0.12"}
 curve25519-dalek = { version = "4.1.3", features = ["digest", "group", "rand_core", "serde"] }
-bulletproofs = { version = "5.0.0", git="https://github.com/zk-messenger/bulletproofs"}
+bulletproofs = { version = "5.0.0", git="https://github.com/zero-art-rs/bulletproofs"}
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 zkp = { version = "0.10.0", git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
