@@ -28,7 +28,7 @@ where
             .secrets
             .first()
             .ok_or(ARTError::InvalidInput)?;
-        self.data.change_type = change.change_type.into();
+        self.data.change_type.push(change.change_type);
 
         // Update other nodes.
         let mut parent = &mut *self;
@@ -45,7 +45,7 @@ where
                         .get(i)
                         .ok_or(ARTError::InvalidInput)?,
                 ),
-                change_type: change.change_type.into(),
+                change_type: vec![change.change_type],
                 secret_key: *prover_artefacts
                     .secrets
                     .get(i + 1)
@@ -269,7 +269,7 @@ where
 
                 let branch_changes = BranchChanges {
                     change_type: match path.last() {
-                        Some((node, _)) => node.data.change_type.into(),
+                        Some((node, _)) => *node.data.change_type.get(0).unwrap(),
                         None => BranchChangesType::default(),
                     },
                     public_keys,
@@ -307,7 +307,7 @@ where
 
                 let branch_changes = BranchChanges {
                     change_type: match path.last() {
-                        Some((node, _)) => node.data.change_type.into(),
+                        Some((node, _)) => *node.data.change_type.get(0).unwrap(),
                         None => BranchChangesType::default(),
                     },
                     public_keys,
@@ -411,7 +411,7 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, type: {}",
+            "pk: {}, co_pk: {}, sk: {}, type: {:?}",
             pk_marker, co_pk_marker, sk_marker, self.change_type
         )
     }
@@ -438,7 +438,7 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, type: {}",
+            "pk: {}, co_pk: {}, type: {:?}",
             pk_marker, co_pk_marker, self.change_type
         )
     }

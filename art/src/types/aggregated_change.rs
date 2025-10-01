@@ -40,7 +40,7 @@ where
     pub secret_key: G::ScalarField,
 
     /// Change type marker
-    pub change_type: AggregationChangeType,
+    pub change_type: Vec<BranchChangesType>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -55,7 +55,7 @@ where
     pub co_public_key: Option<G>,
 
     /// Change type marker
-    pub change_type: AggregationChangeType,
+    pub change_type: Vec<BranchChangesType>,
 }
 
 #[derive(Debug, Clone, Copy)]

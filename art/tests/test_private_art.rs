@@ -1792,6 +1792,7 @@ mod tests {
             PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
 
         let sk1 = Fr::rand(&mut rng);
+        // let (_, change1, artefacts1) = user1.make_blank(&user3.node_index.get_path().unwrap(), &sk1).unwrap();
         let (_, change1, artefacts1) = user1.append_or_replace_node(&sk1).unwrap();
 
         let sk2 = Fr::rand(&mut rng);
@@ -1799,7 +1800,7 @@ mod tests {
         // let (_, change2, artefacts2) = user1.make_blank(&user0.node_index.get_path().unwrap(), &sk2).unwrap();
 
         let sk3 = Fr::rand(&mut rng);
-        let (_, change3, artefacts3) = user1.make_blank(&user3.node_index.get_path().unwrap(), &sk1).unwrap();
+        let (_, change3, artefacts3) = user1.append_or_replace_node(&sk3).unwrap();
         // let (_, change3, artefacts3) = user1.make_blank(&user2.node_index.get_path().unwrap(), &sk3).unwrap();
 
         // debug!("change1: {:#?}", change1);
