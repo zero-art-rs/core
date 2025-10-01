@@ -51,6 +51,6 @@ where
     G: AffineRepr,
 {
     Ok(Scalar::from_bytes_mod_order(
-        (&point.clone().into_bigint().to_bytes_le()[..]).try_into()?,
+        (&point.into_bigint().to_bytes_le()[..]).try_into()?,
     ))
 }

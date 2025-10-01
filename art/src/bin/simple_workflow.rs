@@ -163,12 +163,6 @@ fn merge_conflict_changes() {
     let mut user3: PrivateART<CortadoAffine> =
         PrivateART::deserialize(&public_art_bytes, &secrets[8]).unwrap();
 
-    let mut user4: PrivateART<CortadoAffine> =
-        PrivateART::deserialize(&public_art_bytes, &secrets[10]).unwrap();
-
-    let mut user5: PrivateART<CortadoAffine> =
-        PrivateART::deserialize(&public_art_bytes, &secrets[67]).unwrap();
-
     let sk0 = Fr::rand(&mut rng);
     let (_, change0, _) = user0.update_key(&sk0).unwrap();
 

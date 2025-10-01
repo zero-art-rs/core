@@ -1,11 +1,9 @@
-use crate::types::BranchChanges;
 use crate::{
     helper_tools::{ark_de, ark_se},
     types::{ARTNode, NodeIndex},
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use curve25519_dalek::Scalar;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

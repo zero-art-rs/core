@@ -17,3 +17,6 @@ pub use direction::Direction;
 pub use node_index::NodeIndex;
 pub use private_art::PrivateART;
 pub use public_art::PublicART;
+
+/// Helper data type, returned after the most art update operations.
+pub type UpdateData<G> = (ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>);
