@@ -358,63 +358,9 @@ fn bench_creation() {
         for (_, test_type) in time_table.iter_mut() {
                 test_type[i] /= REPETITION_TIME as u32;
         }
-
-
-        {
-            let mut output = String::new();
-            for test_set in test_sets.iter() {
-                output += "\\hline\nGroup size";
-                for set in test_set {
-                    output += &format!(" & {}", set);
-                }
-                output += "\\\\ \\hline\n\\hline\n";
-                for (test_index, test_size) in TEST_SAMPLES.iter().enumerate() {
-                    output += &format!("$2^{{{}}}$", test_size);
-
-                    for test_name in test_set.iter() {
-                        output += &format!(" & {:?}", time_table.get(test_name).unwrap().get(test_index).unwrap());
-                    }
-
-                    output += "\\\\ \\hline\n";
-                }
-                output += "\n";
-            }
-
-            debug!("latex formated data:\n{}", output);
-        }
-
     }
-
-    // for (_, test_type) in time_table.iter_mut() {
-    //     for test_duration in test_type.iter_mut() {
-    //         *test_duration /= REPETITION_TIME as u32;
-    //     }
-    // }
 
     info!("Operations time for tests: {:#?}", time_table);
-
-
-    let mut output = String::new();
-    for test_set in test_sets.iter() {
-        output += "\\hline\nGroup size";
-        for set in test_set {
-            output += &format!(" & {}", set);
-        }
-        output += "\\\\ \\hline\n\\hline\n";
-        for (test_index, test_size) in TEST_SAMPLES.iter().enumerate() {
-            output += &format!("$2^{{{}}}$", test_size);
-
-            for test_name in test_set.iter() {
-                output += &format!(" & {:?}", time_table.get(test_name).unwrap().get(test_index).unwrap());
-            }
-
-            output += "\\\\ \\hline\n";
-        }
-        output += "\n";
-    }
-
-    info!("latex formated data:\n{}", output);
-
 }
 
 fn main() {
