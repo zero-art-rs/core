@@ -12,13 +12,14 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use crate::traits::ARTPrivateAPIHelper;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
     Self: Sized + Serialize + DeserializeOwned,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
-    A: ARTPrivateView<G>,
+    A: ARTPrivateView<G> + ARTPrivateAPIHelper<G>,
 {
     fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         Ok(ARTRootKey {
@@ -92,50 +93,6 @@ where
         }
     }
 
-    fn update_private_art_with_options(
-        &mut self,
-        changes: &BranchChanges<G>,
-        append_changes: bool,
-        update_weights: bool,
-    ) -> Result<(), ARTError> {
-        // If your node is to be blanked, return error, as it is impossible to update
-        // path secrets at that point.
-        if changes.node_index.eq(self.get_node_index()) {
-            match changes.change_type {
-                BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
-                BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
-                _ => {}
-            }
-        }
-
-        // create a fork of the art, to correctly append change
-        let fork = self.clone();
-
-        self.update_public_art_with_options(changes, append_changes, update_weights)?;
-
-        if let BranchChangesType::AppendNode = &changes.change_type {
-            self.update_node_index()?;
-        };
-
-        let artefact_secrets = self.get_artefact_secrets_from_change(
-            self.get_node_index(),
-            self.get_secret_key(),
-            changes,
-            fork,
-        )?;
-
-        match append_changes {
-            true => self.merge_path_secrets(
-                artefact_secrets,
-                &changes.node_index,
-                !self.get_node(self.get_node_index())?.is_blank,
-            )?,
-            false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
-        }
-
-        Ok(())
-    }
-
     fn recompute_path_secrets_for_observer(
         &mut self,
         target_changes: &[BranchChanges<G>],
@@ -180,6 +137,58 @@ where
                 &change.node_index,
                 !self.get_node(self.get_node_index())?.is_blank,
             )?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<G, A> ARTPrivateAPIHelper<G> for A
+where
+    Self: Sized + Serialize + DeserializeOwned,
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+    A: ARTPrivateView<G>,
+{
+    fn update_private_art_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError> {
+        // If your node is to be blanked, return error, as it is impossible to update
+        // path secrets at that point.
+        if changes.node_index.eq(self.get_node_index()) {
+            match changes.change_type {
+                BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
+                BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                _ => {}
+            }
+        }
+
+        // create a fork of the art, to correctly append change
+        let fork = self.clone();
+
+        self.update_public_art_with_options(changes, append_changes, update_weights)?;
+
+        if let BranchChangesType::AppendNode = &changes.change_type {
+            self.update_node_index()?;
+        };
+
+        let artefact_secrets = self.get_artefact_secrets_from_change(
+            self.get_node_index(),
+            self.get_secret_key(),
+            changes,
+            fork,
+        )?;
+
+        match append_changes {
+            true => self.merge_path_secrets(
+                artefact_secrets,
+                &changes.node_index,
+                !self.get_node(self.get_node_index())?.is_blank,
+            )?,
+            false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
         }
 
         Ok(())

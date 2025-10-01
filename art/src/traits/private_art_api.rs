@@ -8,6 +8,10 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
+/// Trait which contains methods to work with abstract Private ART tree.
+///
+/// It extends `ARTPublicAPI`. The difference from `ARTPublicAPI` is that the trait is designed
+/// to work with stored leaf secret key.
 pub trait ARTPrivateAPI<G>: ARTPublicAPI<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
@@ -36,14 +40,6 @@ where
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
-    /// Updates art by applying changes. Also updates path_secrets and node_index.
-    fn update_private_art_with_options(
-        &mut self,
-        changes: &BranchChanges<G>,
-        append_changes: bool,
-        update_weights: bool,
-    ) -> Result<(), ARTError>;
-
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if the user
     /// didn't make any changes, which where merged. It is a wrapper for
     /// `recompute_path_secrets_for_participant`. The difference, is then for observer we cant
@@ -61,5 +57,19 @@ where
         &mut self,
         target_changes: &[BranchChanges<G>],
         base_fork: &Self,
+    ) -> Result<(), ARTError>;
+}
+
+pub trait ARTPrivateAPIHelper<G>: ARTPublicAPI<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    fn update_private_art_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
     ) -> Result<(), ARTError>;
 }
