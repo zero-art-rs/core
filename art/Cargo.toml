@@ -10,6 +10,14 @@ path = "src/lib.rs"
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
 
+[[bin]]
+name = "simple_benchmarks"
+path = "src/bin/simple_benchmarks.rs"
+
+[[bench]]
+name = "art_benches"
+harness = false
+
 [features]
 fuzz_test = []
 
@@ -23,7 +31,7 @@ rand = { workspace = true, features = ["thread_rng"]}
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_bytes = {workspace = true}
-criterion = { workspace = true }
+criterion = { workspace = true, features = ["csv_output"] }
 thiserror = {workspace = true}
 zrt-zk = {path = "../zk"}
 cortado = {path = "../cortado"}
@@ -34,10 +42,9 @@ display_tree = {workspace = true}
 postcard = { workspace = true, features = ["alloc"] }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
-log = "0.4.27"
+chrono = { workspace = true }
 
 [dev-dependencies]
 strum ={ workspace = true }
 strum_macros = { workspace = true }
-chrono = { workspace = true }
 itertools = { workspace = true}
