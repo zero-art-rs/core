@@ -25,7 +25,9 @@ mod tests {
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
     use zrt_art::traits::ARTPrivateView;
     use zrt_art::types::{
-        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
+        ARTRootKey, BranchChanges, BranchChangesIter, ChangeAggregation, LeafIterWithPath,
+        NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+        VerifierArtefacts,
     };
     use zrt_art::{
         errors::ARTError,
@@ -1760,6 +1762,77 @@ mod tests {
         debug!("User 2 make blank ...");
         let (_, change2, _) = user2.make_blank(&target_node_path, &new_node3_sk)?;
         Ok(())
+    }
+
+    #[test]
+    fn test_branch_aggregation() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
+
+        let (user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = user0.serialize().unwrap();
+        let mut user1: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[1]).unwrap();
+
+        let mut user1_2 = user1.clone();
+
+        let user2: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+
+        let user3: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+
+        let sk1 = Fr::rand(&mut rng);
+        let (_, change1, artefacts1) = user1.append_or_replace_node(&sk1).unwrap();
+
+        let sk2 = Fr::rand(&mut rng);
+        let (_, change2, artefacts2) = user1.append_or_replace_node(&sk2).unwrap();
+        // let (_, change2, artefacts2) = user1.make_blank(&user0.node_index.get_path().unwrap(), &sk2).unwrap();
+
+        let sk3 = Fr::rand(&mut rng);
+        let (_, change3, artefacts3) = user1.make_blank(&user3.node_index.get_path().unwrap(), &sk1).unwrap();
+        // let (_, change3, artefacts3) = user1.make_blank(&user2.node_index.get_path().unwrap(), &sk3).unwrap();
+
+        // debug!("change1: {:#?}", change1);
+        // debug!("change2: {:#?}", change2);
+        // debug!("change3: {:#?}", change3);
+
+        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        debug!("agg-def:\n{}", agg);
+
+        agg.extend(&change1, &artefacts1).unwrap();
+        debug!("agg-1:\n{}", agg);
+
+        agg.extend(&change2, &artefacts2).unwrap();
+        debug!("agg-2:\n{}", agg);
+
+        agg.extend(&change3, &artefacts3).unwrap();
+        debug!("agg-3:\n{}", agg);
+
+        let verifier_aggregation =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(agg).unwrap();
+
+        debug!("verifier_aggregation:\n{}", verifier_aggregation);
+
+        for mut changes in BranchChangesIter::new(&verifier_aggregation) {
+            changes.node_index = changes.node_index.as_index().unwrap();
+            debug!("changes: {:#?}", changes);
+            user1_2.update_private_art(&changes).unwrap()
+        }
+
+        assert_eq!(
+            user1, user1_2,
+            "Both users have the same view on the state of the art"
+        );
     }
 
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {

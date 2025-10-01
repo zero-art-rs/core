@@ -1,10 +1,15 @@
-use zkp::ark_ec::{AffineRepr, CurveGroup};
-use sha3::Sha3_256;
-use hkdf;
 use crate::CryptoError;
+use hkdf;
+use sha3::Sha3_256;
+use zkp::ark_ec::{AffineRepr, CurveGroup};
 
 /// Computes the X3DH shared secret using the provided keys for Alice
-pub fn x3dh_a<G: AffineRepr>(ika: G::ScalarField, eka: G::ScalarField, ikb: G, ekb: G) -> Result<[u8; 32], CryptoError> {
+pub fn x3dh_a<G: AffineRepr>(
+    ika: G::ScalarField,
+    eka: G::ScalarField,
+    ikb: G,
+    ekb: G,
+) -> Result<[u8; 32], CryptoError> {
     let dh1 = ekb * ika;
     let dh2 = ikb * eka;
     let dh3 = ekb * eka;
@@ -20,7 +25,12 @@ pub fn x3dh_a<G: AffineRepr>(ika: G::ScalarField, eka: G::ScalarField, ikb: G, e
 }
 
 /// Computes the X3DH shared secret using the provided keys for Alice
-pub fn x3dh_b<G: AffineRepr>(ika: G::ScalarField, eka: G::ScalarField, ikb: G, ekb: G) -> Result<[u8; 32], CryptoError> {
+pub fn x3dh_b<G: AffineRepr>(
+    ika: G::ScalarField,
+    eka: G::ScalarField,
+    ikb: G,
+    ekb: G,
+) -> Result<[u8; 32], CryptoError> {
     let dh2 = ekb * ika;
     let dh1 = ikb * eka;
     let dh3 = ekb * eka;
@@ -36,10 +46,10 @@ pub fn x3dh_b<G: AffineRepr>(ika: G::ScalarField, eka: G::ScalarField, ikb: G, e
 }
 
 mod test {
+    use super::*;
     use cortado;
     use rand;
     use zkp::ark_ff::UniformRand as _;
-    use super::*;
     #[test]
     fn test_x3dh() {
         let mut rng = rand::thread_rng();

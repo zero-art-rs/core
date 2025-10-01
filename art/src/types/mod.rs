@@ -1,20 +1,29 @@
+mod aggregated_change;
 mod art_node;
 mod art_root_key;
 mod artefacts;
 mod branch_changes;
+mod children;
 mod direction;
 mod node_index;
+mod node_marker;
 mod private_art;
 mod public_art;
 
+pub use aggregated_change::{
+    AggregationChangeType, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChangesIter,
+    ChangeAggregation, ProverAggregationData, VerifierAggregationData,
+};
 pub use art_node::{
     ARTDisplayTree, ARTNode, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
 };
 pub use art_root_key::ARTRootKey;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use branch_changes::{BranchChanges, BranchChangesType};
+pub use children::{Children, FullChildren};
 pub use direction::Direction;
 pub use node_index::NodeIndex;
+pub use node_marker::ProcessedMarker;
 pub use private_art::PrivateART;
 pub use public_art::PublicART;
 

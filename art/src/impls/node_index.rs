@@ -176,3 +176,9 @@ impl From<(u64, u64)> for NodeIndex {
         Self::Coordinate(level, position)
     }
 }
+
+impl Default for NodeIndex {
+    fn default() -> Self {
+        NodeIndex::Index(1)
+    }
+}

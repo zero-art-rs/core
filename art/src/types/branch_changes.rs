@@ -6,7 +6,7 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangesType {
     MakeBlank,
     AppendNode,
@@ -14,7 +14,7 @@ pub enum BranchChangesType {
     RemoveNode,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(bound = "")]
 pub struct BranchChanges<G>
 where

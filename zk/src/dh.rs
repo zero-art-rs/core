@@ -1,25 +1,25 @@
 #![allow(non_snake_case)]
 use std::ops::{Add, Mul};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{self, Instant};
 
-use rand_core::{le, OsRng};
+use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
+use ark_ec::{AffineRepr, CurveGroup, short_weierstrass::SWCurveConfig};
+use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use ark_serialize::Valid;
-use bulletproofs::{r1cs::*, ProofError};
 use bulletproofs::{BulletproofGens, PedersenGens};
+use bulletproofs::{ProofError, r1cs::*};
+use cortado::{self, CortadoAffine, Parameters, ToScalar};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
-use merlin::Transcript;
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use tracing::{debug, info, instrument, trace};
-use ark_ec::{short_weierstrass::SWCurveConfig, AffineRepr, CurveGroup};
-use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
-use tracing_subscriber::field::debug;
-use cortado::{self, CortadoAffine, Parameters, ToScalar};
-use crate::gadgets::r1cs_utils::{AllocatedPoint, AllocatedScalar};
 use hex::FromHex;
+use merlin::Transcript;
 use once_cell::sync::OnceCell;
+use rand::seq::SliceRandom;
+use rand::{Rng, thread_rng};
+use rand_core::{OsRng, le};
+use tracing::{debug, info, instrument, trace};
+use tracing_subscriber::field::debug;
 
 const MODULUS_BIT_SIZE: u64 = 254;
 static S: OnceCell<Vec<CortadoAffine>> = OnceCell::new();
@@ -51,10 +51,9 @@ trait GetBit {
 
 impl GetBit for Scalar {
     fn get_bit(&self, i: usize) -> bool {
-        (self.as_bytes()[i/8] >> (i%8)) & 1 == 1
+        (self.as_bytes()[i / 8] >> (i % 8)) & 1 == 1
     }
 }
-
 
 /// checks if x value belongs to the range [0, 2^bit_size)
 pub fn bin_equality_gadget<CS: ConstraintSystem>(
@@ -99,72 +98,119 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    
-    let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
-    let (w_a, w_b) = ( cortado::Parameters::COEFF_A.into_scalar(), cortado::Parameters::COEFF_B.into_scalar());
+    let AllocatedScalar {
+        variable: var_a,
+        assignment: λ_a,
+    } = λ_a;
+    let (w_a, w_b) = (
+        cortado::Parameters::COEFF_A.into_scalar(),
+        cortado::Parameters::COEFF_B.into_scalar(),
+    );
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1 = S.get_or_init(|| {
         let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
-        (0..l).map(|i| if i == (l-1) {
-            (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
-        } else {
-            (G * cortado::Fr::from(i+2)).into_affine()
-        }).collect()
+        (0..l)
+            .map(|i| {
+                if i == (l - 1) {
+                    (G * cortado::Fr::from(-(l * l + l - 2) / 2)).into_affine()
+                } else {
+                    (G * cortado::Fr::from(i + 2)).into_affine()
+                }
+            })
+            .collect()
     });
 
     let mut δ = vec![Q_b];
     for _ in 1..l as usize {
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
-    let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
+    let Δ2: Vec<_> = Δ1
+        .iter()
+        .zip(δ.iter())
+        .map(|(x, y)| (*x + y).into_affine())
+        .collect();
     let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
-    
+
     // P_0 = Δ_0
-    let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
-    let (_, _, y0) = cs.multiply(Variable::One() * Δ1[0].y().unwrap().into_scalar() + k_vars[0] * (Δ2[0].y().unwrap() - Δ1[0].y().unwrap()).into_scalar(), Variable::One().into()); // y0 = k[0]*(y-y')+y'
-    let mut P  = λ_a.map(|λ_a| vec![ (Q_b * cortado::Fr::from(λ_a.get_bit(0) as u64) + Δ1[0] ).into_affine() ] );
+    let (_, _, x0) = cs.multiply(
+        Variable::One() * Δ1[0].x().unwrap().into_scalar()
+            + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(),
+        Variable::One().into(),
+    ); // x0 = k[0]*(x-x')+x'
+    let (_, _, y0) = cs.multiply(
+        Variable::One() * Δ1[0].y().unwrap().into_scalar()
+            + k_vars[0] * (Δ2[0].y().unwrap() - Δ1[0].y().unwrap()).into_scalar(),
+        Variable::One().into(),
+    ); // y0 = k[0]*(y-y')+y'
+    let mut P = λ_a
+        .map(|λ_a| vec![(Q_b * cortado::Fr::from(λ_a.get_bit(0) as u64) + Δ1[0]).into_affine()]);
     let mut P_vars = vec![(x0, y0)];
-    
+
     for i in 1..l as usize {
         // calculate witness P_i = P_i_1 + Δ_i
         let P_i = if let Some(λ_a) = λ_a {
-            let P_i = (*(P.as_ref().unwrap().last().unwrap()) + match λ_a.get_bit(i) {
-                true => Δ2[i],
-                false => Δ1[i]
-            }).into_affine();
-            P.as_mut().unwrap().push( P_i );
+            let P_i = (*(P.as_ref().unwrap().last().unwrap())
+                + match λ_a.get_bit(i) {
+                    true => Δ2[i],
+                    false => Δ1[i],
+                })
+            .into_affine();
+            P.as_mut().unwrap().push(P_i);
             Some(P_i)
-        } else { None };
+        } else {
+            None
+        };
 
         let (Δ_i_x, Δ_i_y) = (
-            Variable::One() * Δ1[i].x().unwrap().into_scalar() + k_vars[i] * (Δ2[i].x().unwrap() - Δ1[i].x().unwrap()).into_scalar(), 
-            Variable::One() * Δ1[i].y().unwrap().into_scalar() + k_vars[i] * (Δ2[i].y().unwrap() - Δ1[i].y().unwrap()).into_scalar()
+            Variable::One() * Δ1[i].x().unwrap().into_scalar()
+                + k_vars[i] * (Δ2[i].x().unwrap() - Δ1[i].x().unwrap()).into_scalar(),
+            Variable::One() * Δ1[i].y().unwrap().into_scalar()
+                + k_vars[i] * (Δ2[i].y().unwrap() - Δ1[i].y().unwrap()).into_scalar(),
         );
 
-        let (_, x_P, x_P2) = cs.allocate_multiplier(P_i.map(|P_i| (P_i.x().unwrap().into_scalar(), P_i.x().unwrap().into_scalar())))?;
-        let (_, y_P, y_P2) = cs.allocate_multiplier(P_i.map(|P_i| (P_i.y().unwrap().into_scalar(), P_i.y().unwrap().into_scalar())))?;
+        let (_, x_P, x_P2) = cs.allocate_multiplier(P_i.map(|P_i| {
+            (
+                P_i.x().unwrap().into_scalar(),
+                P_i.x().unwrap().into_scalar(),
+            )
+        }))?;
+        let (_, y_P, y_P2) = cs.allocate_multiplier(P_i.map(|P_i| {
+            (
+                P_i.y().unwrap().into_scalar(),
+                P_i.y().unwrap().into_scalar(),
+            )
+        }))?;
         let (_, _, x_P3) = cs.multiply(x_P2.into(), x_P.into());
         let (P_i_1_x, P_i_1_y) = *P_vars.last().unwrap();
         P_vars.push((x_P, y_P));
-        
+
         // check curve equation for current points
         //debug!("{:?} = {:?}", P_i.map(|P_i| P_i.x().unwrap().into_scalar() * P_i.x().unwrap().into_scalar() * P_i.x().unwrap().into_scalar() + w_a * P_i.x().unwrap().into_scalar() + w_b), P_i.map(| P_i| P_i.y().unwrap().into_scalar()));
-        let curve_eq = y_P2 - x_P3 - x_P*w_a - w_b;
+        let curve_eq = y_P2 - x_P3 - x_P * w_a - w_b;
         cs.constrain(curve_eq);
 
         // check that Δ_i, -P_i, P_i_1 is on the same line
         let (_, _, t1) = cs.multiply(P_i_1_y + y_P, Δ_i_x - x_P);
         let (_, _, t2) = cs.multiply(Δ_i_y + y_P, P_i_1_x - x_P);
-        cs.constrain(t1-t2);
+        cs.constrain(t1 - t2);
     }
-    trace!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone() ));
-    
-    let (x_var,y_var) = *P_vars.last().unwrap();
+    trace!(
+        "P_final = {:?}",
+        P.as_ref().map(|P| P.iter().last().clone())
+    );
+
+    let (x_var, y_var) = *P_vars.last().unwrap();
     let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
-    
-    Ok(AllocatedPoint{
-        x: AllocatedScalar { variable: x_var, assignment: P.map(|P| P.x().unwrap().into_scalar()) }, 
-        y: AllocatedScalar { variable: y_var, assignment: P.map(|P| P.y().unwrap().into_scalar()) } 
+
+    Ok(AllocatedPoint {
+        x: AllocatedScalar {
+            variable: x_var,
+            assignment: P.map(|P| P.x().unwrap().into_scalar()),
+        },
+        y: AllocatedScalar {
+            variable: y_var,
+            assignment: P.map(|P| P.y().unwrap().into_scalar()),
+        },
     })
 }
 
@@ -183,53 +229,79 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    let AllocatedScalar {variable: var_a, assignment: λ_a} = λ_a;
+    let AllocatedScalar {
+        variable: var_a,
+        assignment: λ_a,
+    } = λ_a;
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1 = S.get_or_init(|| {
         let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
-        (0..l).map(|i| if i == (l-1) {
-            (G * cortado::Fr::from(-(l*l + l - 2)/2)).into_affine()
-        } else {
-            (G * cortado::Fr::from(i+2)).into_affine()
-        }).collect()
+        (0..l)
+            .map(|i| {
+                if i == (l - 1) {
+                    (G * cortado::Fr::from(-(l * l + l - 2) / 2)).into_affine()
+                } else {
+                    (G * cortado::Fr::from(i + 2)).into_affine()
+                }
+            })
+            .collect()
     });
 
     let mut δ = vec![Q_b];
     for _ in 1..l as usize {
         δ.push(((*δ.last().unwrap()) * cortado::Fr::from(2)).into_affine());
     }
-    let Δ2: Vec<_> = Δ1.iter().zip(δ.iter()).map(|(x, y)| (*x+y).into_affine()).collect();
+    let Δ2: Vec<_> = Δ1
+        .iter()
+        .zip(δ.iter())
+        .map(|(x, y)| (*x + y).into_affine())
+        .collect();
     let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
-    
+
     // P_0 = Δ_0
-    let (_, _, x0) = cs.multiply( Variable::One() * Δ1[0].x().unwrap().into_scalar() + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(), Variable::One().into()); // x0 = k[0]*(x-x')+x'
-    let (_, _, y0) = cs.multiply(Variable::One() * Δ1[0].y().unwrap().into_scalar() + k_vars[0] * (Δ2[0].y().unwrap() - Δ1[0].y().unwrap()).into_scalar(), Variable::One().into()); // y0 = k[0]*(y-y')+y'
+    let (_, _, x0) = cs.multiply(
+        Variable::One() * Δ1[0].x().unwrap().into_scalar()
+            + k_vars[0] * (Δ2[0].x().unwrap() - Δ1[0].x().unwrap()).into_scalar(),
+        Variable::One().into(),
+    ); // x0 = k[0]*(x-x')+x'
+    let (_, _, y0) = cs.multiply(
+        Variable::One() * Δ1[0].y().unwrap().into_scalar()
+            + k_vars[0] * (Δ2[0].y().unwrap() - Δ1[0].y().unwrap()).into_scalar(),
+        Variable::One().into(),
+    ); // y0 = k[0]*(y-y')+y'
     let mut P_vars = vec![(x0, y0)];
 
-    let mut P  = λ_a.map(|λ_a| vec![ (Q_b * cortado::Fr::from(λ_a.get_bit(0) as u64) + Δ1[0] ).into_affine() ] );
-    
+    let mut P = λ_a
+        .map(|λ_a| vec![(Q_b * cortado::Fr::from(λ_a.get_bit(0) as u64) + Δ1[0]).into_affine()]);
+
     for i in 1..l as usize {
         // calculate witness P_i = P_i_1 + Δ_i
         let w = λ_a.map(|λ_a| {
             let P_i_1 = *(P.as_ref().unwrap().last().unwrap());
-            let P_i = (P_i_1 + match λ_a.get_bit(i) {
-                true => Δ2[i],
-                false => Δ1[i]
-            }).into_affine();
-            let Δ_i = if λ_a.get_bit(i) {
-                Δ2[i]
-            } else {
-                Δ1[i]
-            };
-            P.as_mut().unwrap().push( P_i );
-            let s_i = (P_i_1.y().unwrap().into_scalar() - Δ_i.y().unwrap().into_scalar()) * (P_i_1.x().unwrap().into_scalar() - Δ_i.x().unwrap().into_scalar()).invert();
+            let P_i = (P_i_1
+                + match λ_a.get_bit(i) {
+                    true => Δ2[i],
+                    false => Δ1[i],
+                })
+            .into_affine();
+            let Δ_i = if λ_a.get_bit(i) { Δ2[i] } else { Δ1[i] };
+            P.as_mut().unwrap().push(P_i);
+            let s_i = (P_i_1.y().unwrap().into_scalar() - Δ_i.y().unwrap().into_scalar())
+                * (P_i_1.x().unwrap().into_scalar() - Δ_i.x().unwrap().into_scalar()).invert();
 
-            Witness {P_i_1, P_i, Δ_i, s_i}
+            Witness {
+                P_i_1,
+                P_i,
+                Δ_i,
+                s_i,
+            }
         });
 
         let (Δ_i_x, Δ_i_y) = (
-            Variable::One() * Δ1[i].x().unwrap().into_scalar() + k_vars[i] * (Δ2[i].x().unwrap() - Δ1[i].x().unwrap()).into_scalar(), 
-            Variable::One() * Δ1[i].y().unwrap().into_scalar() + k_vars[i] * (Δ2[i].y().unwrap() - Δ1[i].y().unwrap()).into_scalar()
+            Variable::One() * Δ1[i].x().unwrap().into_scalar()
+                + k_vars[i] * (Δ2[i].x().unwrap() - Δ1[i].x().unwrap()).into_scalar(),
+            Variable::One() * Δ1[i].y().unwrap().into_scalar()
+                + k_vars[i] * (Δ2[i].y().unwrap() - Δ1[i].y().unwrap()).into_scalar(),
         );
 
         let (_, s_i, s_i_2) = cs.allocate_multiplier(w.as_ref().map(|w| (w.s_i, w.s_i)))?;
@@ -237,7 +309,7 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         let y_P = cs.allocate(w.as_ref().map(|w| w.P_i.y().unwrap().into_scalar()))?;
         let (P_i_1_x, P_i_1_y) = *P_vars.last().unwrap();
         P_vars.push((x_P, y_P));
-        
+
         cs.constrain(s_i_2 - x_P - P_i_1_x - Δ_i_x.clone());
 
         // check that Δ_i, -P_i, P_i_1 is on the same line
@@ -246,13 +318,22 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         let (_, _, t2) = cs.multiply(Scalar::ONE * s_i, P_i_1_x - x_P);
         cs.constrain(t2 - (P_i_1_y + y_P));
     }
-    trace!("P_final = {:?}", P.as_ref().map(|P| P.iter().last().clone()) );
-    let (x_var,y_var) = *P_vars.last().unwrap();
+    trace!(
+        "P_final = {:?}",
+        P.as_ref().map(|P| P.iter().last().clone())
+    );
+    let (x_var, y_var) = *P_vars.last().unwrap();
     let P = P.as_ref().map(|P| P.iter().last().unwrap().clone());
-    
-    Ok(AllocatedPoint{
-        x: AllocatedScalar { variable: x_var, assignment: P.map(|P| P.x().unwrap().into_scalar()) }, 
-        y: AllocatedScalar { variable: y_var, assignment: P.map(|P| P.y().unwrap().into_scalar()) } 
+
+    Ok(AllocatedPoint {
+        x: AllocatedScalar {
+            variable: x_var,
+            assignment: P.map(|P| P.x().unwrap().into_scalar()),
+        },
+        y: AllocatedScalar {
+            variable: y_var,
+            assignment: P.map(|P| P.y().unwrap().into_scalar()),
+        },
     })
 }
 
@@ -264,7 +345,10 @@ pub fn dh_gadget<CS: ConstraintSystem>(
     λ_ab: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
-    let AllocatedScalar {variable: var_ab, assignment: _} = λ_ab;
+    let AllocatedScalar {
+        variable: var_ab,
+        assignment: _,
+    } = λ_ab;
     let var_R = match ver {
         1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
         2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
@@ -293,16 +377,24 @@ pub fn dh_gadget_proof(
     // 2. Commit high-level variables
     let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
     let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
-    let λ_a = AllocatedScalar::new(var_a, Some(λ_a)); 
-    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab)); 
+    let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
+    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
     let mut start = Instant::now();
-    
+
     dh_gadget(ver, &mut prover, λ_a, λ_ab, Q_b)?;
-    
-    debug!("DHGadget prover synthetize time: {:?}, metrics: {:?}", start.elapsed(), prover.metrics());
+
+    debug!(
+        "DHGadget prover synthetize time: {:?}, metrics: {:?}",
+        start.elapsed(),
+        prover.metrics()
+    );
     start = Instant::now();
     let proof = prover.prove(bp_gens)?;
-    debug!("DHGadget proving time: {:?}, proof_size = {:?}", start.elapsed(), proof.to_bytes().len() );
+    debug!(
+        "DHGadget proving time: {:?}, proof_size = {:?}",
+        start.elapsed(),
+        proof.to_bytes().len()
+    );
 
     Ok((proof, (a_commitment, ab_commitment)))
 }
@@ -322,8 +414,8 @@ pub fn dh_gadget_verify(
     let mut verifier = Verifier::new(&mut transcript);
     let var_a = verifier.commit(a_commitment);
     let var_ab = verifier.commit(ab_commitment);
-    let λ_a = AllocatedScalar::new(var_a, None); 
-    let λ_ab = AllocatedScalar::new(var_ab, None); 
+    let λ_a = AllocatedScalar::new(var_a, None);
+    let λ_ab = AllocatedScalar::new(var_ab, None);
     let mut start = Instant::now();
 
     dh_gadget(ver, &mut verifier, λ_a, λ_ab, Q_b)?;
@@ -347,7 +439,10 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
     // constrain λ_ab = x(λ_a * Q_b)
-    let AllocatedScalar {variable: var_ab, assignment: _} = λ_ab;
+    let AllocatedScalar {
+        variable: var_ab,
+        assignment: _,
+    } = λ_ab;
     let var_R = match ver {
         1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
         2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
@@ -363,7 +458,7 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
     };
     cs.constrain(var_Q.x.variable - Q_ab.x().unwrap().into_scalar());
     cs.constrain(var_Q.y.variable - Q_ab.y().unwrap().into_scalar());
-    
+
     Ok(())
 }
 
@@ -382,23 +477,31 @@ pub fn art_level_prove(
 
     // 1. Create a prover
     let mut prover = Prover::new(pc_gens, &mut transcript);
-    
+
     // 2. Commit high-level variables
     let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
     let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
-    
-    let λ_a = AllocatedScalar::new(var_a, Some(λ_a)); 
-    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab)); 
+
+    let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
+    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
     let mut start = Instant::now();
-    
+
     art_level_gadget(ver, &mut prover, λ_a, λ_ab, Q_ab, Q_b)?;
-    
-    debug!("ARTLevel prover synthetize time: {:?}, metrics: {:?}", start.elapsed(), prover.metrics());
+
+    debug!(
+        "ARTLevel prover synthetize time: {:?}, metrics: {:?}",
+        start.elapsed(),
+        prover.metrics()
+    );
     start = Instant::now();
-    
+
     let proof = prover.prove(bp_gens)?;
-    
-    debug!("ARTLevel proving time: {:?}, proof_size = {:?}", start.elapsed(), proof.to_bytes().len() );
+
+    debug!(
+        "ARTLevel proving time: {:?}, proof_size = {:?}",
+        start.elapsed(),
+        proof.to_bytes().len()
+    );
 
     Ok((proof, (a_commitment, ab_commitment)))
 }
@@ -415,25 +518,25 @@ pub fn art_level_verify(
 ) -> Result<(), R1CSError> {
     let mut transcript = Transcript::new(b"ARTLevel");
     let mut verifier = Verifier::new(&mut transcript);
-    
+
     let var_a = verifier.commit(a_commitment);
     let var_ab = verifier.commit(ab_commitment);
-    
-    let λ_a = AllocatedScalar::new(var_a, None); 
-    let λ_ab = AllocatedScalar::new(var_ab, None); 
+
+    let λ_a = AllocatedScalar::new(var_a, None);
+    let λ_ab = AllocatedScalar::new(var_ab, None);
     let mut start = Instant::now();
 
     art_level_gadget(ver, &mut verifier, λ_a, λ_ab, Q_ab, Q_b)?;
 
     debug!("ARTLevel verifier synthetize time: {:?}", start.elapsed());
     start = Instant::now();
-    
+
     let r = verifier
         .verify(&proof, &pc_gens, &bp_gens)
         .map_err(|_| R1CSError::VerificationError);
-    
+
     debug!("ARTLevel verification time: {:?}", start.elapsed());
-    
+
     r
 }
 
@@ -452,17 +555,19 @@ mod tests {
         let r: cortado::Fr = blinding_rng.r#gen();
         let Q_b = (CortadoAffine::generator() * r).into_affine();
         let λ_a: cortado::Fr = blinding_rng.r#gen();
-        
+
         let R = (Q_b * λ_a).into_affine();
         debug!("R_real={:?}", R);
-        
+
         let (proof, (var_a, var_b)) = dh_gadget_proof(
-            ver, 
-            &pc_gens, 
-            &bp_gens, 
-            Q_b, 
-            Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
-            R.x().unwrap().into_scalar() 
+            ver,
+            &pc_gens,
+            &bp_gens,
+            Q_b,
+            Scalar::from_bytes_mod_order(
+                (&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap(),
+            ),
+            R.x().unwrap().into_scalar(),
         )?;
 
         dh_gadget_verify(ver, &pc_gens, &bp_gens, proof, Q_b, var_a, var_b)
@@ -477,19 +582,28 @@ mod tests {
         let Q_b = (CortadoAffine::generator() * r).into_affine();
         let λ_a: cortado::Fr = blinding_rng.r#gen();
 
-        let λ_ab = cortado::Fr::from_le_bytes_mod_order(&(Q_b * λ_a).into_affine().x().unwrap().into_bigint().to_bytes_le() );
+        let λ_ab = cortado::Fr::from_le_bytes_mod_order(
+            &(Q_b * λ_a)
+                .into_affine()
+                .x()
+                .unwrap()
+                .into_bigint()
+                .to_bytes_le(),
+        );
         let Q_ab = (CortadoAffine::generator() * λ_ab).into_affine();
         let R = (Q_b * λ_a).into_affine();
         debug!("Q_ab_real={:?}", Q_ab);
-        
+
         let (proof, (var_a, var_b)) = art_level_prove(
-            ver, 
-            &pc_gens, 
-            &bp_gens, 
-            Q_b, 
-            Q_ab, 
-            Scalar::from_bytes_mod_order((&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap()), 
-            R.x().unwrap().into_scalar()
+            ver,
+            &pc_gens,
+            &bp_gens,
+            Q_b,
+            Q_ab,
+            Scalar::from_bytes_mod_order(
+                (&λ_a.into_bigint().to_bytes_le()[..]).try_into().unwrap(),
+            ),
+            R.x().unwrap().into_scalar(),
         )?;
 
         art_level_verify(ver, &pc_gens, &bp_gens, proof, Q_b, Q_ab, var_a, var_b)

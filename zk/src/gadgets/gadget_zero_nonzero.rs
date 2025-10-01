@@ -3,11 +3,11 @@ extern crate curve25519_dalek;
 extern crate merlin;
 extern crate rand;
 
-use bulletproofs::r1cs::{ConstraintSystem, R1CSError, R1CSProof, Variable, Prover, Verifier};
-use curve25519_dalek::scalar::Scalar;
+use bulletproofs::r1cs::LinearCombination;
+use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof, Variable, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::ristretto::CompressedRistretto;
-use bulletproofs::r1cs::LinearCombination;
+use curve25519_dalek::scalar::Scalar;
 
 use super::r1cs_utils::{AllocatedScalar, constrain_lc_with_scalar};
 
@@ -20,13 +20,15 @@ use super::r1cs_utils::{AllocatedScalar, constrain_lc_with_scalar};
 /// Enforces that x is 0.
 pub fn is_zero_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
-    x: AllocatedScalar
+    x: AllocatedScalar,
 ) -> Result<(), R1CSError> {
     let y: u32 = 0;
     let inv: u32 = 0;
 
-    let x_lc: LinearCombination = vec![(x.variable, Scalar::ONE )].iter().collect();
-    let one_minus_y_lc: LinearCombination = vec![(Variable::One(), Scalar::from(1-y))].iter().collect();
+    let x_lc: LinearCombination = vec![(x.variable, Scalar::ONE)].iter().collect();
+    let one_minus_y_lc: LinearCombination = vec![(Variable::One(), Scalar::from(1 - y))]
+        .iter()
+        .collect();
     let y_lc: LinearCombination = vec![(Variable::One(), Scalar::from(y))].iter().collect();
     let inv_lc: LinearCombination = vec![(Variable::One(), Scalar::from(inv))].iter().collect();
 
@@ -116,7 +118,6 @@ mod tests {
 
         {
             let (proof, commitments) = {
-
                 let value = Scalar::ONE;
                 let inv = value.invert();
                 let mut prover_transcript = Transcript::new(b"NonZeroTest");
@@ -127,7 +128,6 @@ mod tests {
                     variable: var_val,
                     assignment: Some(value),
                 };
-
 
                 assert!(is_nonzero_gadget(&mut prover, alloc_scal).is_ok());
 

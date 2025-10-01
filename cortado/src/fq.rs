@@ -1,4 +1,7 @@
-use ark_ff::{fields::{Fp256, MontBackend, MontConfig}, BigInteger, PrimeField};
+use ark_ff::{
+    BigInteger, PrimeField,
+    fields::{Fp256, MontBackend, MontConfig},
+};
 use curve25519_dalek::Scalar;
 
 #[derive(MontConfig)]
