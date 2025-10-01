@@ -14,7 +14,7 @@ impl FormatTime for LocalTimer {
 
 /// Try to init console logger with RUST_LOG level filter
 
-pub(crate) fn init_tracing_for_test() {
+pub fn init_tracing_for_test() {
     _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_timer(LocalTimer)
