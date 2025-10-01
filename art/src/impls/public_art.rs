@@ -12,6 +12,8 @@ use postcard::{from_bytes, to_allocvec};
 use std::mem;
 use tracing::{debug, info};
 
+pub(crate) type ArtLevel<G> = (Vec<ARTNode<G>>, Vec<<G as AffineRepr>::ScalarField>);
+
 impl<G> PublicART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
@@ -72,7 +74,7 @@ where
         mut level_nodes: Vec<ARTNode<G>>,
         mut level_secrets: Vec<G::ScalarField>,
         generator: &G,
-    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<ArtLevel<G>, ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
             level_size <<= 1;

@@ -1,5 +1,4 @@
 mod art_node;
-mod artefacts;
 mod branch_changes;
 mod node_index;
 mod private_art;

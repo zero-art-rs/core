@@ -6,7 +6,6 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
-use tracing::debug;
 
 /// Implementation of main methods for operating with ARTNode
 impl<G: AffineRepr> ARTNode<G> {
@@ -42,7 +41,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference to the left child node.
-    pub fn get_left(&self) -> Result<&Box<Self>, ARTNodeError> {
+    pub fn get_left(&self) -> Result<&Self, ARTNodeError> {
         match &self.l {
             Some(l) => Ok(l),
             None => Err(ARTNodeError::InternalNodeOnly),
@@ -56,7 +55,7 @@ impl<G: AffineRepr> ARTNode<G> {
         append: bool,
     ) -> Result<(), ARTNodeError> {
         if self.is_leaf() {
-            self.set_public_key_with_options(temporary_public_key.clone(), append);
+            self.set_public_key_with_options(*temporary_public_key, append);
             self.is_blank = true;
             self.weight = 0;
             Ok(())
@@ -74,7 +73,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference to the right child node.
-    pub fn get_right(&self) -> Result<&Box<Self>, ARTNodeError> {
+    pub fn get_right(&self) -> Result<&Self, ARTNodeError> {
         match &self.r {
             Some(r) => Ok(r),
             None => Err(ARTNodeError::InternalNodeOnly),
@@ -115,7 +114,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     // Returns a copy of its public key
     pub fn get_public_key(&self) -> G {
-        self.public_key.clone()
+        self.public_key
     }
 
     pub fn set_public_key(&mut self, public_key: G) {
@@ -130,7 +129,7 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Returns a reference on a child of a given inner node by a given direction to the child.
-    pub fn get_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
+    pub fn get_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly);
         }
@@ -156,7 +155,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// Returns a reference on a child of a given inner node, which is located on the opposite
     /// side to the given direction.
-    pub fn get_other_child(&self, child: &Direction) -> Result<&Box<Self>, ARTNodeError> {
+    pub fn get_other_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
         if self.is_leaf() {
             return Err(ARTNodeError::InternalNodeOnly);
         }
@@ -183,7 +182,7 @@ impl<G: AffineRepr> ARTNode<G> {
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
         let new_self = Self {
-            public_key: self.public_key.clone(),
+            public_key: self.public_key,
             l: self.l.take(),
             r: self.r.take(),
             is_blank: false,
@@ -239,7 +238,7 @@ impl<G: AffineRepr> ARTNode<G> {
         let mut new_self = new_self.ok_or(ARTNodeError::InternalNodeOnly)?;
 
         self.weight = new_self.weight;
-        self.public_key = new_self.public_key.clone();
+        self.public_key = new_self.public_key;
         self.l = new_self.l.take();
         self.r = new_self.r.take();
         self.is_blank = new_self.is_blank;
@@ -268,24 +267,20 @@ impl<G: AffineRepr> ARTNode<G> {
 
         let pk_marker = match self.public_key.x() {
             Some(x) => x.to_string(),
-            None => "None".to_string()
+            None => "None".to_string(),
         };
 
         match self.is_leaf() {
             true => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{}leaf of weight: {}, x: {}",
-                    blank_marker,
-                    self.weight,
-                    pk_marker,
+                    blank_marker, self.weight, pk_marker,
                 ),
             },
             false => ARTDisplayTree::Inner {
                 public_key: format!(
                     "{}node of weight: {}, x: {}",
-                    blank_marker,
-                    self.weight,
-                    pk_marker,
+                    blank_marker, self.weight, pk_marker,
                 ),
                 left: Box::new(self.get_left().unwrap().display_analog()),
                 right: Box::new(self.get_right().unwrap().display_analog()),
@@ -448,7 +443,7 @@ where
     type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(current_node) = self.current_node {
+        if let Some(current_node) = self.current_node {
             let return_item = (current_node, self.path.clone());
 
             if current_node.is_leaf() {
@@ -459,8 +454,7 @@ where
                                 self.current_node = Some(parent);
                             } else if last_direction == Direction::Left {
                                 self.path.push((parent, Direction::Right));
-                                self.current_node =
-                                    parent.get_right().map(|item| item.as_ref()).ok();
+                                self.current_node = parent.get_right().ok();
                                 break;
                             }
                         }
@@ -472,13 +466,13 @@ where
                 }
             } else {
                 self.path.push((current_node, Direction::Left));
-                self.current_node = current_node.get_left().map(|item| item.as_ref()).ok();
+                self.current_node = current_node.get_left().ok();
             }
 
-            return Some(return_item);
+            Some(return_item)
+        } else {
+            None
         }
-
-        None
     }
 }
 
@@ -501,7 +495,7 @@ where
     type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((item, path)) = self.inner_iter.next() {
+        for (item, path) in &mut self.inner_iter {
             if item.is_leaf() {
                 return Some((item, path));
             }
@@ -553,13 +547,9 @@ where
     type Item = &'a ARTNode<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((item, _)) = self.inner_iter.next() {
-            if item.is_leaf() {
-                return Some(item);
-            }
-        }
-
-        None
+        (&mut self.inner_iter)
+            .map(|(item, _)| item)
+            .find(|&item| item.is_leaf())
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::types::LeafIterWithPath;
+use crate::types::UpdateData;
 use crate::{
     errors::ARTError,
     types::{
@@ -19,7 +19,7 @@ where
     /// Returns a set opf public keys of nodes on path from leaf to root. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
     fn get_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError>;
-    
+
     /// Returns a co-path to the leaf with a given public key. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
     fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError>;
@@ -60,7 +60,7 @@ where
         secret_key: &G::ScalarField,
         path: &[Direction],
         append_changes: bool,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Searches for the left most blank node and returns the vector of directions to it.
     fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>>;
@@ -86,7 +86,7 @@ where
     fn append_or_replace_node_in_public_art(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Converts the type of leaf on a given path to blank leaf by changing its public key on a temporary one.
     /// This method doesn't change other art nodes. To update art afterward, use update_art_with_secret_key
@@ -106,9 +106,9 @@ where
     /// * `ProverArtefacts<G>` – Artefacts required for proving correctness of the update.
     fn make_blank_in_public_art(
         &mut self,
-        path: &Vec<Direction>,
+        path: &[Direction],
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
     /// structure.
@@ -149,7 +149,7 @@ where
         lambda: &G::ScalarField,
         public_key: &G,
         append_changes: bool,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError>;
+    ) -> Result<UpdateData<G>, ARTError>;
 
     /// Returns min and max height of a leaf in a tree.
     fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError>;
@@ -160,6 +160,12 @@ where
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
+    /// Updates art with given changes. Available options are:
+    /// - `append_changes` - if false replace public keys with provided in changes, Else, append
+    /// them to the available ones.
+    /// - `update_weights` - If true updates the weights of the art on make blank change. If
+    /// false, it will leve those weights as is. Can be used to correctly apply the second
+    /// blanking of some node.
     fn update_public_art_with_options(
         &mut self,
         changes: &BranchChanges<G>,
@@ -185,13 +191,13 @@ where
     ) -> Result<(), ARTError>;
 
     /// Merges given conflict changes into the art.
-    fn merge(&mut self, target_changes: &Vec<BranchChanges<G>>) -> Result<(), ARTError>;
+    fn merge(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError>;
 
     /// Merges given conflict changes into the art. Changes which are already applied (key_update)
     /// are passed into applied_changes. Other changes are not supported.
     fn merge_with_skip(
         &mut self,
-        applied_changes: &Vec<BranchChanges<G>>,
-        target_changes: &Vec<BranchChanges<G>>,
+        applied_changes: &[BranchChanges<G>],
+        target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError>;
 }
