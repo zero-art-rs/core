@@ -10,6 +10,10 @@ path = "src/lib.rs"
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
 
+[[bench]]
+name = "art_benches"
+harness = false
+
 [features]
 fuzz_test = []
 
@@ -23,7 +27,7 @@ rand = { workspace = true, features = ["thread_rng"]}
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_bytes = {workspace = true}
-criterion = { workspace = true }
+criterion = { workspace = true, features = ["csv_output"] }
 thiserror = {workspace = true}
 zrt-zk = {path = "../zk"}
 cortado = {path = "../cortado"}
