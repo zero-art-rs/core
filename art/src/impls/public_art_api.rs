@@ -388,72 +388,6 @@ where
         Ok(node)
     }
 
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError> {
-        let users_public_key = self.public_key_of(lambda);
-
-        if users_public_key.eq(public_key) {
-            return Ok(false);
-        }
-
-        let path_to_other = self.get_path_to_leaf(public_key)?;
-        let path_to_self = self.get_path_to_leaf(&users_public_key)?;
-
-        if path_to_other.len() < 2 {
-            return Ok(true);
-        }
-
-        if path_to_other.len().abs_diff(path_to_self.len()) > 1 {
-            return Ok(false);
-        }
-
-        for i in 0..(max(path_to_self.len(), path_to_other.len()) - 2) {
-            if path_to_self[i] != path_to_other[i] {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError> {
-        let mut target_node = self.get_mut_root();
-        for direction in &path[..path.len() - 1] {
-            target_node.weight -= 1;
-            target_node = target_node.get_mut_child(direction)?;
-        }
-
-        if !target_node.is_leaf() {
-            return Err(ARTError::NonLeafNode);
-        }
-
-        target_node.shrink_to_other(path[path.len() - 1])?;
-
-        Ok(())
-    }
-
-    fn remove_node_and_update_tree(
-        &mut self,
-        lambda: &G::ScalarField,
-        public_key: &G,
-        append_changes: bool,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        if !self.can_remove(lambda, public_key)? {
-            return Err(ARTError::RemoveError);
-        }
-
-        let path = self.get_path_to_leaf(public_key)?;
-        self.remove_node(&path)?;
-
-        match self.update_art_branch_with_leaf_secret_key(lambda, &path, append_changes) {
-            Ok((root_key, mut changes, artefacts)) => {
-                changes.change_type = BranchChangesType::RemoveNode;
-
-                Ok((root_key, changes, artefacts))
-            }
-            Err(msg) => Err(msg),
-        }
-    }
-
     fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError> {
         let mut min_height = u64::MAX;
         let mut max_height = u64::MIN;
@@ -502,7 +436,6 @@ where
                     update_weights,
                 )?;
             }
-            BranchChangesType::RemoveNode => return Err(ARTError::RemoveError),
         }
 
         self.update_art_with_changes(changes, append_changes)

@@ -11,7 +11,6 @@ pub enum BranchChangesType {
     MakeBlank,
     AppendNode,
     UpdateKey,
-    RemoveNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

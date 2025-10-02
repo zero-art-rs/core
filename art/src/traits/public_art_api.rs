@@ -134,23 +134,6 @@ where
     /// Returns mutable node by the given NodeIndex
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
 
-    /// This check says if the node can be immediately removed from a tree. Those cases are
-    /// specific, so in general don't remove nodes and make them temporary instead
-    fn can_remove(&mut self, lambda: &G::ScalarField, public_key: &G) -> Result<bool, ARTError>;
-
-    /// Remove the last node in the given path if can. Fail if provided path points on the
-    /// non-leaf node.
-    fn remove_node(&mut self, path: &[Direction]) -> Result<(), ARTError>;
-
-    /// Remove the last node in the given path if can and update public keys on a path from root to
-    /// leaf
-    fn remove_node_and_update_tree(
-        &mut self,
-        lambda: &G::ScalarField,
-        public_key: &G,
-        append_changes: bool,
-    ) -> Result<UpdateData<G>, ARTError>;
-
     /// Returns min and max height of a leaf in a tree.
     fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError>;
 
