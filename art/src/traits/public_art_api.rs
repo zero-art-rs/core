@@ -125,7 +125,7 @@ where
         node_index: &NodeIndex,
         secret_key: G::ScalarField,
         changes: &BranchChanges<G>,
-        fork: Self,
+        fork: &mut Self,
     ) -> Result<Vec<G::ScalarField>, ARTError>;
 
     /// Returns node by the given NodeIndex

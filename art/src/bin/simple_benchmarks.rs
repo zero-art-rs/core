@@ -22,8 +22,6 @@ use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use tracing::{debug, info};
 
 const TEST_SAMPLES: [usize; 6] = [4, 10, 14, 16, 18, 20]; // 1048576
-// const TEST_SAMPLES: [usize; 1] = [4]; // 1048576
-// [4, 10, 16, 20, 22]
 const REPETITION_TIME: usize = 50;
 
 const CREATION: &str = "Creation time";

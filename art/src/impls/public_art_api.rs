@@ -354,7 +354,7 @@ where
         node_index: &NodeIndex,
         secret_key: G::ScalarField,
         changes: &BranchChanges<G>,
-        mut fork: Self,
+        fork: &mut Self,
     ) -> Result<Vec<G::ScalarField>, ARTError> {
         fork.update_public_art_with_options(changes, false, true)?;
 

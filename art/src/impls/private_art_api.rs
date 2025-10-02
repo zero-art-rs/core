@@ -167,7 +167,7 @@ where
         }
 
         // create a fork of the art, to correctly append change
-        let fork = self.clone();
+        let mut fork = self.clone();
 
         self.update_public_art_with_options(changes, append_changes, update_weights)?;
 
@@ -179,7 +179,7 @@ where
             self.get_node_index(),
             self.get_secret_key(),
             changes,
-            fork,
+            &mut fork,
         )?;
 
         match append_changes {
