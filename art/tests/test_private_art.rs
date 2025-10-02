@@ -5,8 +5,7 @@ mod tests {
     use super::utils::init_tracing_for_test;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed25519::EdwardsAffine as Ed25519Affine;
-    use ark_ff::{BigInteger, Field, PrimeField};
-    use ark_serialize::CanonicalSerialize;
+    use ark_ff::Field;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
@@ -14,7 +13,7 @@ mod tests {
     use bulletproofs::r1cs::R1CSError;
     use cortado::{CortadoAffine, Fr};
     use curve25519_dalek::Scalar;
-    use itertools::{Itertools, assert_equal};
+    use itertools::Itertools;
     use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
@@ -618,7 +617,7 @@ mod tests {
         let sk5 = Fr::rand(&mut rng);
         let (_, change5, _) = user5.update_key(&sk5).unwrap();
 
-        let applied_change = vec![change0.clone()];
+        let applied_change = change0.clone();
         let all_but_0_changes = vec![
             change2.clone(),
             change3.clone(),
@@ -630,21 +629,15 @@ mod tests {
         // Check correctness of the merge
         let mut art_def0 = user0.clone();
         art_def0
-            .recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone())
-            .unwrap();
-        art_def0
-            .merge_with_skip(&applied_change, &all_but_0_changes)
+            .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
             .unwrap();
 
         let mut art_def1 = art1.clone();
-        art_def1
-            .recompute_path_secrets_for_observer(&all_changes)
-            .unwrap();
-        art_def1.merge(&all_changes).unwrap();
+        art_def1.merge_for_observer(&all_changes).unwrap();
 
         assert_eq!(
             art_def0, art_def1,
-            "Observer and participant have the same wiev on the state of the art."
+            "Observer and participant have the same view on the state of the art."
         );
 
         for permutation in all_but_0_changes
@@ -654,10 +647,7 @@ mod tests {
         {
             let mut art_0_analog = user0.clone();
             art_0_analog
-                .recompute_path_secrets_for_participant(&permutation, &art0.clone())
-                .unwrap();
-            art_0_analog
-                .merge_with_skip(&applied_change, &permutation)
+                .merge_for_participant(applied_change.clone(), &permutation, art0.clone())
                 .unwrap();
 
             assert_eq!(
@@ -668,10 +658,7 @@ mod tests {
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
             let mut art_1_analog = art1.clone();
-            art_1_analog
-                .recompute_path_secrets_for_observer(&permutation)
-                .unwrap();
-            art_1_analog.merge(&permutation).unwrap();
+            art_1_analog.merge_for_observer(&permutation).unwrap();
 
             assert_eq!(
                 art_1_analog, art_def0,
@@ -1383,6 +1370,7 @@ mod tests {
         let mut art2 = user_arts.remove(1);
         let mut art3 = user_arts.remove(3);
         let mut art4 = user_arts.remove(4);
+
         let def_art1 = art1.clone();
         let def_art2 = art2.clone();
         let def_art3 = art3.clone();
@@ -1417,33 +1405,27 @@ mod tests {
         assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
         assert_eq!(art4.root.public_key, *changes4.public_keys.get(0).unwrap());
 
-        art1.recompute_path_secrets_for_participant(
+        art1.merge_for_participant(
+            changes1.clone(),
             &vec![changes2.clone(), changes3.clone(), changes4.clone()],
-            &def_art1,
+            def_art1.clone(),
         )
         .unwrap();
-        art1.merge_with_skip(
-            &vec![changes1.clone()],
-            &vec![changes2.clone(), changes3.clone(), changes4.clone()],
-        )
-        .unwrap();
+
         art1.update_node_index().unwrap();
         assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
         let tk1_merged = art1.get_root_key().unwrap();
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
 
-        art2.recompute_path_secrets_for_participant(
+        art2.merge_for_participant(
+            changes2.clone(),
             &vec![changes1.clone(), changes3.clone(), changes4.clone()],
-            &def_art2,
+            def_art2.clone(),
         )
         .unwrap();
-        art2.merge_with_skip(
-            &vec![changes2.clone()],
-            &vec![changes1.clone(), changes3.clone(), changes4.clone()],
-        )
-        .unwrap();
-        art2.update_node_index().unwrap();
+
+        // art2.update_node_index().unwrap();
         assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
 
@@ -1476,10 +1458,7 @@ mod tests {
 
         let all_changes = vec![changes1, changes2, changes3, changes4];
         for i in 0..TEST_GROUP_SIZE - 4 {
-            user_arts[i]
-                .recompute_path_secrets_for_observer(&all_changes)
-                .unwrap();
-            user_arts[i].merge(&all_changes).unwrap();
+            user_arts[i].merge_for_observer(&all_changes).unwrap();
 
             let tk = user_arts[i].get_root_key().unwrap();
 
@@ -1577,38 +1556,25 @@ mod tests {
         assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
 
         // Update art path_secrets with unapplied changes
-        art1.recompute_path_secrets_for_participant(
+        art1.merge_for_participant(
+            changes1.clone(),
             &vec![changes2.clone(), changes3.clone()],
-            &def_art1,
+            def_art1.clone(),
         )
         .unwrap();
+        let tk1_merged = art1.get_root_key().unwrap();
 
         // Check if new tk is correctly computed
         assert_eq!(*art1.path_secrets.last().unwrap(), merged_tk.key);
-
-        // Merge unapplied changes into the art
-        art1.merge_with_skip(
-            &vec![changes1.clone()],
-            &vec![changes2.clone(), changes3.clone()],
-        )
-        .unwrap();
-
-        // Check Merge correctness
-        let tk1_merged = art1.get_root_key().unwrap();
-        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, tk1_merged);
+        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
 
         // Update art path_secrets with unapplied changes
-        art2.recompute_path_secrets_for_participant(
+        art2.merge_for_participant(
+            changes2.clone(),
             &vec![changes1.clone(), changes3.clone()],
-            &def_art2,
-        )
-        .unwrap();
-        // Merge unapplied changes into the art
-        art2.merge_with_skip(
-            &vec![changes2.clone()],
-            &vec![changes1.clone(), changes3.clone()],
+            def_art2.clone(),
         )
         .unwrap();
 
@@ -1630,10 +1596,7 @@ mod tests {
         // Check merge correctness for other users
         let all_changes = vec![changes1, changes2, changes3];
         for i in 0..TEST_GROUP_SIZE - 4 {
-            user_arts[i]
-                .recompute_path_secrets_for_observer(&all_changes)
-                .unwrap();
-            user_arts[i].merge(&all_changes).unwrap();
+            user_arts[i].merge_for_observer(&all_changes).unwrap();
 
             let tk = user_arts[i].get_root_key().unwrap();
 

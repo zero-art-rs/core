@@ -12,7 +12,10 @@ pub struct PublicART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
+    /// Referees to the root of ART tree structure.
     pub root: Box<ARTNode<G>>,
+
+    /// Generator used to create the ART tree.
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub generator: G,
 }

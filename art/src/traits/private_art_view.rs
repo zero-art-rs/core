@@ -1,4 +1,4 @@
-use std::mem;
+use crate::traits::ARTPublicAPI;
 use crate::{
     errors::ARTError,
     traits::ARTPublicView,
@@ -7,7 +7,7 @@ use crate::{
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use crate::traits::ARTPublicAPI;
+use std::mem;
 
 pub trait ARTPrivateView<G>: ARTPublicView<G> + ARTPublicAPI<G>
 where
@@ -123,7 +123,7 @@ where
                         Ok(())
                     }
                     None => Err(ARTError::EmptyART),
-                }
+                };
             }
         }
 

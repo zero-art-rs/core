@@ -110,7 +110,7 @@ where
     fn get_secret_key(&self) -> G::ScalarField {
         self.secret_key
     }
-    
+
     fn set_secret_key(&mut self, secret_key: &G::ScalarField) {
         self.secret_key = *secret_key;
     }

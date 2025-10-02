@@ -1,10 +1,18 @@
-use crate::types::Direction;
 use serde::{Deserialize, Serialize};
 
+/// Possible identifier of a child node in binary tree.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize, Hash)]
+pub enum Direction {
+    Left,
+    Right,
+}
+
+/// Structure, which identifies the node, in relation to thw root node.
 #[derive(Debug, Clone, Deserialize, Serialize, Eq)]
 pub enum NodeIndex {
     /// Sequence number of a node in a tree. The root is 1, his children are 2 and 3, and so on,
-    /// down to leaves.
+    /// down to leaves. Binary representation of the index, also denotes the direction, where the
+    /// node is located.
     Index(u64),
     /// Level (starting from root as 0) and position on level (starting from left as 0) of a node
     /// in a tree

@@ -1,6 +1,7 @@
 // Asynchronous Ratchet Tree implementation
 
 use crate::helper_tools::iota_function;
+use crate::traits::ARTPrivateAPIHelper;
 use crate::types::{Direction, NodeIndex};
 use crate::{
     errors::ARTError,
@@ -12,7 +13,6 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use crate::traits::ARTPrivateAPIHelper;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -93,51 +93,21 @@ where
         }
     }
 
-    fn recompute_path_secrets_for_observer(
-        &mut self,
-        target_changes: &[BranchChanges<G>],
-    ) -> Result<(), ARTError> {
-        let old_secrets = self.get_path_secrets().clone();
-
-        self.recompute_path_secrets_for_participant(target_changes, &self.clone())?;
-
-        // subtract default secrets from path_secrets
-        let path_secrets = self.get_mut_path_secrets();
-        for i in (0..old_secrets.len()).rev() {
-            if path_secrets[i] != old_secrets[i] {
-                path_secrets[i] -= old_secrets[i];
-            } else {
-                return Ok(());
-            }
-        }
+    fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError> {
+        self.recompute_path_secrets_for_observer(&target_changes)?;
+        self.merge(&target_changes)?;
 
         Ok(())
     }
 
-    fn recompute_path_secrets_for_participant(
+    fn merge_for_participant(
         &mut self,
-        target_changes: &[BranchChanges<G>],
-        base_fork: &A,
+        applied_change: BranchChanges<G>,
+        unapplied_changes: &[BranchChanges<G>],
+        base_fork: Self,
     ) -> Result<(), ARTError> {
-        for change in target_changes {
-            let mut fork = base_fork.clone();
-            fork.update_private_art(change)?;
-
-            let co_path_values = fork.get_co_path_values(fork.get_node_index())?;
-            let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
-            secrets.push(fork.get_secret_key());
-            let mut ark_secret = fork.get_secret_key();
-            for public_key in co_path_values.iter() {
-                ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-                secrets.push(ark_secret);
-            }
-
-            self.merge_path_secrets(
-                secrets,
-                &change.node_index,
-                !self.get_node(self.get_node_index())?.is_blank,
-            )?;
-        }
+        self.recompute_path_secrets_for_participant(&unapplied_changes, base_fork)?;
+        self.merge_with_skip(&vec![applied_change], &unapplied_changes)?;
 
         Ok(())
     }
@@ -189,6 +159,55 @@ where
                 !self.get_node(self.get_node_index())?.is_blank,
             )?,
             false => self.update_path_secrets_with(artefact_secrets, &changes.node_index)?,
+        }
+
+        Ok(())
+    }
+
+    fn recompute_path_secrets_for_observer(
+        &mut self,
+        target_changes: &[BranchChanges<G>],
+    ) -> Result<(), ARTError> {
+        let old_secrets = self.get_path_secrets().clone();
+
+        self.recompute_path_secrets_for_participant(target_changes, self.clone())?;
+
+        // subtract default secrets from path_secrets
+        let path_secrets = self.get_mut_path_secrets();
+        for i in (0..old_secrets.len()).rev() {
+            if path_secrets[i] != old_secrets[i] {
+                path_secrets[i] -= old_secrets[i];
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn recompute_path_secrets_for_participant(
+        &mut self,
+        target_changes: &[BranchChanges<G>],
+        base_fork: A,
+    ) -> Result<(), ARTError> {
+        for change in target_changes {
+            let mut fork = base_fork.clone();
+            fork.update_private_art(change)?;
+
+            let co_path_values = fork.get_co_path_values(fork.get_node_index())?;
+            let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
+            secrets.push(fork.get_secret_key());
+            let mut ark_secret = fork.get_secret_key();
+            for public_key in co_path_values.iter() {
+                ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+                secrets.push(ark_secret);
+            }
+
+            self.merge_path_secrets(
+                secrets,
+                &change.node_index,
+                !self.get_node(self.get_node_index())?.is_blank,
+            )?;
         }
 
         Ok(())

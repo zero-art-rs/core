@@ -44,12 +44,8 @@ where
                     break;
                 }
 
-                let ark_common_secret = iota_function(
-                    &left_node
-                        .get_public_key()
-                        .mul(rith_secret)
-                        .into_affine(),
-                )?;
+                let ark_common_secret =
+                    iota_function(&left_node.get_public_key().mul(rith_secret).into_affine())?;
                 rith_secret = ark_common_secret;
                 last_secret = ark_common_secret;
 
@@ -150,7 +146,8 @@ where
             level_boxes.push(Box::new(node));
         }
 
-        let (root, tk) = Self::compute_next_layer_of_tree(level_boxes, &mut level_secrets, generator)?;
+        let (root, tk) =
+            Self::compute_next_layer_of_tree(level_boxes, &mut level_secrets, generator)?;
 
         let root_key = ARTRootKey {
             key: tk,
@@ -165,20 +162,12 @@ where
         Ok((art, root_key))
     }
 
-    pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&self).map_err(ARTError::SerdeJson)
-    }
-
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
         to_allocvec(self).map_err(ARTError::Postcard)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
         from_bytes(bytes).map_err(ARTError::Postcard)
-    }
-
-    pub fn from_string(canonical_json: &str) -> Result<Self, ARTError> {
-        serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)
     }
 }
 

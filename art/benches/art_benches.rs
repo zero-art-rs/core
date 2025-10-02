@@ -1,19 +1,19 @@
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use std::{
-    hint::black_box,
-    time::{Duration, Instant}
-};
 use ark_ec::AffineRepr;
 use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{UniformRand, rand::SeedableRng, rand::prelude::StdRng};
+use cortado::{CortadoAffine, Fr};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use rand::Rng;
+use std::{
+    hint::black_box,
+    time::{Duration, Instant},
+};
 use zrt_art::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView},
     types::{PrivateART, PublicART},
 };
-use cortado::{CortadoAffine, Fr};
-use rand::Rng;
 
 // hardcoded number of leaves in a tree for testing
 // pub const TEST_SAMPLES: [usize; 4] = [16, 64, 256, 1024];
@@ -154,7 +154,9 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             BenchmarkId::new("Clone + From private ART", TEST_SAMPLES[i]),
             &i,
             |b, &i| {
-                b.iter(|| PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap())
+                b.iter(|| {
+                    PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap()
+                })
             },
         );
     }
@@ -170,10 +172,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("update_key", TEST_SAMPLES[i]),
             &secret,
-            |b, secret| {
-
-                b.iter(|| public_art.update_key(&secret).unwrap())
-            },
+            |b, secret| b.iter(|| public_art.update_key(&secret).unwrap()),
         );
     }
 
@@ -214,7 +213,10 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                             );
                         },
                         |mut private_art| {
-                            _ = PrivateART::append_or_replace_node(&mut private_art, &private_art2.get_secret_key())
+                            _ = PrivateART::append_or_replace_node(
+                                &mut private_art,
+                                &private_art2.get_secret_key(),
+                            )
                         },
                     )
                 })
@@ -229,7 +231,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             &i,
             |b, &i| {
                 let mut private_arts =
-                    get_several_private_arts::<CortadoAffine>(3, &trees_secrets[i], &trees[i]).unwrap();
+                    get_several_private_arts::<CortadoAffine>(3, &trees_secrets[i], &trees[i])
+                        .unwrap();
                 let mut private_art1 = private_arts.pop().unwrap();
                 let private_art2 = private_arts.pop().unwrap();
                 let mut private_art3 = private_arts.pop().unwrap();
@@ -240,17 +243,15 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                         &Fr::rand(&mut StdRng::seed_from_u64(rand::random())),
                     )
                     .unwrap();
-                let (_, append_changes, _) = private_art1.append_or_replace_node(
-                    &private_art2.get_secret_key()
-                ).unwrap();
-                
+                let (_, append_changes, _) = private_art1
+                    .append_or_replace_node(&private_art2.get_secret_key())
+                    .unwrap();
+
                 b.iter_custom(move |iters| {
                     iter_with_revert(
                         iters,
                         &mut private_art3,
-                        |art| {
-                            _ = art.update_private_art(&make_blank_changes)
-                        },
+                        |art| _ = art.update_private_art(&make_blank_changes),
                         |art| _ = art.update_private_art(&append_changes),
                     )
                 })
@@ -283,12 +284,14 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             &i,
             |b, &i| {
                 let mut private_arts =
-                    get_several_private_arts::<CortadoAffine>(2, &trees_secrets[i], &trees[i]).unwrap();
+                    get_several_private_arts::<CortadoAffine>(2, &trees_secrets[i], &trees[i])
+                        .unwrap();
 
                 let lambda = Fr::rand(&mut StdRng::seed_from_u64(rand::random()));
                 let public_key = private_arts[0].node_index.get_path().unwrap();
 
-                let (_, append_changes, _) = private_arts[0].append_or_replace_node(&lambda).unwrap();
+                let (_, append_changes, _) =
+                    private_arts[0].append_or_replace_node(&lambda).unwrap();
                 let (_, make_blank_changes, _) = private_arts[0]
                     .make_blank(&public_key, &Fr::rand(&mut rng))
                     .unwrap();
@@ -300,9 +303,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                         iters,
                         &mut art,
                         |mut art| _ = PrivateART::update_private_art(&mut art, &append_changes),
-                        |mut art| {
-                            _ = PrivateART::update_private_art(&mut art, &make_blank_changes)
-                        },
+                        |mut art| _ = PrivateART::update_private_art(&mut art, &make_blank_changes),
                     )
                 })
             },

@@ -40,6 +40,34 @@ where
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
+    /// Update ART with `target_changes` for the user, which didnt participated it the
+    /// merge conflict.
+    fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError>;
+
+    /// Update ART with `target_changes`, if the user contributed to the merge conflict with his
+    /// `applied_change`. Requires `base_fork`, which is the previous state of the ART, with
+    /// unapplied user provided `applied_change`.
+    fn merge_for_participant(
+        &mut self,
+        applied_change: BranchChanges<G>,
+        target_changes: &[BranchChanges<G>],
+        base_fork: Self,
+    ) -> Result<(), ARTError>;
+}
+
+pub(crate) trait ARTPrivateAPIHelper<G>: ARTPublicAPI<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    fn update_private_art_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError>;
+
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if the user
     /// didn't make any changes, which where merged. It is a wrapper for
     /// `recompute_path_secrets_for_participant`. The difference, is then for observer we cant
@@ -56,20 +84,6 @@ where
     fn recompute_path_secrets_for_participant(
         &mut self,
         target_changes: &[BranchChanges<G>],
-        base_fork: &Self,
-    ) -> Result<(), ARTError>;
-}
-
-pub trait ARTPrivateAPIHelper<G>: ARTPublicAPI<G>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-{
-    /// Updates art by applying changes. Also updates path_secrets and node_index.
-    fn update_private_art_with_options(
-        &mut self,
-        changes: &BranchChanges<G>,
-        append_changes: bool,
-        update_weights: bool,
+        base_fork: Self,
     ) -> Result<(), ARTError>;
 }

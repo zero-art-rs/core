@@ -172,25 +172,19 @@ fn merge_conflict_changes() {
     let sk3 = Fr::rand(&mut rng);
     let (_, change3, _) = user3.update_key(&sk3).unwrap();
 
-    let applied_change = vec![change0.clone()];
+    let applied_change = change0.clone();
     let all_but_0_changes = vec![change2.clone(), change3.clone()];
     let all_changes = vec![change0, change2, change3];
 
     // Merge for users which participated in the merge
     let mut participant = user0.clone();
     participant
-        .recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone())
-        .unwrap();
-    participant
-        .merge_with_skip(&applied_change, &all_but_0_changes)
+        .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
         .unwrap();
 
     // Merge for users which only observed the merge conflict
     let mut observer = art1.clone();
-    observer
-        .recompute_path_secrets_for_observer(&all_changes)
-        .unwrap();
-    observer.merge(&all_changes).unwrap();
+    observer.merge_for_observer(&all_changes).unwrap();
 
     assert_eq!(
         participant, observer,

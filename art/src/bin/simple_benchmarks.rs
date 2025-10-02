@@ -1,25 +1,23 @@
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_std::rand::prelude::StdRng;
-use ark_std::rand::SeedableRng;
+use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
-use zrt_art::{
-    types::PrivateART,
-};
-use cortado::{CortadoAffine, Fr, ALT_GENERATOR_X, ALT_GENERATOR_Y};
+use ark_std::rand::SeedableRng;
+use ark_std::rand::prelude::StdRng;
+use bulletproofs::PedersenGens;
+use chrono::Local;
+use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
+use curve25519_dalek::Scalar;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Add, AddAssign, Mul};
-use std::time::{Instant, Duration};
-use bulletproofs::PedersenGens;
-use curve25519_dalek::Scalar;
+use std::time::{Duration, Instant};
+use tracing::{debug, info};
+use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::traits::{ARTPrivateAPI, ARTPublicAPI};
+use zrt_art::types::PrivateART;
 use zrt_zk::art::{art_prove, art_verify};
-use ark_ed25519::EdwardsAffine as Ed25519Affine;
-use chrono::Local;
-use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
-use tracing::{debug, info};
 
 const TEST_SAMPLES: [usize; 6] = [4, 10, 14, 16, 18, 20]; // 1048576
 const REPETITION_TIME: usize = 50;
@@ -55,18 +53,25 @@ pub fn init_tracing_for_test() {
     _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_timer(LocalTimer)
         .with_target(false)
         .try_init();
 }
 
-fn update_table<'a>(table: &mut HashMap<&'a str, Vec<Duration>>, test_name: &'a str, group_size_index: usize, finish: Duration) {
-    table.entry(test_name)
-        .or_insert_with(
-            || (0..TEST_SAMPLES.len()).map(|_| Duration::ZERO).collect::<Vec<_>>()
-        )[group_size_index].add_assign(finish);
+fn update_table<'a>(
+    table: &mut HashMap<&'a str, Vec<Duration>>,
+    test_name: &'a str,
+    group_size_index: usize,
+    finish: Duration,
+) {
+    table.entry(test_name).or_insert_with(|| {
+        (0..TEST_SAMPLES.len())
+            .map(|_| Duration::ZERO)
+            .collect::<Vec<_>>()
+    })[group_size_index]
+        .add_assign(finish);
 }
 
 fn public_of(secrets: &[Fr]) -> Vec<CortadoAffine> {
@@ -82,25 +87,26 @@ fn bench_creation() {
         PROVE_UPDATE_KEY,
         VERIFY_UPDATE_KEY,
         APPLY_UPDATE_KEY,
-    ].to_vec();
+    ]
+    .to_vec();
 
     let add_member_arr = [
         ADD_MEMBER,
         PROVE_ADD_MEMBER,
         VERIFY_ADD_MEMBER,
         APPLY_ADD_MEMBER,
-    ].to_vec();
+    ]
+    .to_vec();
 
     let make_blank_arr = [
         MAKE_BLANK,
         PROVE_MAKE_BLANK,
         VERIFY_MAKE_BLANK,
         APPLY_MAKE_BLANK,
-    ].to_vec();
+    ]
+    .to_vec();
 
-    let misc_arr = [
-        CREATION,
-    ].to_vec();
+    let misc_arr = [CREATION].to_vec();
 
     let test_sets = [update_key_arr, add_member_arr, make_blank_arr]; // misc_arr
 
@@ -120,7 +126,11 @@ fn bench_creation() {
 
     // init test
     for (i, group_size) in TEST_SAMPLES.iter().enumerate() {
-        info!("Testing group of size: 2^{} ({}) ...", group_size, 2usize.pow(*group_size as u32));
+        info!(
+            "Testing group of size: 2^{} ({}) ...",
+            group_size,
+            2usize.pow(*group_size as u32)
+        );
 
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
@@ -128,17 +138,21 @@ fn bench_creation() {
         // PrivateART creation
         ///////////////////////////////////////////////////////////
 
-        let secrets = (0..2usize.pow(*group_size as u32)).map(|_| Fr::rand(&mut rng)).collect();
+        let secrets = (0..2usize.pow(*group_size as u32))
+            .map(|_| Fr::rand(&mut rng))
+            .collect();
 
         let start = Instant::now();
-        let def_private_art = PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
-            .unwrap()
-            .0;
+        let def_private_art =
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
+                .unwrap()
+                .0;
         info!("\t> Spend {:?} on art creation.", start.elapsed());
 
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
-        let def_other_private_art = PrivateART::try_from((def_private_art.clone(), secrets[1])).unwrap();
+        let def_other_private_art =
+            PrivateART::try_from((def_private_art.clone(), secrets[1])).unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -154,7 +168,8 @@ fn bench_creation() {
                 let sk = Fr::rand(&mut rng);
 
                 let start = Instant::now();
-                let (update_key_tk, update_key_change, update_key_artefacts) = private_art.update_key(&sk).unwrap();
+                let (update_key_tk, update_key_change, update_key_artefacts) =
+                    private_art.update_key(&sk).unwrap();
                 update_table(&mut time_table, UPDATE_KEY, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -167,7 +182,9 @@ fn bench_creation() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..update_key_artefacts.co_path.len() + 1).map(|_| Scalar::random(&mut rng)).collect();
+                let blinding_vector: Vec<Scalar> = (0..update_key_artefacts.co_path.len() + 1)
+                    .map(|_| Scalar::random(&mut rng))
+                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
@@ -181,7 +198,7 @@ fn bench_creation() {
                     aux_keys.clone(),
                     blinding_vector,
                 )
-                    .unwrap();
+                .unwrap();
                 update_table(&mut time_table, PROVE_UPDATE_KEY, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -201,7 +218,8 @@ fn bench_creation() {
                     verifier_artefacts.path.clone(),
                     verifier_artefacts.co_path.clone(),
                     proof,
-                ).unwrap();
+                )
+                .unwrap();
                 update_table(&mut time_table, VERIFY_UPDATE_KEY, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -209,10 +227,11 @@ fn bench_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art.update_private_art(&update_key_change).unwrap();
+                other_private_art
+                    .update_private_art(&update_key_change)
+                    .unwrap();
                 update_table(&mut time_table, APPLY_UPDATE_KEY, i, start.elapsed());
             }
-
 
             {
                 ///////////////////////////////////////////////////////////
@@ -221,7 +240,8 @@ fn bench_creation() {
 
                 let sk = Fr::rand(&mut rng);
                 let start = Instant::now();
-                let (add_member_tk, add_member_change, add_member_artefacts) = private_art.append_or_replace_node(&sk).unwrap();
+                let (add_member_tk, add_member_change, add_member_artefacts) =
+                    private_art.append_or_replace_node(&sk).unwrap();
                 update_table(&mut time_table, ADD_MEMBER, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -231,7 +251,9 @@ fn bench_creation() {
                 // Prepare aux keys, blinding vector, associated date
                 let aux_keys = vec![add_member_tk.key];
                 let public_aux_keys = public_of(&aux_keys);
-                let blinding_vector: Vec<Scalar> = (0..add_member_artefacts.co_path.len() + 1).map(|_| Scalar::random(&mut rng)).collect();
+                let blinding_vector: Vec<Scalar> = (0..add_member_artefacts.co_path.len() + 1)
+                    .map(|_| Scalar::random(&mut rng))
+                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
@@ -245,7 +267,7 @@ fn bench_creation() {
                     aux_keys.clone(),
                     blinding_vector,
                 )
-                    .unwrap();
+                .unwrap();
                 update_table(&mut time_table, PROVE_ADD_MEMBER, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -265,7 +287,8 @@ fn bench_creation() {
                     verifier_artefacts.path.clone(),
                     verifier_artefacts.co_path.clone(),
                     add_member_proof,
-                ).unwrap();
+                )
+                .unwrap();
                 update_table(&mut time_table, VERIFY_ADD_MEMBER, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -273,7 +296,9 @@ fn bench_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art.update_private_art(&add_member_change).unwrap();
+                other_private_art
+                    .update_private_art(&add_member_change)
+                    .unwrap();
                 update_table(&mut time_table, APPLY_ADD_MEMBER, i, start.elapsed());
             }
 
@@ -283,15 +308,13 @@ fn bench_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let sk = Fr::rand(&mut rng);
-                let target_node = private_art.get_path_to_leaf(
-                    &private_art.public_key_of(&secrets[2])
-                ).unwrap();
+                let target_node = private_art
+                    .get_path_to_leaf(&private_art.public_key_of(&secrets[2]))
+                    .unwrap();
 
                 let start = Instant::now();
-                let (make_blank_tk, make_blank_change, make_blank_artefacts) = private_art.make_blank(
-                    &target_node,
-                    &sk
-                ).unwrap();
+                let (make_blank_tk, make_blank_change, make_blank_artefacts) =
+                    private_art.make_blank(&target_node, &sk).unwrap();
                 update_table(&mut time_table, MAKE_BLANK, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -304,7 +327,9 @@ fn bench_creation() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..make_blank_artefacts.co_path.len() + 1).map(|_| Scalar::random(&mut rng)).collect();
+                let blinding_vector: Vec<Scalar> = (0..make_blank_artefacts.co_path.len() + 1)
+                    .map(|_| Scalar::random(&mut rng))
+                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
@@ -318,7 +343,7 @@ fn bench_creation() {
                     aux_keys.clone(),
                     blinding_vector,
                 )
-                    .unwrap();
+                .unwrap();
                 update_table(&mut time_table, PROVE_MAKE_BLANK, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -338,7 +363,8 @@ fn bench_creation() {
                     verifier_artefacts.path.clone(),
                     verifier_artefacts.co_path.clone(),
                     proof,
-                ).unwrap();
+                )
+                .unwrap();
                 update_table(&mut time_table, VERIFY_MAKE_BLANK, i, start.elapsed());
 
                 ///////////////////////////////////////////////////////////
@@ -346,15 +372,22 @@ fn bench_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art.update_private_art(&make_blank_change).unwrap();
+                other_private_art
+                    .update_private_art(&make_blank_change)
+                    .unwrap();
                 update_table(&mut time_table, APPLY_MAKE_BLANK, i, start.elapsed());
             }
         }
 
-        info!("\t> Spent: {:?} on benchmarking for group of size 2^{} ({}).", group_test_start.elapsed(), group_size, 2usize.pow(*group_size as u32));
+        info!(
+            "\t> Spent: {:?} on benchmarking for group of size 2^{} ({}).",
+            group_test_start.elapsed(),
+            group_size,
+            2usize.pow(*group_size as u32)
+        );
 
         for (_, test_type) in time_table.iter_mut() {
-                test_type[i] /= REPETITION_TIME as u32;
+            test_type[i] /= REPETITION_TIME as u32;
         }
     }
 
