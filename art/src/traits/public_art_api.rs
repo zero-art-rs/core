@@ -118,16 +118,6 @@ where
         append_changes: bool,
     ) -> Result<(), ARTError>;
 
-    /// Returns secrets from changes. It works by applying 'changes' to the 'fork' and recomputing
-    /// changes in usual way.
-    fn get_artefact_secrets_from_change(
-        &self,
-        node_index: &NodeIndex,
-        secret_key: G::ScalarField,
-        changes: &BranchChanges<G>,
-        fork: &mut Self,
-    ) -> Result<Vec<G::ScalarField>, ARTError>;
-
     /// Returns node by the given NodeIndex
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 

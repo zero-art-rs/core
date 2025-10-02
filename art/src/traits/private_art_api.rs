@@ -1,4 +1,4 @@
-use crate::types::{Direction, UpdateData};
+use crate::types::{Direction, NodeIndex, UpdateData};
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
@@ -86,4 +86,12 @@ where
         target_changes: &[BranchChanges<G>],
         base_fork: Self,
     ) -> Result<(), ARTError>;
+
+    /// Returns secrets from changes (ordering from leaf to the root). It works by applying
+    /// 'changes' to the 'fork' and recomputing changes in usual way.
+    fn get_artefact_secrets_from_change(
+        &self,
+        changes: &BranchChanges<G>,
+        fork: &mut Self,
+    ) -> Result<Vec<G::ScalarField>, ARTError>;
 }

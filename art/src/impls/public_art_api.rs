@@ -349,27 +349,6 @@ where
         Ok(())
     }
 
-    fn get_artefact_secrets_from_change(
-        &self,
-        node_index: &NodeIndex,
-        secret_key: G::ScalarField,
-        changes: &BranchChanges<G>,
-        fork: &mut Self,
-    ) -> Result<Vec<G::ScalarField>, ARTError> {
-        fork.update_public_art_with_options(changes, false, true)?;
-
-        let co_path_values = fork.get_co_path_values(node_index)?;
-        let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
-        secrets.push(secret_key);
-        let mut ark_secret = secret_key;
-        for public_key in co_path_values.iter() {
-            ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(ark_secret);
-        }
-
-        Ok(secrets)
-    }
-
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
         let mut node = self.get_root();
         for direction in &index.get_path()? {
@@ -552,8 +531,6 @@ where
                 BranchChangesType::AppendNode => {
                     append_member_changes.push(change.clone());
                 }
-                // Return error, as other operations are not supported for merge
-                _ => return Err(ARTError::InvalidInput),
             }
         }
 
