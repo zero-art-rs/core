@@ -104,26 +104,12 @@ where
         self.node_index = node_index
     }
 
-    fn new(
-        root: Box<ARTNode<G>>,
-        generator: G,
-        secret_key: G::ScalarField,
-    ) -> Result<Self, ARTError> {
-        let public_art = PublicART { root, generator };
-
-        Self::try_from((public_art, secret_key))
-    }
-
     fn get_path_secrets(&self) -> &Vec<G::ScalarField> {
         &self.path_secrets
     }
 
     fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField> {
         &mut self.path_secrets
-    }
-
-    fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField> {
-        mem::replace(&mut self.path_secrets, new_path_secrets)
     }
 }
 

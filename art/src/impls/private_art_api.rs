@@ -5,7 +5,7 @@ use crate::traits::ARTPrivateAPIHelper;
 use crate::types::{Direction, NodeIndex};
 use crate::{
     errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI},
+    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicAPIHelper},
     types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
 };
 use ark_ec::{AffineRepr, CurveGroup};
@@ -13,7 +13,6 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tracing::debug;
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -103,8 +102,19 @@ where
     }
 
     fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError> {
+        let mut append_member_count = 0;
+        for change in target_changes {
+            if let BranchChangesType::AppendNode = change.change_type {
+                if append_member_count > 1 {
+                    return Err(ARTError::MergeInput);
+                }
+
+                append_member_count += 1;
+            }
+        }
+
         self.recompute_path_secrets_for_observer(&target_changes)?;
-        self.merge(&target_changes)?;
+        self.merge_all(&target_changes)?;
 
         Ok(())
     }
@@ -115,6 +125,22 @@ where
         unapplied_changes: &[BranchChanges<G>],
         base_fork: Self,
     ) -> Result<(), ARTError> {
+        // Currently, it will fail if the first applied change is append_member.
+        if let BranchChangesType::AppendNode = applied_change.change_type {
+            return Err(ARTError::MergeInput);
+        }
+
+        let mut append_member_count = 0;
+        for change in unapplied_changes {
+            if let BranchChangesType::AppendNode = change.change_type {
+                if append_member_count > 1 {
+                    return Err(ARTError::MergeInput);
+                }
+
+                append_member_count += 1;
+            }
+        }
+
         self.recompute_path_secrets_for_participant(&unapplied_changes, base_fork)?;
         self.merge_with_skip(&vec![applied_change], &unapplied_changes)?;
 
@@ -127,8 +153,64 @@ where
     Self: Sized + Serialize + DeserializeOwned,
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
-    A: ARTPrivateView<G>,
+    A: ARTPrivateView<G> + ARTPublicAPIHelper<G>,
 {
+    fn update_node_index(&mut self) -> Result<(), ARTError> {
+        let path = self.get_path_to_leaf(&self.public_key_of(&self.get_secret_key()))?;
+        self.set_node_index(NodeIndex::Direction(path).as_index()?);
+
+        Ok(())
+    }
+
+    fn update_path_secrets(
+        &mut self,
+        mut other_path_secrets: Vec<G::ScalarField>,
+        other: &NodeIndex,
+        append_changes: bool,
+    ) -> Result<(), ARTError> {
+        let mut path_secrets = self.get_path_secrets().clone();
+
+        if path_secrets.is_empty() {
+            return Err(ARTError::EmptyART);
+        }
+
+        if self.get_node_index().is_subpath_of(other)? {
+            return Err(ARTError::InvalidInput);
+        }
+
+        // It is a partial update of the path.
+        let node_path = self.get_node_index().get_path()?;
+        let other_node_path = other.get_path()?;
+
+        // Reverse secrets to perform computations starting from the root.
+        other_path_secrets.reverse();
+        path_secrets.reverse();
+
+        // Always update art root key.
+        match append_changes {
+            true => path_secrets[0] += other_path_secrets[0],
+            false => path_secrets[0] = other_path_secrets[0],
+        }
+
+        // Update other keys on the path.
+        for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
+            if a == b {
+                match append_changes {
+                    true => path_secrets[i + 1] += other_path_secrets[i + 1],
+                    false => path_secrets[i + 1] = other_path_secrets[i + 1],
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Reverse path_secrets back to normal order, and update change old secrets.
+        path_secrets.reverse();
+        self.set_path_secrets(path_secrets);
+
+        Ok(())
+    }
+
     fn update_private_art_with_options(
         &mut self,
         changes: &BranchChanges<G>,

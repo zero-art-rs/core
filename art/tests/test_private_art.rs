@@ -17,19 +17,17 @@ mod tests {
     use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
-    use std::mem::uninitialized;
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-    use zrt_art::traits::ARTPrivateView;
-    use zrt_art::types::{
-        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
-    };
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-        types::{PrivateART, PublicART},
+        types::{
+            ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, PrivateART, ProverArtefacts,
+            PublicART, VerifierArtefacts,
+        },
     };
     use zrt_zk::art::{art_prove, art_verify};
 
@@ -494,9 +492,15 @@ mod tests {
         let main_new_key = get_random_scalar_with_rng(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
         assert_ne!(new_key.key, main_old_key);
-        let pub_keys = main_user_art
-            .get_path_values(&main_user_art.node_index)
-            .unwrap();
+
+        let mut pub_keys = Vec::new();
+        let mut parent = main_user_art.get_root();
+        for direction in &main_user_art.node_index.get_path().unwrap() {
+            pub_keys.push(parent.get_child(direction).unwrap().public_key);
+            parent = parent.get_child(direction).unwrap();
+        }
+        pub_keys.reverse();
+
         for (secret_key, corr_pk) in main_user_art.path_secrets.iter().zip(pub_keys.iter()) {
             assert_eq!(
                 CortadoAffine::generator().mul(secret_key).into_affine(),
@@ -508,15 +512,6 @@ mod tests {
         users_arts[72].update_private_art(&changes).unwrap();
         assert_eq!(users_arts[72].get_root_key().unwrap().key, new_key.key);
         assert_eq!(new_key, users_arts[72].get_root_key().unwrap());
-
-        // for i in 0..TEST_GROUP_SIZE {
-        //     if i != main_user_id {
-        //         users_arts[i].update_private_art(&changes).unwrap();
-        //         debug!("I: {}", i);
-        //         assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
-        //         assert_eq!(new_key, users_arts[i].get_root_key().unwrap());
-        //     }
-        // }
 
         let (recomputed_old_key, changes, _) = main_user_art.update_key(&main_old_key).unwrap();
 
@@ -938,7 +933,8 @@ mod tests {
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
-        let node_index = tree.get_leaf_index(&node_pk).unwrap();
+        let node_index =
+            NodeIndex::get_index_from_path(&tree.get_path_to_leaf(&node_pk).unwrap()).unwrap();
         let rec_node_pk = tree
             .get_node(&NodeIndex::Index(node_index))
             .unwrap()
@@ -1190,8 +1186,12 @@ mod tests {
 
         let first_clone = first.clone();
         let second_clone = second.clone();
-        first.merge_change(&first_merged, &second_changes).unwrap();
-        second.merge_change(&second_merged, &first_changes).unwrap();
+        first
+            .merge_with_skip(&first_merged, &vec![second_changes.clone()])
+            .unwrap();
+        second
+            .merge_with_skip(&second_merged, &vec![first_changes.clone()])
+            .unwrap();
 
         assert_eq!(first.root.weight, second.root.weight);
         // debug!("first:\n{}", first.root);
@@ -1223,13 +1223,13 @@ mod tests {
                 true => {
                     user_arts[i].update_private_art(&first_changes).unwrap();
                     user_arts[i]
-                        .merge_change(&first_merged, &second_changes)
+                        .merge_with_skip(&first_merged, &vec![second_changes.clone()])
                         .unwrap();
                 }
                 false => {
                     user_arts[i].update_private_art(&second_changes).unwrap();
                     user_arts[i]
-                        .merge_change(&second_merged, &first_changes)
+                        .merge_with_skip(&second_merged, &vec![first_changes.clone()])
                         .unwrap();
                 }
             }
@@ -1317,7 +1317,6 @@ mod tests {
         )
         .unwrap();
 
-        art1.update_node_index().unwrap();
         assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
         let tk1_merged = art1.get_root_key().unwrap();

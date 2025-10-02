@@ -10,8 +10,11 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
+    use std::cmp::{max, min};
     use tracing::{debug, info, warn};
+    use zrt_art::errors::ARTError;
     use zrt_art::traits::ARTPrivateView;
+    use zrt_art::types::LeafIterWithPath;
     use zrt_art::{
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
         types::PrivateART,
@@ -20,6 +23,33 @@ mod tests {
     pub const SEED: u64 = 23;
     pub const GROUP_SIZE: usize = 10;
     pub const FUZ_LENGTH: usize = 500;
+
+    trait TestART {
+        fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError>;
+
+        fn get_disbalance(&self) -> Result<u64, ARTError>;
+    }
+
+    impl TestART for PrivateART<CortadoAffine> {
+        fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError> {
+            let mut min_height = u64::MAX;
+            let mut max_height = u64::MIN;
+            let root = self.get_root();
+
+            for (_, path) in LeafIterWithPath::new(root) {
+                min_height = min(min_height, path.len() as u64);
+                max_height = max(max_height, path.len() as u64);
+            }
+
+            Ok((min_height, max_height))
+        }
+
+        fn get_disbalance(&self) -> Result<u64, ARTError> {
+            let (min_height, max_height) = self.min_max_leaf_height()?;
+
+            Ok(max_height - min_height)
+        }
+    }
 
     #[test]
     fn fuzz_test() {

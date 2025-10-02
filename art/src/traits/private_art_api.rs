@@ -46,7 +46,8 @@ where
 
     /// Update ART with `target_changes`, if the user contributed to the merge conflict with his
     /// `applied_change`. Requires `base_fork`, which is the previous state of the ART, with
-    /// unapplied user provided `applied_change`.
+    /// unapplied user provided `applied_change`. Currently, it will fail if the first applied
+    /// change is append_member.
     fn merge_for_participant(
         &mut self,
         applied_change: BranchChanges<G>,
@@ -60,6 +61,18 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
+    /// Updates users node index by researching it in a tree.
+    fn update_node_index(&mut self) -> Result<(), ARTError>;
+
+    /// If `append_changes` is false, works as set_path_secrets. In the other case, it will
+    /// append secrets to available ones. Can be used for make blank to update secrets correctly.
+    fn update_path_secrets(
+        &mut self,
+        other_path_secrets: Vec<G::ScalarField>,
+        other: &NodeIndex,
+        append_changes: bool,
+    ) -> Result<(), ARTError>;
+
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art_with_options(
         &mut self,
