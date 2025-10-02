@@ -475,7 +475,7 @@ mod tests {
 
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
+            users_arts.push(PrivateART::try_from((public_art.clone(), secrets[i])).unwrap());
         }
 
         for i in 0..TEST_GROUP_SIZE {
@@ -724,7 +724,7 @@ mod tests {
         // Create a set of user private arts for tests
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
+            users_arts.push(PrivateART::try_from((public_art.clone(), secrets[i])).unwrap());
         }
 
         // Assert all the users computed the same tree key.

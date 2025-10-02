@@ -24,26 +24,7 @@ where
         let secret_key = *secrets.first().ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
-        Ok((Self::from_public_art(art, secret_key)?, root_key))
-    }
-
-    pub fn from_public_art(
-        public_art: PublicART<G>,
-        secret_key: G::ScalarField,
-    ) -> Result<Self, ARTError> {
-        let node_index =
-            NodeIndex::from(public_art.get_path_to_leaf(&public_art.public_key_of(&secret_key))?)
-                .as_index()?;
-        let (_, artefacts) = public_art
-            .recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
-
-        Ok(Self {
-            root: public_art.root,
-            generator: public_art.generator,
-            secret_key,
-            node_index,
-            path_secrets: artefacts.secrets,
-        })
+        Ok((Self::try_from((art, secret_key))?, root_key))
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
@@ -63,20 +44,20 @@ where
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::try_from((
             from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
             *secret_key,
-        )
+        ))
     }
 
     pub fn from_string(
         canonical_json: &str,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::try_from((
             serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
-        )
+        ))
     }
 }
 
@@ -130,7 +111,7 @@ where
     ) -> Result<Self, ARTError> {
         let public_art = PublicART { root, generator };
 
-        Self::from_public_art(public_art, secret_key)
+        Self::try_from((public_art, secret_key))
     }
 
     fn get_path_secrets(&self) -> &Vec<G::ScalarField> {
@@ -155,7 +136,6 @@ where
     type Error = ARTError;
 
     fn try_from((mut other, secret_key): (A, G::ScalarField)) -> Result<Self, Self::Error> {
-        // let node_index = NodeIndex::from(other.get_leaf_index(&other.public_key_of(&secret_key))?);
         let node_index =
             NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
                 .as_index()?;
