@@ -4,6 +4,8 @@ mod public_art_api;
 mod public_art_view;
 
 pub use private_art_api::ARTPrivateAPI;
+pub(crate) use private_art_api::ARTPrivateAPIHelper;
 pub use private_art_view::ARTPrivateView;
 pub use public_art_api::ARTPublicAPI;
+pub(crate) use public_art_api::ARTPublicAPIHelper;
 pub use public_art_view::ARTPublicView;

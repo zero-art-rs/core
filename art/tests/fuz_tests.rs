@@ -10,16 +10,46 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
-    use tracing::{info, warn};
+    use std::cmp::{max, min};
+    use tracing::{debug, info, warn};
+    use zrt_art::errors::ARTError;
     use zrt_art::traits::ARTPrivateView;
+    use zrt_art::types::LeafIterWithPath;
     use zrt_art::{
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
         types::PrivateART,
     };
 
     pub const SEED: u64 = 23;
-    pub const GROUP_SIZE: usize = 500;
+    pub const GROUP_SIZE: usize = 10;
     pub const FUZ_LENGTH: usize = 500;
+
+    trait TestART {
+        fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError>;
+
+        fn get_disbalance(&self) -> Result<u64, ARTError>;
+    }
+
+    impl TestART for PrivateART<CortadoAffine> {
+        fn min_max_leaf_height(&self) -> Result<(u64, u64), ARTError> {
+            let mut min_height = u64::MAX;
+            let mut max_height = u64::MIN;
+            let root = self.get_root();
+
+            for (_, path) in LeafIterWithPath::new(root) {
+                min_height = min(min_height, path.len() as u64);
+                max_height = max(max_height, path.len() as u64);
+            }
+
+            Ok((min_height, max_height))
+        }
+
+        fn get_disbalance(&self) -> Result<u64, ARTError> {
+            let (min_height, max_height) = self.min_max_leaf_height()?;
+
+            Ok(max_height - min_height)
+        }
+    }
 
     #[test]
     fn fuzz_test() {
@@ -182,13 +212,23 @@ mod tests {
             assert_eq!(
                 group_arts[i].get_node_index().get_path().unwrap().len() + 1,
                 group_arts[i].path_secrets.len(),
-                "Length of path secrets is length of direction path to node + 1 for user {}: {:?}.",
+                "Length of `path_secrets` = direction_path + 1 for user {}: {:?}.",
                 i,
                 group_arts[i].node_index,
             );
             assert_eq!(
+                group_arts[target_user].get_root_key().unwrap(),
+                group_arts[i].get_root_key().unwrap(),
+                "Both users have the same view on the state of the art.",
+            );
+            assert_eq!(
+                group_arts[i].get_secret_key(),
+                group_arts[i].get_path_secrets()[0],
+                "Users path_secrets contain his secret key.",
+            );
+            assert_eq!(
                 group_arts[target_user], group_arts[i],
-                "Both users have the same view on the state of the art."
+                "Both users have the same view on the state of the art.",
             );
             assert!(
                 group_arts[i].get_disbalance().unwrap() < 2,

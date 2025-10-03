@@ -6,64 +6,70 @@ use crate::{
     types::{ARTNode, PublicART},
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::PrimeField;
+use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
+
+pub(crate) type ArtLevel<G> = (Vec<ARTNode<G>>, Vec<<G as AffineRepr>::ScalarField>);
 
 impl<G> PublicART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
+    /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
+    /// they are not they can be lifted with `fit_leaves_in_one_level` method.
     pub fn compute_next_layer_of_tree(
-        level_nodes: &mut Vec<ARTNode<G>>,
-        level_secrets: &mut Vec<G::ScalarField>,
+        level_nodes: Vec<Box<ARTNode<G>>>,
+        level_secrets: &mut [G::ScalarField],
         generator: &G,
-    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
-        let mut upper_level_nodes = Vec::new();
-        let mut upper_level_secrets = Vec::new();
+    ) -> Result<(Box<ARTNode<G>>, G::ScalarField), ARTError> {
+        let mut stack = Vec::with_capacity(level_nodes.len());
 
-        // iterate until level_nodes is empty, then swap it with the next layer
-        while level_nodes.len() > 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
+        let mut last_secret = G::ScalarField::zero();
 
-            level_secrets.remove(0); // skip the first secret
+        // stack contains node, and her conditional weight
+        stack.push((level_nodes[0].clone(), 1));
+        for (sk, node) in level_secrets.iter().zip(level_nodes).skip(1) {
+            let mut right_node = node;
+            let mut rith_secret = *sk;
+            let mut right_weight = 1;
 
-            let ark_common_secret = iota_function(
-                &left_node
-                    .get_public_key()
-                    .mul(level_secrets.remove(0))
-                    .into_affine(),
-            )?;
+            while let Some((left_node, left_weight)) = stack.pop() {
+                if left_weight != right_weight {
+                    // return the node bask and wait for it to be the same weight
+                    stack.push((left_node, left_weight));
+                    break;
+                }
 
-            let node = ARTNode::new_internal_node(
-                generator.mul(&ark_common_secret).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
+                let ark_common_secret =
+                    iota_function(&left_node.get_public_key().mul(rith_secret).into_affine())?;
+                rith_secret = ark_common_secret;
+                last_secret = ark_common_secret;
 
-            upper_level_nodes.push(node);
-            upper_level_secrets.push(ark_common_secret);
+                right_node = Box::new(ARTNode::new_internal_node(
+                    generator.mul(&ark_common_secret).into_affine(),
+                    left_node,
+                    right_node,
+                ));
+                right_weight += left_weight;
+            }
+
+            // put the node to the end of stack
+            stack.push((right_node, right_weight));
         }
 
-        // if one have an odd number of nodes, the last one will be added to the next level
-        if level_nodes.len() == 1 {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-            let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret);
-        }
+        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
 
-        Ok((upper_level_nodes, upper_level_secrets))
+        Ok((root, last_secret))
     }
 
     pub fn fit_leaves_in_one_level(
         mut level_nodes: Vec<ARTNode<G>>,
         mut level_secrets: Vec<G::ScalarField>,
         generator: &G,
-    ) -> Result<(Vec<ARTNode<G>>, Vec<G::ScalarField>), ARTError> {
+    ) -> Result<ArtLevel<G>, ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
             level_size <<= 1;
@@ -117,10 +123,10 @@ where
         if secrets.is_empty() {
             return Err(ARTError::InvalidInput);
         }
-        let mut level_nodes = Vec::new();
-        let mut level_secrets = Vec::new();
+        let mut level_nodes = Vec::with_capacity(secrets.len());
+        let mut level_secrets = Vec::with_capacity(secrets.len());
 
-        // leaves of the tree
+        // Process leaves of the tree
         for leaf_secret in secrets {
             let node = ARTNode::new_leaf(generator.mul(leaf_secret).into_affine());
 
@@ -134,28 +140,25 @@ where
                 Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator)?;
         }
 
-        // iterate by levels. Go from current level to upper level
-        while level_nodes.len() > 1 {
-            (level_nodes, level_secrets) =
-                Self::compute_next_layer_of_tree(&mut level_nodes, &mut level_secrets, generator)?;
+        let mut level_boxes = Vec::new();
+        for node in level_nodes {
+            level_boxes.push(Box::new(node));
         }
 
-        let root = level_nodes.remove(0);
+        let (root, tk) =
+            Self::compute_next_layer_of_tree(level_boxes, &mut level_secrets, generator)?;
+
         let root_key = ARTRootKey {
-            key: level_secrets.remove(0),
+            key: tk,
             generator: *generator,
         };
 
         let art = Self {
-            root: Box::new(root),
+            root,
             generator: *generator,
         };
 
         Ok((art, root_key))
-    }
-
-    pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&self).map_err(ARTError::SerdeJson)
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
@@ -164,10 +167,6 @@ where
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
         from_bytes(bytes).map_err(ARTError::Postcard)
-    }
-
-    pub fn from_string(canonical_json: &str) -> Result<Self, ARTError> {
-        serde_json::from_str(canonical_json).map_err(ARTError::SerdeJson)
     }
 }
 
