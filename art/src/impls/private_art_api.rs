@@ -5,7 +5,7 @@ use crate::traits::ARTPrivateAPIHelper;
 use crate::types::{Direction, NodeIndex};
 use crate::{
     errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicAPIHelper},
+    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
     types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
 };
 use ark_ec::{AffineRepr, CurveGroup};
@@ -113,8 +113,8 @@ where
             }
         }
 
-        self.recompute_path_secrets_for_observer(&target_changes)?;
-        self.merge_all(&target_changes)?;
+        self.recompute_path_secrets_for_observer(target_changes)?;
+        self.merge_all(target_changes)?;
 
         Ok(())
     }
@@ -141,8 +141,8 @@ where
             }
         }
 
-        self.recompute_path_secrets_for_participant(&unapplied_changes, base_fork)?;
-        self.merge_with_skip(&vec![applied_change], &unapplied_changes)?;
+        self.recompute_path_secrets_for_participant(unapplied_changes, base_fork)?;
+        self.merge_with_skip(&[applied_change], unapplied_changes)?;
 
         Ok(())
     }

@@ -1,8 +1,7 @@
 use crate::traits::ARTPublicAPI;
 use crate::{
-    errors::ARTError,
     traits::ARTPublicView,
-    types::{ARTNode, NodeIndex},
+    types::NodeIndex,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -36,6 +35,6 @@ where
 
     /// Changes path_secrets to the given ones.
     fn set_path_secrets(&mut self, new_path_secrets: Vec<G::ScalarField>) -> Vec<G::ScalarField> {
-        mem::replace(&mut self.get_mut_path_secrets(), new_path_secrets)
+        mem::replace(self.get_mut_path_secrets(), new_path_secrets)
     }
 }

@@ -81,10 +81,10 @@ where
 
     /// Updates art with given changes. Available options are:
     /// - `append_changes` - if false replace public keys with provided in changes, Else, append
-    /// them to the available ones.
+    ///   them to the available ones.
     /// - `update_weights` - If true updates the weights of the art on make blank change. If
-    /// false, it will leve those weights as is. Can be used to correctly apply the second
-    /// blanking of some node.
+    ///   false, it will leve those weights as is. Can be used to correctly apply the second
+    ///   blanking of some node.
     fn update_public_art_with_options(
         &mut self,
         changes: &BranchChanges<G>,

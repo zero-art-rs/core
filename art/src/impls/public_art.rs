@@ -10,7 +10,6 @@ use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use std::mem;
-use tracing::{debug, info};
 
 pub(crate) type ArtLevel<G> = (Vec<ARTNode<G>>, Vec<<G as AffineRepr>::ScalarField>);
 
@@ -23,7 +22,7 @@ where
     /// they are not they can be lifted with `fit_leaves_in_one_level` method.
     pub fn compute_next_layer_of_tree(
         level_nodes: Vec<Box<ARTNode<G>>>,
-        level_secrets: &mut Vec<G::ScalarField>,
+        level_secrets: &mut [G::ScalarField],
         generator: &G,
     ) -> Result<(Box<ARTNode<G>>, G::ScalarField), ARTError> {
         let mut stack = Vec::with_capacity(level_nodes.len());
@@ -61,7 +60,7 @@ where
             stack.push((right_node, right_weight));
         }
 
-        let (mut root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
+        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
 
         Ok((root, last_secret))
     }
