@@ -21,6 +21,7 @@ mod tests {
     use tracing::{debug, warn};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+    use zrt_art::traits::ARTPrivateView;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
@@ -477,7 +478,7 @@ mod tests {
 
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::try_from((public_art.clone(), secrets[i])).unwrap());
+            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
         for i in 0..TEST_GROUP_SIZE {
@@ -728,7 +729,7 @@ mod tests {
         // Create a set of user private arts for tests
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::try_from((public_art.clone(), secrets[i])).unwrap());
+            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
         }
 
         // Assert all the users computed the same tree key.
@@ -1165,7 +1166,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1266,7 +1267,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1392,7 +1393,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1514,6 +1515,97 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_for_remove_conflict() {
+        init_tracing_for_test();
+        let mut rng = &mut StdRng::seed_from_u64(rand::random());
+
+        if TEST_GROUP_SIZE < 4 {
+            warn!("Cant run the test test_merge_for_remove_member, as the group size is to small");
+            return;
+        }
+
+        // init test
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
+            .unwrap()
+            .0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..TEST_GROUP_SIZE {
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        // choose some users for main test subjects
+        let mut art1 = user_arts.remove(0);
+        let mut art2 = user_arts.remove(1);
+        let mut art3 = user_arts.remove(3);
+        let mut art4 = user_arts.remove(2);
+
+        // Choose user to remove from the group
+        let target_user = user_arts.remove(4);
+        let target = target_user.get_node_index().get_path().unwrap();
+
+        let rem_node_sk: Fr = Fr::rand(&mut rng);
+        let (tk, change0, artefacts0) = art1.make_blank(&target, &rem_node_sk).unwrap();
+
+        art2.update_private_art(&change0).unwrap();
+        art3.update_private_art(&change0).unwrap();
+        art4.update_private_art(&change0).unwrap();
+
+        // Backup previous arts for merge
+        let def_art1 = art1.clone();
+        let def_art2 = art2.clone();
+        let def_art3 = art3.clone();
+
+        // Remove the user from the group (make his node blank).
+        let new_node1_sk = Fr::rand(&mut rng);
+        let new_node2_sk = Fr::rand(&mut rng);
+        let new_node3_sk = Fr::rand(&mut rng);
+
+        let target_node_pk = CortadoAffine::generator()
+            .mul(&target_user.secret_key)
+            .into_affine();
+
+        let (tk1, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
+        let (tk2, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
+        let (tk3, changes3, _) = art3.make_blank(&target, &new_node3_sk).unwrap();
+
+        let all_changes = vec![changes1.clone(), changes2.clone(), changes3.clone()];
+        let mut art4_0 = art4.clone();
+        art4_0.merge_for_observer(&all_changes).unwrap();
+
+        // let mut art4_0_rem_t = art4.clone();
+        // art4_0_rem_t.merge_for_observer(&[changes1.clone()]).unwrap();
+        // // changes2.clone(), changes3.clone()
+        // assert_eq!(
+        //     art4_0_rem_t.get_node(target_user.get_node_index()).unwrap().public_key,
+        //     art4_0_rem_t.public_key_of(&(new_node1_sk))
+        // );
+
+        for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
+            let mut art_4_analog = art4.clone();
+            art_4_analog.merge_for_observer(&permutation).unwrap();
+
+            assert_eq!(
+                art4_0, art_4_analog,
+                "The order of changes applied doesn't affect the result."
+            );
+
+            assert_eq!(
+                art4_0
+                    .get_node(target_user.get_node_index())
+                    .unwrap()
+                    .public_key,
+                art4_0.public_key_of(&(new_node3_sk)),
+                // art4_0.public_key_of(&(new_node3_sk + rem_node_sk)),
+                "Make blank is correctly merged."
+            );
+        }
+    }
+
+    #[test]
     fn test_merge_for_multi_removal() -> Result<(), ARTError> {
         init_tracing_for_test();
 
@@ -1534,7 +1626,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }

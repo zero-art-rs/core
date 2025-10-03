@@ -24,7 +24,27 @@ where
         let secret_key = *secrets.first().ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
-        Ok((Self::try_from((art, secret_key))?, root_key))
+        Ok((Self::from_public_art(art, secret_key)?, root_key))
+    }
+
+    pub fn from_public_art<A>(mut other: A, secret_key: G::ScalarField) -> Result<Self, ARTError>
+    where
+        A: ARTPublicView<G> + ARTPublicAPI<G>,
+    {
+        let node_index =
+            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
+                .as_index()?;
+        let (_, artefacts) =
+            other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
+        let root = other.replace_root(Box::new(ARTNode::default()));
+
+        Ok(Self {
+            root,
+            generator: other.get_generator(),
+            secret_key,
+            node_index,
+            path_secrets: artefacts.secrets,
+        })
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
@@ -44,20 +64,20 @@ where
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Self::try_from((
+        Self::from_public_art(
             from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
             *secret_key,
-        ))
+        )
     }
 
     pub fn from_string(
         canonical_json: &str,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        Self::try_from((
+        Self::from_public_art(
             serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
-        ))
+        )
     }
 }
 
@@ -110,32 +130,6 @@ where
 
     fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField> {
         &mut self.path_secrets
-    }
-}
-
-impl<G, A> TryFrom<(A, G::ScalarField)> for PrivateART<G>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-    A: ARTPublicView<G> + ARTPublicAPI<G>,
-{
-    type Error = ARTError;
-
-    fn try_from((mut other, secret_key): (A, G::ScalarField)) -> Result<Self, Self::Error> {
-        let node_index =
-            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
-                .as_index()?;
-        let (_, artefacts) =
-            other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
-        let root = other.replace_root(Box::new(ARTNode::default()));
-
-        Ok(Self {
-            root,
-            generator: other.get_generator(),
-            secret_key,
-            node_index,
-            path_secrets: artefacts.secrets,
-        })
     }
 }
 

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{AddAssign, Mul};
 use std::time::{Duration, Instant};
-use tracing::{info};
+use tracing::info;
 use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
@@ -125,7 +125,7 @@ fn bench_separate_operations_creation() {
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
         let def_other_private_art =
-            PrivateART::try_from((def_private_art.clone(), secrets[1])).unwrap();
+            PrivateART::from_public_art(def_private_art.clone(), secrets[1]).unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -420,7 +420,7 @@ fn bench_operations_in_combination() {
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
         let def_other_private_art =
-            PrivateART::try_from((def_private_art.clone(), secrets[1])).unwrap();
+            PrivateART::from_public_art(def_private_art.clone(), secrets[1]).unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -667,7 +667,7 @@ fn bench_credentials() {
         Scalar::from(1u64),
         Scalar::from(2u64),
         Scalar::from(3u64),
-        Scalar::from(4u64)
+        Scalar::from(4u64),
     ]; // Example revocation list
 
     let group_test_start = Instant::now();
@@ -678,7 +678,8 @@ fn bench_credentials() {
 
         // Issue a credential
         let start = Instant::now();
-        let credential = Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
+        let credential =
+            Credential::issue(issuer_secret_key, validity_period, holder_public_key).unwrap();
         update_table(&mut time_table, ISSUE_CREDENTIAL, 0, start.elapsed());
 
         // Verify the credential
@@ -688,13 +689,25 @@ fn bench_credentials() {
 
         // Create a credential presentation proof
         let start = Instant::now();
-        let proof = credential.present(holder_secret_key, revocation_list.clone()).unwrap();
-        update_table(&mut time_table, CREATE_PRESENTATION_PROOF, 0, start.elapsed());
+        let proof = credential
+            .present(holder_secret_key, revocation_list.clone())
+            .unwrap();
+        update_table(
+            &mut time_table,
+            CREATE_PRESENTATION_PROOF,
+            0,
+            start.elapsed(),
+        );
 
         // Verify the credential presentation proof
         let start = Instant::now();
         assert!(Credential::verify_presentation(&proof, revocation_list.clone()).is_ok());
-        update_table(&mut time_table, VERIFY_PRESENTATION_PROOF, 0, start.elapsed());
+        update_table(
+            &mut time_table,
+            VERIFY_PRESENTATION_PROOF,
+            0,
+            start.elapsed(),
+        );
     }
 
     info!(
