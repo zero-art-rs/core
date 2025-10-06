@@ -1538,6 +1538,7 @@ mod tests {
         }
 
         // choose some users for main test subjects
+        let mut art0 = user_arts.remove(0);
         let mut art1 = user_arts.remove(0);
         let mut art2 = user_arts.remove(1);
         let mut art3 = user_arts.remove(3);
@@ -1550,16 +1551,19 @@ mod tests {
         let rem_node_sk: Fr = Fr::rand(&mut rng);
         let (tk, change0, artefacts0) = art1.make_blank(&target, &rem_node_sk).unwrap();
 
+        art0.update_private_art(&change0).unwrap();
         art2.update_private_art(&change0).unwrap();
         art3.update_private_art(&change0).unwrap();
         art4.update_private_art(&change0).unwrap();
 
         // Backup previous arts for merge
+        let def_art0 = art0.clone();
         let def_art1 = art1.clone();
         let def_art2 = art2.clone();
         let def_art3 = art3.clone();
 
         // Remove the user from the group (make his node blank).
+        let new_node0_sk = Fr::rand(&mut rng);
         let new_node1_sk = Fr::rand(&mut rng);
         let new_node2_sk = Fr::rand(&mut rng);
         let new_node3_sk = Fr::rand(&mut rng);
@@ -1568,21 +1572,19 @@ mod tests {
             .mul(&target_user.secret_key)
             .into_affine();
 
+        let (tk0, changes0, _) = art0.make_blank(&target, &new_node0_sk).unwrap();
         let (tk1, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
         let (tk2, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
         let (tk3, changes3, _) = art3.make_blank(&target, &new_node3_sk).unwrap();
 
-        let all_changes = vec![changes1.clone(), changes2.clone(), changes3.clone()];
+        let all_changes = vec![
+            changes0.clone(),
+            changes1.clone(),
+            changes2.clone(),
+            changes3.clone(),
+        ];
         let mut art4_0 = art4.clone();
         art4_0.merge_for_observer(&all_changes).unwrap();
-
-        // let mut art4_0_rem_t = art4.clone();
-        // art4_0_rem_t.merge_for_observer(&[changes1.clone()]).unwrap();
-        // // changes2.clone(), changes3.clone()
-        // assert_eq!(
-        //     art4_0_rem_t.get_node(target_user.get_node_index()).unwrap().public_key,
-        //     art4_0_rem_t.public_key_of(&(new_node1_sk))
-        // );
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
             let mut art_4_analog = art4.clone();
@@ -1598,8 +1600,7 @@ mod tests {
                     .get_node(target_user.get_node_index())
                     .unwrap()
                     .public_key,
-                art4_0.public_key_of(&(new_node3_sk)),
-                // art4_0.public_key_of(&(new_node3_sk + rem_node_sk)),
+                art4_0.public_key_of(&(new_node0_sk + new_node3_sk + rem_node_sk)),
                 "Make blank is correctly merged."
             );
         }
