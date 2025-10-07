@@ -10,7 +10,7 @@ impl<G> BranchChanges<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
-    pub fn serialze(&self) -> Result<Vec<u8>, ARTError> {
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
         to_allocvec(self).map_err(ARTError::Postcard)
     }
 

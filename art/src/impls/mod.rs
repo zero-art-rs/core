@@ -1,6 +1,5 @@
 mod aggregated_change;
 mod art_node;
-mod artefacts;
 mod branch_changes;
 mod child_container;
 mod node_index;

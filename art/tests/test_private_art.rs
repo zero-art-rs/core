@@ -5,8 +5,7 @@ mod tests {
     use super::utils::init_tracing_for_test;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed25519::EdwardsAffine as Ed25519Affine;
-    use ark_ff::{BigInteger, Field, PrimeField};
-    use ark_serialize::CanonicalSerialize;
+    use ark_ff::Field;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use ark_std::{One, UniformRand, Zero};
@@ -14,25 +13,25 @@ mod tests {
     use bulletproofs::r1cs::R1CSError;
     use cortado::{CortadoAffine, Fr};
     use curve25519_dalek::Scalar;
-    use itertools::{Itertools, assert_equal};
+    use itertools::Itertools;
     use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
-    use std::mem::uninitialized;
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
     use zrt_art::traits::ARTPrivateView;
     use zrt_art::types::{
-        ARTRootKey, BranchChanges, BranchChangesIter, ChangeAggregation, LeafIterWithPath,
-        NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
-        VerifierArtefacts,
+        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
     };
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-        types::{PrivateART, PublicART},
+        types::{
+            ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, PrivateART, ProverArtefacts,
+            PublicART, VerifierArtefacts,
+        },
     };
     use zrt_zk::art::{art_prove, art_verify};
 
@@ -56,6 +55,10 @@ mod tests {
         assert_ne!(secret_key_0, secret_key_1);
         let (ap_tk, changes, _) = user0.append_or_replace_node(&secret_key_1).unwrap();
 
+        assert_eq!(
+            user0.secret_key, user0.path_secrets[0],
+            "user secret_key is present in path_secrets"
+        );
         assert_eq!(
             user0.get_node(&changes.node_index).unwrap().public_key,
             user0.public_key_of(&secret_key_1),
@@ -493,9 +496,15 @@ mod tests {
         let main_new_key = get_random_scalar_with_rng(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
         assert_ne!(new_key.key, main_old_key);
-        let pub_keys = main_user_art
-            .get_path_values(&main_user_art.node_index)
-            .unwrap();
+
+        let mut pub_keys = Vec::new();
+        let mut parent = main_user_art.get_root();
+        for direction in &main_user_art.node_index.get_path().unwrap() {
+            pub_keys.push(parent.get_child(direction).unwrap().public_key);
+            parent = parent.get_child(direction).unwrap();
+        }
+        pub_keys.reverse();
+
         for (secret_key, corr_pk) in main_user_art.path_secrets.iter().zip(pub_keys.iter()) {
             assert_eq!(
                 CortadoAffine::generator().mul(secret_key).into_affine(),
@@ -507,15 +516,6 @@ mod tests {
         users_arts[72].update_private_art(&changes).unwrap();
         assert_eq!(users_arts[72].get_root_key().unwrap().key, new_key.key);
         assert_eq!(new_key, users_arts[72].get_root_key().unwrap());
-
-        // for i in 0..TEST_GROUP_SIZE {
-        //     if i != main_user_id {
-        //         users_arts[i].update_private_art(&changes).unwrap();
-        //         debug!("I: {}", i);
-        //         assert_eq!(users_arts[i].get_root_key().unwrap().key, new_key.key);
-        //         assert_eq!(new_key, users_arts[i].get_root_key().unwrap());
-        //     }
-        // }
 
         let (recomputed_old_key, changes, _) = main_user_art.update_key(&main_old_key).unwrap();
 
@@ -543,6 +543,11 @@ mod tests {
 
         for _ in 1..TEST_GROUP_SIZE {
             let _ = tree.append_or_replace_node(&Fr::rand(&mut rng)).unwrap();
+
+            assert_eq!(
+                tree.secret_key, tree.path_secrets[0],
+                "user secret_key is present in path_secrets"
+            );
         }
 
         for node in tree.get_root() {
@@ -620,7 +625,7 @@ mod tests {
         let sk5 = Fr::rand(&mut rng);
         let (_, change5, _) = user5.update_key(&sk5).unwrap();
 
-        let applied_change = vec![change0.clone()];
+        let applied_change = change0.clone();
         let all_but_0_changes = vec![
             change2.clone(),
             change3.clone(),
@@ -632,21 +637,15 @@ mod tests {
         // Check correctness of the merge
         let mut art_def0 = user0.clone();
         art_def0
-            .recompute_path_secrets_for_participant(&all_but_0_changes, &art0.clone())
-            .unwrap();
-        art_def0
-            .merge_with_skip(&applied_change, &all_but_0_changes)
+            .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
             .unwrap();
 
         let mut art_def1 = art1.clone();
-        art_def1
-            .recompute_path_secrets_for_observer(&all_changes)
-            .unwrap();
-        art_def1.merge(&all_changes).unwrap();
+        art_def1.merge_for_observer(&all_changes).unwrap();
 
         assert_eq!(
             art_def0, art_def1,
-            "Observer and participant have the same wiev on the state of the art."
+            "Observer and participant have the same view on the state of the art."
         );
 
         for permutation in all_but_0_changes
@@ -656,10 +655,7 @@ mod tests {
         {
             let mut art_0_analog = user0.clone();
             art_0_analog
-                .recompute_path_secrets_for_participant(&permutation, &art0.clone())
-                .unwrap();
-            art_0_analog
-                .merge_with_skip(&applied_change, &permutation)
+                .merge_for_participant(applied_change.clone(), &permutation, art0.clone())
                 .unwrap();
 
             assert_eq!(
@@ -670,10 +666,7 @@ mod tests {
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
             let mut art_1_analog = art1.clone();
-            art_1_analog
-                .recompute_path_secrets_for_observer(&permutation)
-                .unwrap();
-            art_1_analog.merge(&permutation).unwrap();
+            art_1_analog.merge_for_observer(&permutation).unwrap();
 
             assert_eq!(
                 art_1_analog, art_def0,
@@ -784,6 +777,10 @@ mod tests {
         let new_lambda = Fr::rand(&mut rng);
         let (root_key2, changes2, _) = main_user_art.append_or_replace_node(&new_lambda).unwrap();
 
+        assert_eq!(
+            main_user_art.secret_key, main_user_art.path_secrets[0],
+            "user secret_key is present in path_secrets"
+        );
         assert_ne!(root_key2.key, root_key.key);
         for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id && i != blank_user_id {
@@ -940,7 +937,8 @@ mod tests {
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
-        let node_index = tree.get_leaf_index(&node_pk).unwrap();
+        let node_index =
+            NodeIndex::get_index_from_path(&tree.get_path_to_leaf(&node_pk).unwrap()).unwrap();
         let rec_node_pk = tree
             .get_node(&NodeIndex::Index(node_index))
             .unwrap()
@@ -1079,6 +1077,10 @@ mod tests {
 
         let (tk, append_node_changes, artefacts) =
             art.append_or_replace_node(&new_secret_key).unwrap();
+        assert_eq!(
+            art.secret_key, art.path_secrets[0],
+            "user secret_key is present in path_secrets"
+        );
         assert_eq!(tk, art.get_root_key().unwrap());
         let (_, artefacts_rl) = art
             .recompute_root_key_with_artefacts_using_secret_key(
@@ -1167,7 +1169,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1188,8 +1190,12 @@ mod tests {
 
         let first_clone = first.clone();
         let second_clone = second.clone();
-        first.merge_change(&first_merged, &second_changes).unwrap();
-        second.merge_change(&second_merged, &first_changes).unwrap();
+        first
+            .merge_with_skip(&first_merged, &vec![second_changes.clone()])
+            .unwrap();
+        second
+            .merge_with_skip(&second_merged, &vec![first_changes.clone()])
+            .unwrap();
 
         assert_eq!(first.root.weight, second.root.weight);
         // debug!("first:\n{}", first.root);
@@ -1221,13 +1227,13 @@ mod tests {
                 true => {
                     user_arts[i].update_private_art(&first_changes).unwrap();
                     user_arts[i]
-                        .merge_change(&first_merged, &second_changes)
+                        .merge_with_skip(&first_merged, &vec![second_changes.clone()])
                         .unwrap();
                 }
                 false => {
                     user_arts[i].update_private_art(&second_changes).unwrap();
                     user_arts[i]
-                        .merge_change(&second_merged, &first_changes)
+                        .merge_with_skip(&second_merged, &vec![first_changes.clone()])
                         .unwrap();
                 }
             }
@@ -1249,119 +1255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_general_merge_for_key_updates() {
-        init_tracing_for_test();
-
-        if TEST_GROUP_SIZE < 2 {
-            warn!("Cant run the test test_merge_for_remove_member, as the group size is to small");
-            return;
-        }
-
-        let secrets = create_random_secrets(TEST_GROUP_SIZE);
-        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
-            .unwrap()
-            .0;
-
-        let mut user_arts = Vec::new();
-        for i in 0..TEST_GROUP_SIZE {
-            user_arts.push(
-                PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
-                    .expect("Failed to deserialize art"),
-            );
-        }
-
-        let mut first = user_arts.remove(0);
-        let mut second = user_arts.remove(0);
-
-        let first_secret = create_random_secrets(1)[0];
-        let second_secret = create_random_secrets(1)[0];
-        let first_public_key = CortadoAffine::generator().mul(first_secret).into_affine();
-        let second_public_key = CortadoAffine::generator().mul(second_secret).into_affine();
-
-        let (tk1, first_changes, _) = first.update_key(&first_secret).unwrap();
-        let (tk2, second_changes, _) = second.update_key(&second_secret).unwrap();
-
-        let first_merged = vec![first_changes.clone()];
-        let second_merged = vec![second_changes.clone()];
-
-        let first_clone = first.clone();
-        let second_clone = second.clone();
-        first.merge_change(&first_merged, &second_changes).unwrap();
-        second.merge_change(&second_merged, &first_changes).unwrap();
-
-        assert_eq!(
-            first.root.public_key,
-            first.public_key_of(&(tk1.key + tk2.key))
-        );
-        assert_eq!(
-            second.root.public_key,
-            first.public_key_of(&(tk1.key + tk2.key))
-        );
-
-        assert_eq!(first.root.weight, second.root.weight);
-        // debug!("first:\n{}", first.root);
-        // debug!("second:\n{}", second.root);
-        assert_eq!(first.root, second.root);
-
-        // check leaf update correctness
-        assert_eq!(
-            first.get_node(&first.node_index).unwrap().public_key,
-            first_public_key
-        );
-        assert_eq!(
-            second.get_node(&first.node_index).unwrap().public_key,
-            first_public_key
-        );
-
-        assert_eq!(
-            first.get_node(&second.node_index).unwrap().public_key,
-            second_public_key
-        );
-        assert_eq!(
-            second.get_node(&second.node_index).unwrap().public_key,
-            second_public_key
-        );
-
-        let all_changes = vec![first_changes, second_changes];
-        let mut root_key_from_changes = CortadoAffine::zero();
-        for g in &all_changes {
-            root_key_from_changes = root_key_from_changes.add(g.public_keys[0]).into_affine();
-        }
-        assert_ne!(root_key_from_changes, CortadoAffine::zero());
-        let mut rng = rand::rng();
-        for i in 0..TEST_GROUP_SIZE - 2 {
-            match rng.random_bool(0.5) {
-                true => {
-                    user_arts[i].merge(&all_changes).unwrap();
-                }
-                false => {
-                    user_arts[i].merge(&all_changes).unwrap();
-                }
-            }
-
-            assert_eq!(user_arts[i].root, first.root);
-
-            assert_eq!(
-                user_arts[i].get_node(&first.node_index).unwrap().public_key,
-                first_public_key
-            );
-            assert_eq!(
-                user_arts[i]
-                    .get_node(&second.node_index)
-                    .unwrap()
-                    .public_key,
-                second_public_key
-            );
-            assert_eq!(user_arts[i].get_root().public_key, root_key_from_changes);
-            assert_eq!(
-                user_arts[i].root.public_key,
-                user_arts[i].public_key_of(&(tk1.key + tk2.key))
-            );
-        }
-    }
-
-    #[test]
-    fn test_merge_for_add_member() {
+    fn test_merge_for_key_update() {
         init_tracing_for_test();
 
         if TEST_GROUP_SIZE < 5 {
@@ -1376,7 +1270,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1385,6 +1279,7 @@ mod tests {
         let mut art2 = user_arts.remove(1);
         let mut art3 = user_arts.remove(3);
         let mut art4 = user_arts.remove(4);
+
         let def_art1 = art1.clone();
         let def_art2 = art2.clone();
         let def_art3 = art3.clone();
@@ -1419,33 +1314,26 @@ mod tests {
         assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
         assert_eq!(art4.root.public_key, *changes4.public_keys.get(0).unwrap());
 
-        art1.recompute_path_secrets_for_participant(
+        art1.merge_for_participant(
+            changes1.clone(),
             &vec![changes2.clone(), changes3.clone(), changes4.clone()],
-            &def_art1,
+            def_art1.clone(),
         )
         .unwrap();
-        art1.merge_with_skip(
-            &vec![changes1.clone()],
-            &vec![changes2.clone(), changes3.clone(), changes4.clone()],
-        )
-        .unwrap();
-        art1.update_node_index().unwrap();
+
         assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
         let tk1_merged = art1.get_root_key().unwrap();
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
 
-        art2.recompute_path_secrets_for_participant(
+        art2.merge_for_participant(
+            changes2.clone(),
             &vec![changes1.clone(), changes3.clone(), changes4.clone()],
-            &def_art2,
+            def_art2.clone(),
         )
         .unwrap();
-        art2.merge_with_skip(
-            &vec![changes2.clone()],
-            &vec![changes1.clone(), changes3.clone(), changes4.clone()],
-        )
-        .unwrap();
-        art2.update_node_index().unwrap();
+
+        // art2.update_node_index().unwrap();
         assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
 
@@ -1478,10 +1366,7 @@ mod tests {
 
         let all_changes = vec![changes1, changes2, changes3, changes4];
         for i in 0..TEST_GROUP_SIZE - 4 {
-            user_arts[i]
-                .recompute_path_secrets_for_observer(&all_changes)
-                .unwrap();
-            user_arts[i].merge(&all_changes).unwrap();
+            user_arts[i].merge_for_observer(&all_changes).unwrap();
 
             let tk = user_arts[i].get_root_key().unwrap();
 
@@ -1511,7 +1396,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1579,38 +1464,25 @@ mod tests {
         assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
 
         // Update art path_secrets with unapplied changes
-        art1.recompute_path_secrets_for_participant(
+        art1.merge_for_participant(
+            changes1.clone(),
             &vec![changes2.clone(), changes3.clone()],
-            &def_art1,
+            def_art1.clone(),
         )
         .unwrap();
+        let tk1_merged = art1.get_root_key().unwrap();
 
         // Check if new tk is correctly computed
         assert_eq!(*art1.path_secrets.last().unwrap(), merged_tk.key);
-
-        // Merge unapplied changes into the art
-        art1.merge_with_skip(
-            &vec![changes1.clone()],
-            &vec![changes2.clone(), changes3.clone()],
-        )
-        .unwrap();
-
-        // Check Merge correctness
-        let tk1_merged = art1.get_root_key().unwrap();
-        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(merged_tk, tk1_merged);
+        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
         assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
 
         // Update art path_secrets with unapplied changes
-        art2.recompute_path_secrets_for_participant(
+        art2.merge_for_participant(
+            changes2.clone(),
             &vec![changes1.clone(), changes3.clone()],
-            &def_art2,
-        )
-        .unwrap();
-        // Merge unapplied changes into the art
-        art2.merge_with_skip(
-            &vec![changes2.clone()],
-            &vec![changes1.clone(), changes3.clone()],
+            def_art2.clone(),
         )
         .unwrap();
 
@@ -1632,10 +1504,7 @@ mod tests {
         // Check merge correctness for other users
         let all_changes = vec![changes1, changes2, changes3];
         for i in 0..TEST_GROUP_SIZE - 4 {
-            user_arts[i]
-                .recompute_path_secrets_for_observer(&all_changes)
-                .unwrap();
-            user_arts[i].merge(&all_changes).unwrap();
+            user_arts[i].merge_for_observer(&all_changes).unwrap();
 
             let tk = user_arts[i].get_root_key().unwrap();
 
@@ -1645,6 +1514,98 @@ mod tests {
                 user_arts[i].public_key_of(&tk.key)
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_merge_for_remove_conflict() {
+        init_tracing_for_test();
+        let mut rng = &mut StdRng::seed_from_u64(rand::random());
+
+        if TEST_GROUP_SIZE < 4 {
+            warn!("Cant run the test test_merge_for_remove_member, as the group size is to small");
+            return;
+        }
+
+        // init test
+        let secrets = create_random_secrets(TEST_GROUP_SIZE);
+        let art = PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator())
+            .unwrap()
+            .0;
+
+        let mut user_arts = Vec::new();
+        for i in 0..TEST_GROUP_SIZE {
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+                .expect("Failed to deserialize art");
+            user_arts.push(art);
+        }
+
+        // choose some users for main test subjects
+        let mut art0 = user_arts.remove(0);
+        let mut art1 = user_arts.remove(0);
+        let mut art2 = user_arts.remove(1);
+        let mut art3 = user_arts.remove(3);
+        let mut art4 = user_arts.remove(2);
+
+        // Choose user to remove from the group
+        let target_user = user_arts.remove(4);
+        let target = target_user.get_node_index().get_path().unwrap();
+
+        let rem_node_sk: Fr = Fr::rand(&mut rng);
+        let (tk, change0, artefacts0) = art1.make_blank(&target, &rem_node_sk).unwrap();
+
+        art0.update_private_art(&change0).unwrap();
+        art2.update_private_art(&change0).unwrap();
+        art3.update_private_art(&change0).unwrap();
+        art4.update_private_art(&change0).unwrap();
+
+        // Backup previous arts for merge
+        let def_art0 = art0.clone();
+        let def_art1 = art1.clone();
+        let def_art2 = art2.clone();
+        let def_art3 = art3.clone();
+
+        // Remove the user from the group (make his node blank).
+        let new_node0_sk = Fr::rand(&mut rng);
+        let new_node1_sk = Fr::rand(&mut rng);
+        let new_node2_sk = Fr::rand(&mut rng);
+        let new_node3_sk = Fr::rand(&mut rng);
+
+        let target_node_pk = CortadoAffine::generator()
+            .mul(&target_user.secret_key)
+            .into_affine();
+
+        let (tk0, changes0, _) = art0.make_blank(&target, &new_node0_sk).unwrap();
+        let (tk1, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
+        let (tk2, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
+        let (tk3, changes3, _) = art3.make_blank(&target, &new_node3_sk).unwrap();
+
+        let all_changes = vec![
+            changes0.clone(),
+            changes1.clone(),
+            changes2.clone(),
+            changes3.clone(),
+        ];
+        let mut art4_0 = art4.clone();
+        art4_0.merge_for_observer(&all_changes).unwrap();
+
+        for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
+            let mut art_4_analog = art4.clone();
+            art_4_analog.merge_for_observer(&permutation).unwrap();
+
+            assert_eq!(
+                art4_0, art_4_analog,
+                "The order of changes applied doesn't affect the result."
+            );
+
+            assert_eq!(
+                art4_0
+                    .get_node(target_user.get_node_index())
+                    .unwrap()
+                    .public_key,
+                art4_0.public_key_of(&(new_node0_sk + new_node3_sk + rem_node_sk)),
+                "Make blank is correctly merged."
+            );
         }
     }
 
@@ -1669,7 +1630,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::try_from((art.clone(), secrets[i]))
+            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }

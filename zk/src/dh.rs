@@ -433,11 +433,23 @@ pub fn dh_gadget_verify(
 pub fn art_level_gadget<CS: ConstraintSystem>(
     ver: u8,
     cs: &mut CS,
+    level: usize,
     λ_a: AllocatedScalar,
     λ_ab: AllocatedScalar,
+    Q_a: CortadoAffine,
     Q_ab: CortadoAffine,
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
+    if level == 0 {
+        // constrain Q_a = [λ_a]P
+        let var_Q = match ver {
+            1 => scalar_mul_gadget_v1(cs, λ_a, CortadoAffine::generator())?,
+            2 => scalar_mul_gadget_v2(cs, λ_a, CortadoAffine::generator())?,
+            _ => return Err(R1CSError::VerificationError),
+        };
+        cs.constrain(var_Q.x.variable - Q_a.x().unwrap().into_scalar());
+        cs.constrain(var_Q.y.variable - Q_a.y().unwrap().into_scalar());
+    }
     // constrain λ_ab = x(λ_a * Q_b)
     let AllocatedScalar {
         variable: var_ab,
@@ -466,6 +478,8 @@ pub fn art_level_prove(
     ver: u8,
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
+    level: usize,
+    Q_a: CortadoAffine,
     Q_b: CortadoAffine,
     Q_ab: CortadoAffine,
     λ_a: Scalar,
@@ -486,7 +500,7 @@ pub fn art_level_prove(
     let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
     let mut start = Instant::now();
 
-    art_level_gadget(ver, &mut prover, λ_a, λ_ab, Q_ab, Q_b)?;
+    art_level_gadget(ver, &mut prover, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
 
     debug!(
         "ARTLevel prover synthetize time: {:?}, metrics: {:?}",
@@ -511,6 +525,8 @@ pub fn art_level_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     proof: R1CSProof,
+    level: usize,
+    Q_a: CortadoAffine,
     Q_b: CortadoAffine,
     Q_ab: CortadoAffine,
     a_commitment: CompressedRistretto,
@@ -526,7 +542,7 @@ pub fn art_level_verify(
     let λ_ab = AllocatedScalar::new(var_ab, None);
     let mut start = Instant::now();
 
-    art_level_gadget(ver, &mut verifier, λ_a, λ_ab, Q_ab, Q_b)?;
+    art_level_gadget(ver, &mut verifier, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
 
     debug!("ARTLevel verifier synthetize time: {:?}", start.elapsed());
     start = Instant::now();
@@ -581,7 +597,7 @@ mod tests {
         let r: cortado::Fr = blinding_rng.r#gen();
         let Q_b = (CortadoAffine::generator() * r).into_affine();
         let λ_a: cortado::Fr = blinding_rng.r#gen();
-
+        let Q_a = (CortadoAffine::generator() * λ_a).into_affine();
         let λ_ab = cortado::Fr::from_le_bytes_mod_order(
             &(Q_b * λ_a)
                 .into_affine()
@@ -598,6 +614,8 @@ mod tests {
             ver,
             &pc_gens,
             &bp_gens,
+            1,
+            Q_a,
             Q_b,
             Q_ab,
             Scalar::from_bytes_mod_order(
@@ -606,7 +624,9 @@ mod tests {
             R.x().unwrap().into_scalar(),
         )?;
 
-        art_level_verify(ver, &pc_gens, &bp_gens, proof, Q_b, Q_ab, var_a, var_b)
+        art_level_verify(
+            ver, &pc_gens, &bp_gens, proof, 1, Q_a, Q_b, Q_ab, var_a, var_b,
+        )
     }
 
     #[test]
