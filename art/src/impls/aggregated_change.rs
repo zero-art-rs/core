@@ -89,7 +89,6 @@ impl From<BranchChangesType> for AggregationChangeType {
             BranchChangesType::MakeBlank => Self::MakeBlank,
             BranchChangesType::AppendNode => Self::AppendNode,
             BranchChangesType::UpdateKey => Self::UpdateKey,
-            BranchChangesType::RemoveNode => unreachable!(),
         }
     }
 }

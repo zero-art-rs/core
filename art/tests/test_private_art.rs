@@ -19,19 +19,15 @@ mod tests {
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
-    use zkp::toolbox::cross_dleq::PedersenBasis;
-    use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-    use zrt_art::traits::ARTPrivateView;
-    use zrt_art::types::{
-        ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, ProverArtefacts, VerifierArtefacts,
-    };
+    use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::{
         errors::ARTError,
-        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
+        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView, ARTPrivateView},
         types::{
-            ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, PrivateART, ProverArtefacts,
-            PublicART, VerifierArtefacts,
-        },
+            ARTRootKey, BranchChanges, BranchChangesIter, ChangeAggregation, LeafIterWithPath,
+            NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+            VerifierArtefacts, PrivateART, PublicART
+        }
     };
     use zrt_zk::art::{art_prove, art_verify};
 
