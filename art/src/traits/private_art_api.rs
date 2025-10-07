@@ -65,7 +65,8 @@ where
     fn update_node_index(&mut self) -> Result<(), ARTError>;
 
     /// If `append_changes` is false, works as set_path_secrets. In the other case, it will
-    /// append secrets to available ones. Can be used for make blank to update secrets correctly.
+    /// append secrets to available ones. Works correctly if `self.node_index` isn't a subpath
+    /// of the `other`.
     fn update_path_secrets(
         &mut self,
         other_path_secrets: Vec<G::ScalarField>,

@@ -240,13 +240,17 @@ where
             }
         }
 
-        let mut non_structural_changes = Vec::new();
+        let mut key_update_changes = Vec::new();
+        let mut make_blank_changes = Vec::new();
         let mut append_member_changes = Vec::new();
 
         for change in target_changes {
             match change.change_type {
-                BranchChangesType::UpdateKey | BranchChangesType::MakeBlank => {
-                    non_structural_changes.push(change.clone());
+                BranchChangesType::UpdateKey => {
+                    key_update_changes.push(change.clone());
+                }
+                BranchChangesType::MakeBlank => {
+                    make_blank_changes.push(change.clone());
                 }
                 BranchChangesType::AppendNode => {
                     append_member_changes.push(change.clone());
@@ -255,18 +259,32 @@ where
         }
 
         // merge all key update changes but skip whose from applied_changes
-        let merge_limit = non_structural_changes.len() + applied_changes.len();
+        let mut iteration_start = applied_changes.len();
         let mut changes = applied_changes.to_vec();
-        changes.extend(non_structural_changes);
+        let key_update_changes_len = key_update_changes.len();
 
-        for i in applied_changes.len()..changes.len() {
+        let mut previous_shift = key_update_changes.len();
+        changes.extend(key_update_changes);
+        for i in iteration_start..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
         }
+        iteration_start += previous_shift;
 
-        self.prepare_structure_for_append_node_changes(append_member_changes.as_slice())?;
+        previous_shift = make_blank_changes.len();
+        changes.extend(make_blank_changes);
+        for i in iteration_start..changes.len() {
+            // Make blank changes are of replaces all public keys on path or appends to all of them.
+            if key_update_changes_len == 0 && !self.get_node(&changes[i].node_index)?.is_blank {
+                self.update_public_art_with_options(&changes[i], false, true)?;
+            } else {
+                self.update_public_art_with_options(&changes[i], true, false)?;
+            }
+        }
+        iteration_start += previous_shift;
+
+        self.prepare_structure_for_append_node_changes(&*append_member_changes)?;
         changes.extend(append_member_changes);
-
-        for i in merge_limit..changes.len() {
+        for i in iteration_start..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
         }
 
