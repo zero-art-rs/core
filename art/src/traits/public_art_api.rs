@@ -18,7 +18,23 @@ where
 {
     /// Brute-force depth-first search in a tree for a leaf node that matches the given public key. Returns the
     /// path from root to the node.
-    fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError>;
+    fn get_path_to_leaf(&self, public_key: &G) -> Result<Vec<Direction>, ARTError>;
+
+    /// Brute-force depth-first search in a tree for a node node with the corresponding
+    /// `public_key`.
+    fn get_node_with(&self, public_key: &G) -> Result<&ARTNode<G>, ARTError>;
+
+    /// Brute-force depth-first search in a tree for a node node with the corresponding
+    /// `public_key`. Return the reference to the node, if it exists.
+    fn get_mut_node_with(&mut self, public_key: &G) -> Result<&mut ARTNode<G>, ARTError>;
+
+    /// Brute-force depth-first search in a tree for a leaf node with the corresponding
+    /// `public_key`.
+    fn get_leaf_with(&self, public_key: &G) -> Result<&ARTNode<G>, ARTError>;
+
+    /// Brute-force depth-first search in a tree for a leaf node with the corresponding
+    /// `public_key`. Return the reference to the node, if it exists.
+    fn get_mut_leaf_with(&mut self, public_key: &G) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// Recomputes art root key using the given leaf secret key. Returns additional artifacts for
     /// proof creation. The method will work only if all the nodes on path from root to leaf are

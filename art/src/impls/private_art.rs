@@ -24,10 +24,12 @@ where
         let secret_key = *secrets.first().ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
-        Ok((Self::from_public_art(art, secret_key)?, root_key))
+        Ok((Self::from_public_art_and_secret(art, secret_key)?, root_key))
     }
 
-    pub fn from_public_art<A>(mut other: A, secret_key: G::ScalarField) -> Result<Self, ARTError>
+    /// Creates new ART tree from other art. Uses `secret_key` to recompute `path_secrets`, so
+    /// might not work after merges.
+    pub fn from_public_art_and_secret<A>(mut other: A, secret_key: G::ScalarField) -> Result<Self, ARTError>
     where
         A: ARTPublicView<G> + ARTPublicAPI<G>,
     {
@@ -44,6 +46,26 @@ where
             secret_key,
             node_index,
             path_secrets: artefacts.secrets,
+        })
+    }
+
+    /// Creates new PrivateART from `other` ART and `path_secrets`.
+    pub fn from_public_art_and_path_secrets<A>(mut other: A, path_secrets: Vec<G::ScalarField>) -> Result<Self, ARTError>
+    where
+        A: ARTPublicView<G> + ARTPublicAPI<G>,
+    {
+        let secret_key = *path_secrets.first().ok_or(ARTError::InvalidInput)?;
+        let node_index =
+            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
+                .as_index()?;
+        let root = other.replace_root(Box::default());
+
+        Ok(Self {
+            root,
+            generator: other.get_generator(),
+            secret_key,
+            node_index,
+            path_secrets,
         })
     }
 
@@ -64,7 +86,7 @@ where
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::from_public_art_and_secret(
             from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
             *secret_key,
         )
@@ -74,7 +96,7 @@ where
         canonical_json: &str,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::from_public_art_and_secret(
             serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
         )

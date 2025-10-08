@@ -7,7 +7,7 @@ mod private_art;
 mod public_art;
 
 pub use art_node::{
-    ARTDisplayTree, ARTNode, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
+    ARTDisplayTree, ARTNode, LeafIter, LeafIterWithPath, LeafStatus, NodeIter, NodeIterWithPath,
 };
 pub use art_root_key::ARTRootKey;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};

@@ -2,6 +2,15 @@ use crate::errors::ARTError;
 use crate::types::{Direction, NodeIndex};
 use tracing::error;
 
+impl Direction {
+    pub fn other(&self) -> Self {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
+}
+
 impl NodeIndex {
     pub fn as_path(&self) -> Result<Self, ARTError> {
         Ok(Self::Direction(self.get_path()?))
