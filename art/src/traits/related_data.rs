@@ -1,3 +1,4 @@
+use crate::types::BranchChangesTypeHint;
 use std::mem;
 
 /// This is a trait used to represent the data stored in the node.
@@ -11,4 +12,18 @@ where
     fn replace(&mut self, other: Self) -> Self {
         mem::replace(self, other)
     }
+
+    /// Extend `self` data with `other`.
+    fn extend(&mut self, other: Self);
+}
+
+/// Helper trait requiring public key getter
+pub trait HasPublicKey<G> {
+    /// Returns public key of the node.
+    fn get_public_key(&self) -> G;
+}
+
+pub trait HasChangeTypeHint {
+    /// Returns Branch change hint.
+    fn get_change_type(&self) -> &Vec<BranchChangesTypeHint>;
 }

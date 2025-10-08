@@ -2,7 +2,10 @@
 
 use crate::helper_tools::iota_function;
 use crate::traits::ARTPrivateAPIHelper;
-use crate::types::{Direction, NodeIndex};
+use crate::types::{
+    BranchChangesTypeHint, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
+    UpdateData,
+};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
@@ -33,8 +36,7 @@ where
         new_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         self.set_secret_key(new_secret_key);
-
-        let (tk, changers, artefacts) = self.update_art_branch_with_leaf_secret_key(
+        let (tk, changes, artefacts) = self.update_art_branch_with_leaf_secret_key(
             new_secret_key,
             &self.get_node_index().get_path()?,
             false,
@@ -43,7 +45,7 @@ where
         self.set_path_secrets(artefacts.secrets.clone());
         self.update_node_index()?;
 
-        Ok((tk, changers, artefacts))
+        Ok((tk, changes, artefacts))
     }
 
     fn make_blank(
@@ -87,6 +89,64 @@ where
         self.update_node_index()?;
 
         self.update_path_secrets(artefacts.secrets.clone(), &changes.node_index, false)?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    fn update_key_and_aggregate(
+        &mut self,
+        new_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError> {
+        let (tk, changes, artefacts) = self.update_key(new_secret_key)?;
+
+        aggregation.extend(&changes, &artefacts, BranchChangesTypeHint::UpdateKey)?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    fn make_blank_and_aggregate(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError> {
+        let hint = !self
+            .get_node(&NodeIndex::Direction(path.to_vec()))?
+            .is_blank;
+
+        let (tk, changes, artefacts) = self.make_blank(path, temporary_secret_key)?;
+
+        aggregation.extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::MakeBlank { initiation: hint },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    fn append_or_replace_node_and_aggregate(
+        &mut self,
+        secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError> {
+        let path = match self.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.find_path_to_lowest_leaf()?,
+        };
+
+        let hint = !self
+            .get_node(&NodeIndex::Direction(path.to_vec()))?
+            .is_blank;
+
+        let (tk, changes, artefacts) = self.append_or_replace_node(secret_key)?;
+
+        aggregation.extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::AppendNode { extend: hint },
+        )?;
 
         Ok((tk, changes, artefacts))
     }

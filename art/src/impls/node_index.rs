@@ -2,6 +2,15 @@ use crate::errors::ARTError;
 use crate::types::{Direction, NodeIndex};
 use tracing::error;
 
+impl Direction {
+    pub fn other(&self) -> Self {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
+}
+
 impl NodeIndex {
     pub fn as_path(&self) -> Result<Self, ARTError> {
         Ok(Self::Direction(self.get_path()?))
@@ -64,6 +73,23 @@ impl NodeIndex {
         }
 
         Ok(is_subpath)
+    }
+
+    pub fn push(&mut self, dir: Direction) {
+        match self {
+            NodeIndex::Index(index) => match dir {
+                Direction::Left => *index = *index << 1,
+                Direction::Right => *index = (*index << 1) + 1,
+            },
+            NodeIndex::Coordinate(level, position) => {
+                *level += 1;
+                match dir {
+                    Direction::Left => *position = *position << 1,
+                    Direction::Right => *position = (*position << 1) + 1,
+                }
+            }
+            NodeIndex::Direction(path) => path.push(dir),
+        }
     }
 
     /// Computes the path to the node starting from the root.

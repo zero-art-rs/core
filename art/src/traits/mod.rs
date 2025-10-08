@@ -12,4 +12,4 @@ pub use private_art_view::ARTPrivateView;
 pub use public_art_api::ARTPublicAPI;
 pub(crate) use public_art_api::ARTPublicAPIHelper;
 pub use public_art_view::ARTPublicView;
-pub use related_data::RelatedData;
+pub use related_data::{HasChangeTypeHint, HasPublicKey, RelatedData};

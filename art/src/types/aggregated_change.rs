@@ -1,7 +1,10 @@
 use crate::traits::RelatedData;
-use crate::types::{BranchChangesType, Children, Direction, ProcessedMarker};
+use crate::types::{
+    BranchChangesType, BranchChangesTypeHint, Children, Direction, ProcessedMarker,
+};
 use ark_ec::AffineRepr;
 use display_tree::DisplayTree;
+use serde::{Deserialize, Serialize};
 
 #[derive(DisplayTree, Debug, Clone)]
 pub enum AggregationDisplayTree {
@@ -33,14 +36,19 @@ where
     /// Public keys of the node from all the changes.
     pub public_key: G,
 
-    // Public key of the neighbour of the node for every `public_key` except root. For root, if is empty.
+    // Public key of the neighbour of the node for every `public_key` except root. For root, if
+    // if is empty.
     pub co_public_key: Option<G>,
 
     /// Secret key of corresponding `public_key`
     pub secret_key: G::ScalarField,
 
+    /// If true, then that child is the second one set. This means, that the co_path value of the
+    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
+    pub latest: bool,
+
     /// Change type marker
-    pub change_type: Vec<BranchChangesType>,
+    pub change_type: Vec<BranchChangesTypeHint>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -54,8 +62,12 @@ where
     // Public key of the neighbour of the node for every `public_key` except root. For root, if is empty.
     pub co_public_key: Option<G>,
 
+    /// If true, then that child is the second one set. This means, that the co_path value of the
+    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
+    pub latest: bool,
+
     /// Change type marker
-    pub change_type: Vec<BranchChangesType>,
+    pub change_type: Vec<BranchChangesTypeHint>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,8 +79,8 @@ pub enum AggregationChangeType {
     AppendMemberThenUpdateKey, // requires two public keys
     UpdateKeyThenAppendMember, // requires two public keys
 
-    // Leave
-    // UpdateKeyThenLeave
+                // Leave
+                // UpdateKeyThenLeave
 }
 
 #[derive(Debug, Clone, Default)]

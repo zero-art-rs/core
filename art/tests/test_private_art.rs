@@ -20,14 +20,15 @@ mod tests {
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
+    use zrt_art::types::BranchChangesTypeHint;
     use zrt_art::{
         errors::ARTError,
-        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView, ARTPrivateView},
+        traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
         types::{
             ARTRootKey, BranchChanges, BranchChangesIter, ChangeAggregation, LeafIterWithPath,
-            NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
-            VerifierArtefacts, PrivateART, PublicART
-        }
+            NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART,
+            VerifierAggregationData, VerifierArtefacts,
+        },
     };
     use zrt_zk::art::{art_prove, art_verify};
 
@@ -1727,13 +1728,15 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
+        let secrets = create_random_secrets_with_rng(3, &mut rng);
 
         let (user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
             &secrets,
             &CortadoAffine::generator(),
         )
         .unwrap();
+
+        debug!("Default art:\n{}", user0.get_root());
 
         // Serialise and deserialize art for the other users.
         let public_art_bytes = user0.serialize().unwrap();
@@ -1742,39 +1745,43 @@ mod tests {
 
         let mut user1_2 = user1.clone();
 
-        let user2: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+        // let user2: PrivateART<CortadoAffine> =
+        //     PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
 
         let user3: PrivateART<CortadoAffine> =
             PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
 
-        let sk1 = Fr::rand(&mut rng);
-        // let (_, change1, artefacts1) = user1.make_blank(&user3.node_index.get_path().unwrap(), &sk1).unwrap();
-        let (_, change1, artefacts1) = user1.append_or_replace_node(&sk1).unwrap();
-
-        let sk2 = Fr::rand(&mut rng);
-        let (_, change2, artefacts2) = user1.append_or_replace_node(&sk2).unwrap();
-        // let (_, change2, artefacts2) = user1.make_blank(&user0.node_index.get_path().unwrap(), &sk2).unwrap();
-
-        let sk3 = Fr::rand(&mut rng);
-        let (_, change3, artefacts3) = user1.append_or_replace_node(&sk3).unwrap();
-        // let (_, change3, artefacts3) = user1.make_blank(&user2.node_index.get_path().unwrap(), &sk3).unwrap();
-
-        // debug!("change1: {:#?}", change1);
-        // debug!("change2: {:#?}", change2);
-        // debug!("change3: {:#?}", change3);
-
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
-        debug!("agg-def:\n{}", agg);
 
-        agg.extend(&change1, &artefacts1).unwrap();
-        debug!("agg-1:\n{}", agg);
+        let sk1 = Fr::rand(&mut rng);
+        let sk2 = Fr::rand(&mut rng);
+        let sk3 = Fr::rand(&mut rng);
+        let sk4 = Fr::rand(&mut rng);
 
-        agg.extend(&change2, &artefacts2).unwrap();
-        debug!("agg-2:\n{}", agg);
+        let (_, change1, artefacts1) = user1
+            .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
+            .unwrap();
+        debug!("user1-1:\n{}", user1.get_root());
 
-        agg.extend(&change3, &artefacts3).unwrap();
-        debug!("agg-3:\n{}", agg);
+        let (_, change2, artefacts2) = user1
+            .append_or_replace_node_and_aggregate(&sk2, &mut agg)
+            .unwrap();
+        debug!("user1-2:\n{}", user1.get_root());
+
+        let (_, change3, artefacts3) = user1
+            .append_or_replace_node_and_aggregate(&sk3, &mut agg)
+            .unwrap();
+        debug!("user1-3:\n{}", user1.get_root());
+
+        let (_, change4, artefacts4) = user1
+            .append_or_replace_node_and_aggregate(&sk4, &mut agg)
+            .unwrap();
+        debug!("user1-4:\n{}", user1.get_root());
+
+        debug!("change1: {:#?}", change1);
+        debug!("change2: {:#?}", change2);
+        debug!("change3: {:#?}", change3);
+        debug!("change4: {:#?}", change4);
 
         let verifier_aggregation =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(agg).unwrap();
@@ -1782,14 +1789,19 @@ mod tests {
         debug!("verifier_aggregation:\n{}", verifier_aggregation);
 
         for mut changes in BranchChangesIter::new(&verifier_aggregation) {
-            changes.node_index = changes.node_index.as_index().unwrap();
-            debug!("changes: {:#?}", changes);
-            user1_2.update_private_art(&changes).unwrap()
+            for change in changes.iter_mut() {
+                change.node_index = change.node_index.as_index().unwrap();
+                debug!("changes: {:#?}", change);
+                user1_2.update_private_art(&change).unwrap()
+            }
         }
 
         assert_eq!(
-            user1, user1_2,
-            "Both users have the same view on the state of the art"
+            user1,
+            user1_2,
+            "Both users have the same view on the state of the art.\nUser1\n{}\nUser2\n{}",
+            user1.get_root(),
+            user1_2.get_root(),
         );
     }
 

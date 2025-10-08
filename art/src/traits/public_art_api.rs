@@ -1,4 +1,4 @@
-use crate::types::UpdateData;
+use crate::types::{ChangeAggregation, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     types::{

@@ -1,4 +1,4 @@
-use crate::types::{Direction, NodeIndex, UpdateData};
+use crate::types::{ChangeAggregation, Direction, NodeIndex, ProverAggregationData, UpdateData};
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
@@ -35,6 +35,25 @@ where
     fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
+    ) -> Result<UpdateData<G>, ARTError>;
+
+    fn update_key_and_aggregate(
+        &mut self,
+        new_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError>;
+
+    fn make_blank_and_aggregate(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError>;
+
+    fn append_or_replace_node_and_aggregate(
+        &mut self,
+        secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
     ) -> Result<UpdateData<G>, ARTError>;
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.

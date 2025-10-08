@@ -1,6 +1,7 @@
+use crate::types::BranchChangesTypeHint;
 use crate::{
     errors::ARTError,
-    types::{AggregationChangeType, BranchChanges, BranchChangesType, NodeIndex},
+    types::{AggregationChangeType, BranchChanges, BranchChangesType},
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -34,6 +35,19 @@ impl From<AggregationChangeType> for BranchChangesType {
             AggregationChangeType::AppendNode => BranchChangesType::AppendNode,
             AggregationChangeType::AppendMemberThenUpdateKey => BranchChangesType::UpdateKey,
             AggregationChangeType::UpdateKeyThenAppendMember => BranchChangesType::AppendNode,
+        }
+    }
+}
+
+impl TryFrom<BranchChangesTypeHint> for BranchChangesType {
+    type Error = ARTError;
+
+    fn try_from(value: BranchChangesTypeHint) -> Result<Self, Self::Error> {
+        match value {
+            BranchChangesTypeHint::MakeBlank { .. } => Ok(BranchChangesType::MakeBlank),
+            BranchChangesTypeHint::AppendNode { .. } => Ok(BranchChangesType::AppendNode),
+            BranchChangesTypeHint::UpdateKey => Ok(BranchChangesType::UpdateKey),
+            _ => Err(ARTError::InvalidInput),
         }
     }
 }
