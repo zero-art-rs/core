@@ -23,9 +23,9 @@ where
     G::BaseField: PrimeField,
     A: ARTPublicView<G> + ARTPublicAPIHelper<G>,
 {
-    fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_to_leaf(&self, public_key: &G) -> Result<Vec<Direction>, ARTError> {
         for (node, path) in NodeIterWithPath::new(self.get_root()) {
-            if node.get_public_key().eq(user_val) {
+            if node.is_leaf() && node.get_public_key().eq(public_key) {
                 return Ok(path
                     .iter()
                     .map(|(_, direction)| *direction)
@@ -33,7 +33,56 @@ where
             }
         }
 
-        error!("Failed to find a path to the node, as it isn't exists");
+        Err(ARTError::PathNotExists)
+    }
+
+    fn get_node_with(&self, public_key: &G) -> Result<&ARTNode<G>, ARTError> {
+        for (node, _) in NodeIterWithPath::new(self.get_root()) {
+            if node.get_public_key().eq(public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ARTError::PathNotExists)
+    }
+
+    fn get_mut_node_with(&mut self, public_key: &G) -> Result<&mut ARTNode<G>, ARTError> {
+        for (node, path) in NodeIterWithPath::new(self.get_root()) {
+            if node.get_public_key().eq(public_key) {
+                let path = path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>();
+
+                return self.get_mut_node(&NodeIndex::Direction(path))
+            }
+        }
+
+        Err(ARTError::PathNotExists)
+    }
+
+    fn get_leaf_with(&self, public_key: &G) -> Result<&ARTNode<G>, ARTError> {
+        for (node, _) in NodeIterWithPath::new(self.get_root()) {
+            if node.is_leaf() && node.get_public_key().eq(public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ARTError::PathNotExists)
+    }
+
+    fn get_mut_leaf_with(&mut self, public_key: &G) -> Result<&mut ARTNode<G>, ARTError> {
+        for (node, path) in NodeIterWithPath::new(self.get_root()) {
+            if node.is_leaf() && node.get_public_key().eq(public_key) {
+                let path = path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>();
+
+                return self.get_mut_node(&NodeIndex::Direction(path))
+            }
+        }
+
         Err(ARTError::PathNotExists)
     }
 

@@ -13,10 +13,11 @@ mod tests {
     use bulletproofs::r1cs::R1CSError;
     use cortado::{CortadoAffine, Fr};
     use curve25519_dalek::Scalar;
-    use itertools::Itertools;
+    use itertools::{assert_equal, Itertools};
     use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
+    use std::io::ErrorKind::ConnectionRefused;
     use std::ops::{Add, Mul};
     use tracing::{debug, warn};
     use zkp::toolbox::cross_dleq::PedersenBasis;
@@ -437,6 +438,114 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_from_applications() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let (mut user0, def_tk) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![secret_key_0, secret_key_1, secret_key_2, secret_key_3],
+            &CortadoAffine::generator(),
+        )
+            .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = user0.serialize().unwrap();
+        let mut user1: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secret_key_0).unwrap();
+
+        let user1_2 = PrivateART::from_public_art_and_path_secrets(PublicART::from(user1.clone()), user1.path_secrets.clone()).unwrap();
+
+        assert_eq!(
+            user1,
+            user1_2
+        );
+
+        assert_eq!(
+            user1.path_secrets,
+            user1_2.path_secrets,
+        );
+    }
+
+    #[test]
+    fn test_get_node() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let leaf_secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
+
+        let (mut user0, def_tk) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &leaf_secrets,
+            &CortadoAffine::generator(),
+        )
+            .unwrap();
+
+        let random_public_key = CortadoAffine::rand(&mut rng);
+        assert!(user0.get_node_with(&random_public_key).is_err());
+        assert!(user0.get_mut_node_with(&random_public_key).is_err());
+        assert!(user0.get_leaf_with(&random_public_key).is_err());
+        assert!(user0.get_mut_leaf_with(&random_public_key).is_err());
+
+        for sk in &leaf_secrets {
+            let pk = user0.public_key_of(sk);
+            assert_eq!(
+                user0.get_leaf_with(&pk).unwrap().get_public_key(),
+                pk,
+            )
+        }
+
+        for sk in &leaf_secrets {
+            let pk = user0.public_key_of(sk);
+            assert_eq!(
+                user0.get_mut_leaf_with(&pk).unwrap().get_public_key(),
+                pk,
+            )
+        }
+
+        for sk in &leaf_secrets {
+            let pk = user0.public_key_of(sk);
+            let leaf = user0.get_node_with(&pk).unwrap();
+            assert_eq!(
+                leaf.get_public_key(),
+                pk,
+            );
+
+            assert!(leaf.is_leaf());
+        }
+
+        for sk in &leaf_secrets {
+            let pk = user0.public_key_of(sk);
+            let leaf = user0.get_mut_node_with(&pk).unwrap();
+            assert_eq!(
+                leaf.get_public_key(),
+                pk,
+            );
+
+            assert!(leaf.is_leaf());
+        }
+
+        for sk in &leaf_secrets {
+            let pk = user0.public_key_of(sk);
+            let leaf_path = user0.get_path_to_leaf(&pk).unwrap();
+            let leaf = user0.get_node(&NodeIndex::Direction(leaf_path)).unwrap();
+            assert_eq!(
+                leaf.get_public_key(),
+                pk,
+            );
+
+            assert!(leaf.is_leaf());
+        }
+
+
+    }
+
     /// Test if apply of changes to itself will fail
     #[test]
     fn test_apply_key_update_to_itself() {
@@ -484,7 +593,7 @@ mod tests {
 
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
+            users_arts.push(PrivateART::from_public_art_and_secret(public_art.clone(), secrets[i]).unwrap());
         }
 
         for i in 0..TEST_GROUP_SIZE {
@@ -735,7 +844,7 @@ mod tests {
         // Create a set of user private arts for tests
         let mut users_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            users_arts.push(PrivateART::from_public_art(public_art.clone(), secrets[i]).unwrap());
+            users_arts.push(PrivateART::from_public_art_and_secret(public_art.clone(), secrets[i]).unwrap());
         }
 
         // Assert all the users computed the same tree key.
@@ -1166,7 +1275,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+            let art = PrivateART::<CortadoAffine>::from_public_art_and_secret(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1273,7 +1382,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+            let art = PrivateART::<CortadoAffine>::from_public_art_and_secret(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1420,7 +1529,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+            let art = PrivateART::<CortadoAffine>::from_public_art_and_secret(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1577,7 +1686,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+            let art = PrivateART::<CortadoAffine>::from_public_art_and_secret(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
@@ -1672,7 +1781,7 @@ mod tests {
 
         let mut user_arts = Vec::new();
         for i in 0..TEST_GROUP_SIZE {
-            let art = PrivateART::<CortadoAffine>::from_public_art(art.clone(), secrets[i])
+            let art = PrivateART::<CortadoAffine>::from_public_art_and_secret(art.clone(), secrets[i])
                 .expect("Failed to deserialize art");
             user_arts.push(art);
         }
