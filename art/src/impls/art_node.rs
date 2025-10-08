@@ -1,50 +1,76 @@
 use crate::errors::ARTNodeError;
 use crate::types::{
-    ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
+    ARTDisplayTree, ARTNode, Direction, LeafIter, LeafIterWithPath, LeafStatus, NodeIter,
+    NodeIterWithPath,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
+use std::mem;
 
 /// Implementation of main methods for operating with ARTNode
 impl<G: AffineRepr> ARTNode<G> {
     /// Creates a new ARTNode internal node with the given public key.
     pub fn new_internal_node(public_key: G, l: Box<Self>, r: Box<Self>) -> Self {
-        let weight = l.weight + r.weight;
+        let weight = l.get_weight() + r.get_weight();
 
-        Self {
+        Self::Internal {
             public_key,
-            l: Some(l),
-            r: Some(r),
-            is_blank: false,
+            l,
+            r,
             weight,
-            metadata: None,
         }
     }
 
     /// Creates a new ARTNode leaf with the given public key.
     pub fn new_leaf(public_key: G) -> Self {
-        Self {
+        Self::Leaf {
             public_key,
-            l: None,
-            r: None,
-            is_blank: false,
-            weight: 1,
-            metadata: None,
+            status: LeafStatus::Active,
+            metadata: vec![],
         }
     }
 
     /// Checks it the node is leaf, i.e. both children are None.
     pub fn is_leaf(&self) -> bool {
-        self.l.is_none() && self.r.is_none()
+        match self {
+            ARTNode::Leaf { .. } => true,
+            ARTNode::Internal { .. } => false,
+        }
     }
 
-    /// Returns a reference to the left child node.
-    pub fn get_left(&self) -> Result<&Self, ARTNodeError> {
-        match &self.l {
-            Some(l) => Ok(l),
-            None => Err(ARTNodeError::InternalNodeOnly),
+    /// Returns the weight of the node.
+    pub fn get_weight(&self) -> usize {
+        match self {
+            Self::Internal { weight, .. } => *weight,
+            Self::Leaf { status, .. } => match status {
+                LeafStatus::Active => 1,
+                _ => 0,
+            },
+        }
+    }
+
+    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ARTNodeError> {
+        match self {
+            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Internal { weight, .. } => Ok(weight),
+        }
+    }
+
+    /// If the node is leaf, return its status, else None
+    pub fn get_status(&self) -> Option<LeafStatus> {
+        match self {
+            ARTNode::Leaf { status, .. } => Some(*status),
+            ARTNode::Internal { .. } => None,
+        }
+    }
+
+    /// Returns true if the node is internal of it is active leaf. Else return False
+    pub fn is_active(&self) -> bool {
+        match self {
+            ARTNode::Leaf { status, .. } => matches!(status, LeafStatus::Active),
+            ARTNode::Internal { .. } => true,
         }
     }
 
@@ -54,116 +80,121 @@ impl<G: AffineRepr> ARTNode<G> {
         temporary_public_key: &G,
         append: bool,
     ) -> Result<(), ARTNodeError> {
-        if self.is_leaf() {
-            self.set_public_key_with_options(*temporary_public_key, append);
-            self.is_blank = true;
-            self.weight = 0;
-            Ok(())
-        } else {
-            Err(ARTNodeError::LeafOnly)
+        match self {
+            ARTNode::Leaf { .. } => {
+                self.set_status(LeafStatus::Blank)?;
+                self.set_public_key_with_options(*temporary_public_key, append);
+                Ok(())
+            }
+            ARTNode::Internal { .. } => Err(ARTNodeError::LeafOnly),
         }
+    }
+
+    pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ARTNodeError> {
+        match self {
+            ARTNode::Leaf { status, .. } => {
+                *status = new_status;
+                Ok(())
+            }
+            ARTNode::Internal { .. } => Err(ARTNodeError::LeafOnly),
+        }
+    }
+
+    /// Returns a reference to the left child node.
+    pub fn get_left(&self) -> Result<&Self, ARTNodeError> {
+        self.get_child(&Direction::Left)
     }
 
     /// Returns a mutable reference to the left child node.
     pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
-        match &mut self.l {
-            Some(l) => Ok(l),
-            None => Err(ARTNodeError::InternalNodeOnly),
-        }
+        self.get_mut_child(&Direction::Left)
     }
 
     /// Returns a reference to the right child node.
     pub fn get_right(&self) -> Result<&Self, ARTNodeError> {
-        match &self.r {
-            Some(r) => Ok(r),
-            None => Err(ARTNodeError::InternalNodeOnly),
-        }
+        self.get_child(&Direction::Right)
     }
 
     /// Returns a mutable reference to the right child node.
     pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
-        match &mut self.r {
-            Some(r) => Ok(r),
-            None => Err(ARTNodeError::InternalNodeOnly),
+        self.get_mut_child(&Direction::Right)
+    }
+
+    pub fn set_child(&mut self, other: Self, dir: &Direction) -> Result<(), ARTNodeError> {
+        match self {
+            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Internal { l, r, .. } => {
+                match dir {
+                    Direction::Left => *l.as_mut() = other,
+                    Direction::Right => *r.as_mut() = other,
+                }
+
+                Ok(())
+            }
         }
     }
 
     /// Changes left child of inner node with a given one
     pub fn set_left(&mut self, other: Self) -> Result<(), ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        self.l = Some(Box::new(other));
-        self.weight = self.get_right()?.weight + self.get_left()?.weight;
-
-        Ok(())
+        self.set_child(other, &Direction::Left)
     }
 
     /// Changes right child of inner node with a given one
     pub fn set_right(&mut self, other: Self) -> Result<(), ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        self.r = Some(Box::new(other));
-        self.weight = self.get_right()?.weight + self.get_left()?.weight;
-
-        Ok(())
+        self.set_child(other, &Direction::Right)
     }
 
     // Returns a copy of its public key
     pub fn get_public_key(&self) -> G {
-        self.public_key
-    }
-
-    pub fn set_public_key(&mut self, public_key: G) {
-        self.set_public_key_with_options(public_key, false)
-    }
-
-    pub fn set_public_key_with_options(&mut self, public_key: G, append: bool) {
-        match append {
-            true => self.public_key = public_key.add(self.public_key).into_affine(),
-            false => self.public_key = public_key,
+        match self {
+            Self::Internal { public_key, .. } => *public_key,
+            Self::Leaf { public_key, .. } => *public_key,
         }
+    }
+
+    pub fn set_public_key(&mut self, new_public_key: G) {
+        match self {
+            Self::Internal { public_key, .. } => *public_key = new_public_key,
+            Self::Leaf { public_key, .. } => *public_key = new_public_key,
+        }
+    }
+
+    pub fn set_public_key_with_options(&mut self, new_public_key: G, append: bool) {
+        let new_public_key = match append {
+            true => new_public_key.add(self.get_public_key()).into_affine(),
+            false => new_public_key,
+        };
+
+        self.set_public_key(new_public_key);
     }
 
     /// Returns a reference on a child of a given inner node by a given direction to the child.
     pub fn get_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        match child {
-            Direction::Left => Ok(self.get_left()?),
-            Direction::Right => Ok(self.get_right()?),
+        match self {
+            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Internal { l, r, .. } => match child {
+                Direction::Left => Ok(l.as_ref()),
+                Direction::Right => Ok(r.as_ref()),
+            },
         }
     }
 
     /// Returns a mutable reference on a child of a given inner node by a given direction to
     /// the child.
     pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        match child {
-            Direction::Left => Ok(self.get_mut_left()?),
-            Direction::Right => Ok(self.get_mut_right()?),
+        match self {
+            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Internal { l, r, .. } => match child {
+                Direction::Left => Ok(l),
+                Direction::Right => Ok(r),
+            },
         }
     }
 
     /// Returns a reference on a child of a given inner node, which is located on the opposite
     /// side to the given direction.
     pub fn get_other_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        match child {
-            Direction::Left => Ok(self.get_right()?),
-            Direction::Right => Ok(self.get_left()?),
-        }
+        self.get_child(&child.other())
     }
 
     /// Returns a mutable reference on a child of a given inner node, which is located on the
@@ -172,115 +203,79 @@ impl<G: AffineRepr> ARTNode<G> {
         &mut self,
         child: &Direction,
     ) -> Result<&mut Box<Self>, ARTNodeError> {
-        match child {
-            Direction::Left => Ok(self.r.as_mut().ok_or(ARTNodeError::InternalNodeOnly)?),
-            Direction::Right => Ok(self.l.as_mut().ok_or(ARTNodeError::InternalNodeOnly)?),
-        }
+        self.get_mut_child(&child.other())
     }
 
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
-        let new_self = Self {
-            public_key: self.public_key,
-            l: self.l.take(),
-            r: self.r.take(),
-            is_blank: false,
-            weight: self.weight,
-            metadata: self.metadata.clone(),
+        let new_weight = self.get_weight() + other.get_weight();
+
+        let mut tmp = Self::default();
+        mem::swap(self, &mut tmp);
+
+        let mut new_self = Self::Internal {
+            public_key: self.get_public_key(),
+            l: Box::new(tmp),
+            r: Box::new(other),
+            weight: new_weight,
         };
 
-        self.weight = other.weight + new_self.weight;
-        self.l = Some(Box::new(new_self));
-        self.r = Some(Box::new(other));
-        self.metadata = None
+        mem::swap(&mut new_self, self);
     }
 
     /// Changes values of the node with the values of the given one.
     pub fn replace_with(&mut self, mut other: Self) -> Self {
-        std::mem::swap(self, &mut other);
+        mem::swap(self, &mut other);
         other
-
-        // self.set_public_key(other.get_public_key());
-        // self.l = other.l;
-        // self.r = other.r;
-        // self.is_blank = other.is_blank;
-        // self.weight = other.weight;
-        // self.metadata = other.metadata;
     }
 
     /// If the node is temporary, replace the node, else moves current node down to left,
     /// and append other node to the right.
     pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTNodeError> {
-        if !self.is_leaf() {
-            return Err(ARTNodeError::LeafOnly);
-        }
-
-        match self.is_blank {
-            true => _ = self.replace_with(other),
-            false => self.extend(other),
+        match self {
+            ARTNode::Leaf { status, .. } => {
+                match status {
+                    LeafStatus::Active => self.extend(other),
+                    _ => _ = self.replace_with(other),
+                };
+            }
+            ARTNode::Internal { .. } => return Err(ARTNodeError::LeafOnly),
         }
 
         Ok(())
     }
 
-    /// Change current node with its child. Other child is removed and returned.
-    pub fn shrink_to(&mut self, child: Direction) -> Result<Option<Box<Self>>, ARTNodeError> {
-        if self.is_leaf() {
-            return Err(ARTNodeError::InternalNodeOnly);
-        }
-
-        let (new_self, other_child) = match child {
-            Direction::Left => (self.l.take(), self.r.take()),
-            Direction::Right => (self.r.take(), self.l.take()),
-        };
-
-        let mut new_self = new_self.ok_or(ARTNodeError::InternalNodeOnly)?;
-
-        self.weight = new_self.weight;
-        self.public_key = new_self.public_key;
-        self.l = new_self.l.take();
-        self.r = new_self.r.take();
-        self.is_blank = new_self.is_blank;
-        self.metadata = new_self.metadata.clone();
-
-        Ok(other_child)
-    }
-
-    /// Change current node with its child, which is opposite to a given one. Other child is
-    /// removed and returned.
-    pub fn shrink_to_other(
-        &mut self,
-        for_removal: Direction,
-    ) -> Result<Option<Box<Self>>, ARTNodeError> {
-        match for_removal {
-            Direction::Left => self.shrink_to(Direction::Right),
-            Direction::Right => self.shrink_to(Direction::Left),
-        }
-    }
-
     pub fn display_analog(&self) -> ARTDisplayTree {
-        let blank_marker = match self.is_blank {
-            true => "blank ",
-            false => "",
+        let blank_marker = match self {
+            ARTNode::Leaf { status, .. } => match status {
+                LeafStatus::Active => "Active",
+                LeafStatus::PendingRemoval => "PendingRemoval",
+                LeafStatus::Blank => "Blank",
+            },
+            ARTNode::Internal { .. } => "",
         };
 
-        let pk_marker = match self.public_key.x() {
+        let pk_marker = match self.get_public_key().x() {
             Some(x) => x.to_string(),
             None => "None".to_string(),
         };
 
-        match self.is_leaf() {
-            true => ARTDisplayTree::Leaf {
+        match self {
+            ARTNode::Leaf { .. } => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{}leaf of weight: {}, x: {}",
-                    blank_marker, self.weight, pk_marker,
+                    blank_marker,
+                    self.get_weight(),
+                    pk_marker,
                 ),
             },
-            false => ARTDisplayTree::Inner {
+            ARTNode::Internal { .. } => ARTDisplayTree::Inner {
                 public_key: format!(
                     "{}node of weight: {}, x: {}",
-                    blank_marker, self.weight, pk_marker,
+                    blank_marker,
+                    self.get_weight(),
+                    pk_marker,
                 ),
                 left: Box::new(self.get_left().unwrap().display_analog()),
                 right: Box::new(self.get_right().unwrap().display_analog()),
@@ -337,7 +332,7 @@ impl<G: AffineRepr> ARTNode<G> {
             let right_node = level_nodes.remove(0);
 
             let node = ARTNode::new_internal_node(
-                (left_node.public_key + right_node.public_key).into_affine(),
+                (left_node.get_public_key() + right_node.get_public_key()).into_affine(),
                 Box::new(left_node),
                 Box::new(right_node),
             );
@@ -364,7 +359,7 @@ impl<G: AffineRepr> ARTNode<G> {
             let right_node = level_nodes.remove(0);
 
             let node = ARTNode::new_internal_node(
-                (left_node.public_key + right_node.public_key).into_affine(),
+                (left_node.get_public_key() + right_node.get_public_key()).into_affine(),
                 Box::new(left_node),
                 Box::new(right_node),
             );
@@ -406,20 +401,6 @@ where
                     .char_set(CharSet::DOUBLE_LINE)
             )
         )
-    }
-}
-
-impl<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> PartialEq for ARTNode<G> {
-    fn eq(&self, other: &Self) -> bool {
-        match self.public_key != other.public_key
-            || self.l != other.l
-            || self.r != other.r
-            || self.is_blank != other.is_blank
-            // || self.weight != other.weight
-        {
-            true => false,
-            false => true,
-        }
     }
 }
 
@@ -563,5 +544,11 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         LeafIter::new(self)
+    }
+}
+
+impl Default for LeafStatus {
+    fn default() -> Self {
+        Self::Active
     }
 }

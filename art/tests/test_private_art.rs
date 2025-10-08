@@ -57,12 +57,15 @@ mod tests {
             "user secret_key is present in path_secrets"
         );
         assert_eq!(
-            user0.get_node(&changes.node_index).unwrap().public_key,
+            user0
+                .get_node(&changes.node_index)
+                .unwrap()
+                .get_public_key(),
             user0.public_key_of(&secret_key_1),
             "New node is in the art, and it is on the correct path.",
         );
         assert_eq!(
-            user0.get_node(&user0.node_index).unwrap().public_key,
+            user0.get_node(&user0.node_index).unwrap().get_public_key(),
             user0.public_key_of(&secret_key_0),
             "User node is isn't changed, after append member request.",
         );
@@ -76,8 +79,11 @@ mod tests {
             "Sanity check: new tk is different from the old one.",
         );
         assert_ne!(
-            user0.get_node(&changes.node_index).unwrap().public_key,
-            user0.get_node(&user0.node_index).unwrap().public_key,
+            user0
+                .get_node(&changes.node_index)
+                .unwrap()
+                .get_public_key(),
+            user0.get_node(&user0.node_index).unwrap().get_public_key(),
             "Sanity check: Both users nodes have different public key.",
         );
 
@@ -224,7 +230,7 @@ mod tests {
             user0
                 .get_node(&remove_member_change1.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             user0.public_key_of(&blanking_secret_key_1),
             "The node was removed correctly."
         );
@@ -253,7 +259,7 @@ mod tests {
             user1
                 .get_node(&remove_member_change1.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             user1.public_key_of(&blanking_secret_key_1),
             "The node was removed correctly."
         );
@@ -269,12 +275,12 @@ mod tests {
             user1
                 .get_node(&remove_member_change2.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
             "The node was removed correctly."
         );
         assert_eq!(
-            user1.get_root().public_key,
+            user1.get_root().get_public_key(),
             user1.public_key_of(&tk_r2.key),
             "The node was removed correctly."
         );
@@ -312,7 +318,7 @@ mod tests {
             user1
                 .get_node(&remove_member_change1.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             user1.public_key_of(&(blanking_secret_key_1 + blanking_secret_key_2)),
             "The node was removed correctly."
         );
@@ -497,7 +503,7 @@ mod tests {
         let mut pub_keys = Vec::new();
         let mut parent = main_user_art.get_root();
         for direction in &main_user_art.node_index.get_path().unwrap() {
-            pub_keys.push(parent.get_child(direction).unwrap().public_key);
+            pub_keys.push(parent.get_child(direction).unwrap().get_public_key());
             parent = parent.get_child(direction).unwrap();
         }
         pub_keys.reverse();
@@ -549,15 +555,15 @@ mod tests {
 
         for node in tree.get_root() {
             if node.is_leaf() {
-                if node.is_blank {
-                    assert_eq!(node.weight, 0);
+                if !node.is_active() {
+                    assert_eq!(node.get_weight(), 0);
                 } else {
-                    assert_eq!(node.weight, 1);
+                    assert_eq!(node.get_weight(), 1);
                 }
             } else {
                 assert_eq!(
-                    node.weight,
-                    node.get_left().unwrap().weight + node.get_right().unwrap().weight
+                    node.get_weight(),
+                    node.get_left().unwrap().get_weight() + node.get_right().unwrap().get_weight()
                 );
             }
         }
@@ -765,7 +771,7 @@ mod tests {
                 let user_root_key = users_arts[i].get_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
-                assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE - 1);
+                assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE - 1);
                 assert_eq!(users_arts[i], users_arts[0])
             }
         }
@@ -784,7 +790,7 @@ mod tests {
                 users_arts[i].update_private_art(&changes2).unwrap();
 
                 assert_eq!(users_arts[i].get_root_key().unwrap().key, root_key2.key);
-                assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE);
+                assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE);
             }
         }
     }
@@ -980,7 +986,7 @@ mod tests {
         // let (_, artefacts) = art.recompute_root_key_with_artefacts().unwrap();
 
         assert_eq!(
-            art.root.public_key,
+            art.root.get_public_key(),
             CortadoAffine::generator().mul(tk.key).into_affine()
         );
 
@@ -1026,12 +1032,6 @@ mod tests {
         let (tk, make_blank_changes, artefacts) =
             art.make_blank(&target_node_path, &new_secret_key).unwrap();
         assert_eq!(tk, art.get_root_key().unwrap());
-        // let (_, artefacts) = art
-        //     .recompute_root_key_with_artefacts_using_secret_key(
-        //         new_secret_key,
-        //         Some(&make_blank_changes.node_index),
-        //     )
-        //     .unwrap();
 
         let verification_artefacts = test_art
             .compute_artefacts_for_verification(&make_blank_changes)
@@ -1194,27 +1194,30 @@ mod tests {
             .merge_with_skip(&second_merged, &vec![first_changes.clone()])
             .unwrap();
 
-        assert_eq!(first.root.weight, second.root.weight);
+        assert_eq!(first.root.get_weight(), second.root.get_weight());
         // debug!("first:\n{}", first.root);
         // debug!("second:\n{}", second.root);
         assert_eq!(first.root, second.root);
 
         // check leaf update correctness
         assert_eq!(
-            first.get_node(&first.node_index).unwrap().public_key,
+            first.get_node(&first.node_index).unwrap().get_public_key(),
             first_public_key
         );
         assert_eq!(
-            second.get_node(&first.node_index).unwrap().public_key,
+            second.get_node(&first.node_index).unwrap().get_public_key(),
             first_public_key
         );
 
         assert_eq!(
-            first.get_node(&second.node_index).unwrap().public_key,
+            first.get_node(&second.node_index).unwrap().get_public_key(),
             second_public_key
         );
         assert_eq!(
-            second.get_node(&second.node_index).unwrap().public_key,
+            second
+                .get_node(&second.node_index)
+                .unwrap()
+                .get_public_key(),
             second_public_key
         );
 
@@ -1238,14 +1241,17 @@ mod tests {
             assert_eq!(user_arts[i].root, first.root);
 
             assert_eq!(
-                user_arts[i].get_node(&first.node_index).unwrap().public_key,
+                user_arts[i]
+                    .get_node(&first.node_index)
+                    .unwrap()
+                    .get_public_key(),
                 first_public_key
             );
             assert_eq!(
                 user_arts[i]
                     .get_node(&second.node_index)
                     .unwrap()
-                    .public_key,
+                    .get_public_key(),
                 second_public_key
             );
         }
@@ -1301,15 +1307,27 @@ mod tests {
             generator: tk1.generator,
         };
 
-        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1.key));
-        assert_eq!(art2.root.public_key, art2.public_key_of(&tk2.key));
-        assert_eq!(art3.root.public_key, art3.public_key_of(&tk3.key));
-        assert_eq!(art4.root.public_key, art4.public_key_of(&tk4.key));
+        assert_eq!(art1.root.get_public_key(), art1.public_key_of(&tk1.key));
+        assert_eq!(art2.root.get_public_key(), art2.public_key_of(&tk2.key));
+        assert_eq!(art3.root.get_public_key(), art3.public_key_of(&tk3.key));
+        assert_eq!(art4.root.get_public_key(), art4.public_key_of(&tk4.key));
 
-        assert_eq!(art1.root.public_key, *changes1.public_keys.get(0).unwrap());
-        assert_eq!(art2.root.public_key, *changes2.public_keys.get(0).unwrap());
-        assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
-        assert_eq!(art4.root.public_key, *changes4.public_keys.get(0).unwrap());
+        assert_eq!(
+            art1.root.get_public_key(),
+            *changes1.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art2.root.get_public_key(),
+            *changes2.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art3.root.get_public_key(),
+            *changes3.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art4.root.get_public_key(),
+            *changes4.public_keys.get(0).unwrap()
+        );
 
         art1.merge_for_participant(
             changes1.clone(),
@@ -1318,10 +1336,16 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
+        assert_eq!(
+            art1.root.get_public_key(),
+            art1.public_key_of(&merged_tk.key)
+        );
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
         let tk1_merged = art1.get_root_key().unwrap();
-        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
+        assert_eq!(
+            art1.root.get_public_key(),
+            art1.public_key_of(&tk1_merged.key)
+        );
 
         art2.merge_for_participant(
             changes2.clone(),
@@ -1331,7 +1355,10 @@ mod tests {
         .unwrap();
 
         // art2.update_node_index().unwrap();
-        assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
+        assert_eq!(
+            art2.root.get_public_key(),
+            art2.public_key_of(&merged_tk.key)
+        );
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
 
         let mut root_key_from_changes = CortadoAffine::zero();
@@ -1344,19 +1371,19 @@ mod tests {
             root_key_from_changes = root_key_from_changes.add(g.public_keys[0]).into_affine();
         }
         assert_eq!(root_key_from_changes, art1.public_key_of(&merged_tk.key));
-        assert_eq!(root_key_from_changes, art1.root.public_key);
+        assert_eq!(root_key_from_changes, art1.root.get_public_key());
         assert_eq!(
-            art1.root.public_key,
+            art1.root.get_public_key(),
             art1.public_key_of(&art1.get_root_key().unwrap().key)
         );
 
         assert_eq!(
             art1.public_key_of(&new_node1_sk),
-            art1.get_node(&art1.node_index).unwrap().public_key
+            art1.get_node(&art1.node_index).unwrap().get_public_key()
         );
         assert_eq!(
             art2.public_key_of(&new_node2_sk),
-            art2.get_node(&art2.node_index).unwrap().public_key
+            art2.get_node(&art2.node_index).unwrap().get_public_key()
         );
 
         assert_eq!(art1.root, art2.root);
@@ -1367,9 +1394,9 @@ mod tests {
 
             let tk = user_arts[i].get_root_key().unwrap();
 
-            assert_eq!(root_key_from_changes, user_arts[i].root.public_key);
+            assert_eq!(root_key_from_changes, user_arts[i].root.get_public_key());
             assert_eq!(
-                user_arts[i].root.public_key,
+                user_arts[i].root.get_public_key(),
                 user_arts[i].public_key_of(&tk.key)
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
@@ -1440,25 +1467,34 @@ mod tests {
 
         // Sanity check
         assert_eq!(
-            art1.root.public_key,
+            art1.root.get_public_key(),
             art1.public_key_of(&*art1.path_secrets.last().unwrap())
         );
         assert_eq!(
-            art2.root.public_key,
+            art2.root.get_public_key(),
             art3.public_key_of(&*art2.path_secrets.last().unwrap())
         );
         assert_eq!(
-            art3.root.public_key,
+            art3.root.get_public_key(),
             art4.public_key_of(&*art3.path_secrets.last().unwrap())
         );
 
-        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1.key));
-        assert_eq!(art2.root.public_key, art2.public_key_of(&tk2.key));
-        assert_eq!(art3.root.public_key, art3.public_key_of(&tk3.key));
+        assert_eq!(art1.root.get_public_key(), art1.public_key_of(&tk1.key));
+        assert_eq!(art2.root.get_public_key(), art2.public_key_of(&tk2.key));
+        assert_eq!(art3.root.get_public_key(), art3.public_key_of(&tk3.key));
 
-        assert_eq!(art1.root.public_key, *changes1.public_keys.get(0).unwrap());
-        assert_eq!(art2.root.public_key, *changes2.public_keys.get(0).unwrap());
-        assert_eq!(art3.root.public_key, *changes3.public_keys.get(0).unwrap());
+        assert_eq!(
+            art1.root.get_public_key(),
+            *changes1.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art2.root.get_public_key(),
+            *changes2.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art3.root.get_public_key(),
+            *changes3.public_keys.get(0).unwrap()
+        );
 
         // Update art path_secrets with unapplied changes
         art1.merge_for_participant(
@@ -1472,8 +1508,14 @@ mod tests {
         // Check if new tk is correctly computed
         assert_eq!(*art1.path_secrets.last().unwrap(), merged_tk.key);
         assert_eq!(merged_tk, tk1_merged);
-        assert_eq!(art1.root.public_key, art1.public_key_of(&merged_tk.key));
-        assert_eq!(art1.root.public_key, art1.public_key_of(&tk1_merged.key));
+        assert_eq!(
+            art1.root.get_public_key(),
+            art1.public_key_of(&merged_tk.key)
+        );
+        assert_eq!(
+            art1.root.get_public_key(),
+            art1.public_key_of(&tk1_merged.key)
+        );
 
         // Update art path_secrets with unapplied changes
         art2.merge_for_participant(
@@ -1484,16 +1526,19 @@ mod tests {
         .unwrap();
 
         // Check Merge correctness
-        assert_eq!(art2.root.public_key, art2.public_key_of(&merged_tk.key));
+        assert_eq!(
+            art2.root.get_public_key(),
+            art2.public_key_of(&merged_tk.key)
+        );
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
 
         assert_eq!(
             art1.public_key_of(&(new_node1_sk + new_node2_sk + new_node3_sk)),
-            art1.get_node(&art4.node_index).unwrap().public_key
+            art1.get_node(&art4.node_index).unwrap().get_public_key()
         );
         assert_eq!(
             art2.public_key_of(&(new_node1_sk + new_node2_sk + new_node3_sk)),
-            art2.get_node(&art4.node_index).unwrap().public_key
+            art2.get_node(&art4.node_index).unwrap().get_public_key()
         );
 
         assert_eq!(art1.root, art2.root);
@@ -1505,9 +1550,9 @@ mod tests {
 
             let tk = user_arts[i].get_root_key().unwrap();
 
-            assert_eq!(merged_pub_tk, user_arts[i].root.public_key);
+            assert_eq!(merged_pub_tk, user_arts[i].root.get_public_key());
             assert_eq!(
-                user_arts[i].root.public_key,
+                user_arts[i].root.get_public_key(),
                 user_arts[i].public_key_of(&tk.key)
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
@@ -1599,7 +1644,7 @@ mod tests {
                 art4_0
                     .get_node(target_user.get_node_index())
                     .unwrap()
-                    .public_key,
+                    .get_public_key(),
                 art4_0.public_key_of(&(new_node0_sk + new_node3_sk + rem_node_sk)),
                 "Make blank is correctly merged."
             );
@@ -1655,12 +1700,12 @@ mod tests {
         debug!("User 0 update key ...");
         let (_, change0, _) = user0.make_blank(&target_node_path, &new_node1_sk)?;
         assert_eq!(
-            user0.get_node(&target_index)?.public_key,
+            user0.get_node(&target_index)?.get_public_key(),
             user0.public_key_of(&new_node1_sk)
         );
         assert_eq!(
             user0.public_key_of(&user0.get_root_key()?.key),
-            user0.get_root().public_key
+            user0.get_root().get_public_key()
         );
         // user0.update_key(None).await?;
 
@@ -1668,12 +1713,12 @@ mod tests {
         // let blank_user_0 = user1.get_changes(20, 0, None).await?;
         user1.update_private_art(&change0).unwrap();
         assert_eq!(
-            user1.get_node(&target_index)?.public_key,
+            user1.get_node(&target_index)?.get_public_key(),
             user1.public_key_of(&new_node1_sk)
         );
         assert_eq!(
             user1.public_key_of(&user1.get_root_key()?.key),
-            user1.get_root().public_key
+            user1.get_root().get_public_key()
         );
         // user1.epoch += 1;
         assert_eq!(user1.get_root(), user0.get_root());
@@ -1681,12 +1726,12 @@ mod tests {
         debug!("User 1 update key ...");
         let (_, change1, _) = user1.make_blank(&target_node_path, &new_node2_sk)?;
         assert_eq!(
-            user1.get_node(&target_index)?.public_key,
+            user1.get_node(&target_index)?.get_public_key(),
             user1.public_key_of(&second_key)
         );
         assert_eq!(
             user1.public_key_of(&user1.get_root_key()?.key),
-            user1.get_root().public_key
+            user1.get_root().get_public_key()
         );
 
         debug!("User 2 receive changes ...");
@@ -1702,7 +1747,7 @@ mod tests {
 
         user2.update_private_art(&change1)?;
         assert_eq!(
-            user2.get_node(&target_index)?.public_key,
+            user2.get_node(&target_index)?.get_public_key(),
             user1.public_key_of(&second_key)
         );
         // user2.epoch += 1;
@@ -1714,7 +1759,7 @@ mod tests {
         );
         assert_eq!(
             user2.public_key_of(&user2.get_root_key()?.key),
-            user1.get_root().public_key
+            user1.get_root().get_public_key()
         );
 
         debug!("User 2 make blank ...");

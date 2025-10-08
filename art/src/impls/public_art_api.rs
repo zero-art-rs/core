@@ -1,3 +1,4 @@
+use crate::types::LeafStatus;
 use crate::{
     errors::ARTError,
     helper_tools::iota_function,
@@ -24,7 +25,7 @@ where
 {
     fn get_path_to_leaf(&self, user_val: &G) -> Result<Vec<Direction>, ARTError> {
         for (node, path) in NodeIterWithPath::new(self.get_root()) {
-            if node.public_key.eq(user_val) {
+            if node.get_public_key().eq(user_val) {
                 return Ok(path
                     .iter()
                     .map(|(_, direction)| *direction)
@@ -75,13 +76,13 @@ where
         for direction in &changes.node_index.get_path()? {
             if parent.is_leaf() {
                 if let BranchChangesType::AppendNode = changes.change_type
-                    && !parent.is_blank
+                    && parent.is_active()
                 {
                     // The current node is a part of the co-path
-                    co_path.push(parent.public_key)
+                    co_path.push(parent.get_public_key())
                 }
             } else {
-                co_path.push(parent.get_other_child(direction)?.public_key);
+                co_path.push(parent.get_other_child(direction)?.get_public_key());
                 parent = parent.get_child(direction)?;
             }
         }
@@ -129,7 +130,7 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let (append_changes, update_weights) =
-            match self.get_node(&NodeIndex::from(path.to_vec()))?.is_blank {
+            match !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active() {
                 true => (true, false),
                 false => (false, true),
             };
@@ -192,7 +193,7 @@ where
 
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && self.get_node(&changes.node_index)?.is_blank
+            && !self.get_node(&changes.node_index)?.is_active()
         {
             self.update_public_art_with_options(changes, true, false)
         } else {
@@ -274,7 +275,7 @@ where
         changes.extend(make_blank_changes);
         for i in iteration_start..changes.len() {
             // Make blank changes are of replaces all public keys on path or appends to all of them.
-            if key_update_changes_len == 0 && !self.get_node(&changes[i].node_index)?.is_blank {
+            if key_update_changes_len == 0 && self.get_node(&changes[i].node_index)?.is_active() {
                 self.update_public_art_with_options(&changes[i], false, true)?;
             } else {
                 self.update_public_art_with_options(&changes[i], true, false)?;
@@ -304,7 +305,7 @@ where
 
         let mut parent = self.get_root();
         for direction in &index.get_path()? {
-            co_path_values.push(parent.get_other_child(direction)?.public_key);
+            co_path_values.push(parent.get_other_child(direction)?.get_public_key());
             parent = parent.get_child(direction)?;
         }
 
@@ -314,7 +315,7 @@ where
 
     fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
         for (node, path) in LeafIterWithPath::new(self.get_root()) {
-            if node.is_blank {
+            if !node.is_active() {
                 let mut node_path = Vec::with_capacity(path.len());
 
                 for (_, dir) in path {
@@ -336,7 +337,7 @@ where
             let l = candidate.get_left()?;
             let r = candidate.get_right()?;
 
-            match l.weight <= r.weight {
+            match l.get_weight() <= r.get_weight() {
                 true => {
                     next.push(Direction::Left);
                     candidate = candidate.get_left()?;
@@ -363,13 +364,10 @@ where
                 break;
             }
 
-            node_for_extension.weight += 1; // The weight of every node is increased by 1
+            *node_for_extension.get_mut_weight()? += 1; // The weight of every node is increased by 1
             node_for_extension = node_for_extension.get_mut_child(direction)?;
         }
-        let next_node_direction = match node_for_extension.is_blank {
-            true => false,
-            false => true,
-        };
+        let next_node_direction = node_for_extension.is_active();
         node_for_extension.extend_or_replace(node)?;
 
         Ok(next_node_direction)
@@ -383,12 +381,12 @@ where
         let mut target_node = self.get_mut_root();
         for direction in path {
             if update_weights {
-                target_node.weight -= 1;
+                *target_node.get_mut_weight()? -= 1;
             }
             target_node = target_node.get_mut_child(direction)?;
         }
 
-        target_node.is_blank = true;
+        target_node.set_status(LeafStatus::Blank)?;
 
         Ok(())
     }
@@ -417,7 +415,7 @@ where
             parent
                 .get_mut_child(&next_child)?
                 .set_public_key_with_options(public_key, append_changes);
-            let other_child_public_key = parent.get_other_child(&next_child)?.public_key;
+            let other_child_public_key = parent.get_other_child(&next_child)?.get_public_key();
 
             path_values.push(public_key);
             co_path_values.push(other_child_public_key);
@@ -518,17 +516,20 @@ where
             if let BranchChangesType::AppendNode = target_change.change_type
                 && level < target_path.len()
             {
-                node.weight += 1;
+                *node.get_mut_weight()? += 1;
                 // The last node weight will be computed when the structure is updated
             }
 
             if shared_paths.is_empty() {
                 // There are no further conflicts so change public key
-                node.public_key = target_change.public_keys[level];
+                node.set_public_key(target_change.public_keys[level]);
             } else {
                 // Resolve conflict by adding public keys
-                node.public_key =
-                    (node.public_key + target_change.public_keys[level]).into_affine();
+                node.set_public_key(
+                    node.get_public_key()
+                        .add(target_change.public_keys[level])
+                        .into_affine(),
+                );
             }
 
             // Remove branches which are not conflicting with target one yet

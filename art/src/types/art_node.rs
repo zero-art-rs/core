@@ -22,16 +22,30 @@ pub enum ARTDisplayTree {
     },
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[serde(bound = "")]
-pub struct ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub public_key: G,
-    pub l: Option<Box<Self>>,
-    pub r: Option<Box<Self>>,
-    pub is_blank: bool,
-    pub weight: usize,
-    pub metadata: Option<Vec<u8>>,
+pub enum LeafStatus {
+    Active,
+    PendingRemoval,
+    Blank,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[serde(bound = "")]
+pub enum ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
+    Leaf {
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        public_key: G,
+        status: LeafStatus,
+        metadata: Vec<u8>,
+    },
+    Internal {
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+        public_key: G,
+        l: Box<ARTNode<G>>,
+        r: Box<ARTNode<G>>,
+        weight: usize,
+    },
 }
 
 pub struct NodeIterWithPath<'a, G>

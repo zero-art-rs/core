@@ -127,7 +127,7 @@ mod tests {
             group_arts[target_user]
                 .get_node(&change.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             group_arts[target_user].public_key_of(&new_sk),
             "Key updated correctly"
         );
@@ -179,7 +179,7 @@ mod tests {
             group_arts[target_user]
                 .get_node(&change.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             group_arts[target_user].public_key_of(&new_sk),
             "Key updated correctly."
         );
@@ -264,7 +264,7 @@ mod tests {
             group_arts[target_user]
                 .get_node(&change.node_index)
                 .unwrap()
-                .public_key,
+                .get_public_key(),
             group_arts[target_user].public_key_of(&new_sk),
             "Key updated correctly"
         );
