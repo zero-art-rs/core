@@ -38,6 +38,8 @@ pub enum ARTError {
     InapplicableKeyUpdate,
     #[error("The method can't be applied to the non leaf node.")]
     NonLeafNode,
+    #[error("The method can't be applied to the leaf node.")]
+    InternalOnly,
     #[error("Cant merge given changes.")]
     MergeInput,
 }

@@ -154,7 +154,9 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             BenchmarkId::new("Clone + From private ART", TEST_SAMPLES[i]),
             &i,
             |b, &i| {
-                b.iter(|| PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap())
+                b.iter(|| {
+                    PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap()
+                })
             },
         );
     }
@@ -162,7 +164,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
     for i in 0..TEST_SAMPLES.len() {
         group.throughput(Throughput::Elements(TEST_SAMPLES[i] as u64));
 
-        let mut public_art = PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap();
+        let mut public_art =
+            PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap();
 
         /// Key update
         let secret = Fr::rand(&mut rng);

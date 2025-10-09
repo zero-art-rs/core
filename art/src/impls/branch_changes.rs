@@ -1,7 +1,7 @@
 use crate::types::BranchChangesTypeHint;
 use crate::{
     errors::ARTError,
-    types::{AggregationChangeType, BranchChanges, BranchChangesType},
+    types::{BranchChanges, BranchChangesType},
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -26,27 +26,17 @@ impl Default for BranchChangesType {
     }
 }
 
-impl From<AggregationChangeType> for BranchChangesType {
-    fn from(change_type: AggregationChangeType) -> Self {
-        match change_type {
-            AggregationChangeType::UpdateKey => BranchChangesType::UpdateKey,
-            AggregationChangeType::MakeBlank => BranchChangesType::MakeBlank,
-            AggregationChangeType::MakeBlankThenAppendMember => BranchChangesType::AppendNode,
-            AggregationChangeType::AppendNode => BranchChangesType::AppendNode,
-            AggregationChangeType::AppendMemberThenUpdateKey => BranchChangesType::UpdateKey,
-            AggregationChangeType::UpdateKeyThenAppendMember => BranchChangesType::AppendNode,
-        }
-    }
-}
-
-impl TryFrom<BranchChangesTypeHint> for BranchChangesType {
+impl<G> TryFrom<BranchChangesTypeHint<G>> for BranchChangesType
+where
+    G: AffineRepr,
+{
     type Error = ARTError;
 
-    fn try_from(value: BranchChangesTypeHint) -> Result<Self, Self::Error> {
+    fn try_from(value: BranchChangesTypeHint<G>) -> Result<Self, Self::Error> {
         match value {
             BranchChangesTypeHint::MakeBlank { .. } => Ok(BranchChangesType::MakeBlank),
             BranchChangesTypeHint::AppendNode { .. } => Ok(BranchChangesType::AppendNode),
-            BranchChangesTypeHint::UpdateKey => Ok(BranchChangesType::UpdateKey),
+            BranchChangesTypeHint::UpdateKey { .. } => Ok(BranchChangesType::UpdateKey),
             _ => Err(ARTError::InvalidInput),
         }
     }

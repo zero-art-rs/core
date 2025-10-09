@@ -1,5 +1,6 @@
 use crate::errors::ARTError;
 use crate::types::{Direction, NodeIndex};
+use std::ops::Deref;
 use tracing::error;
 
 impl Direction {
@@ -194,6 +195,14 @@ impl From<u64> for NodeIndex {
 impl From<Vec<Direction>> for NodeIndex {
     fn from(path: Vec<Direction>) -> Self {
         Self::Direction(path)
+    }
+}
+
+impl TryFrom<NodeIndex> for Vec<Direction> {
+    type Error = ARTError;
+
+    fn try_from(path: NodeIndex) -> Result<Self, Self::Error> {
+        path.get_path()
     }
 }
 

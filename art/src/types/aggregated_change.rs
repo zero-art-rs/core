@@ -1,10 +1,7 @@
 use crate::traits::RelatedData;
-use crate::types::{
-    BranchChangesType, BranchChangesTypeHint, Children, Direction, ProcessedMarker,
-};
+use crate::types::{BranchChangesTypeHint, Children, Direction, ProcessedMarker};
 use ark_ec::AffineRepr;
 use display_tree::DisplayTree;
-use serde::{Deserialize, Serialize};
 
 #[derive(DisplayTree, Debug, Clone)]
 pub enum AggregationDisplayTree {
@@ -28,7 +25,7 @@ pub enum AggregationDisplayTree {
     },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProverAggregationData<G>
 where
     G: AffineRepr,
@@ -48,10 +45,26 @@ where
     pub latest: bool,
 
     /// Change type marker
-    pub change_type: Vec<BranchChangesTypeHint>,
+    pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AggregationData<G>
+where
+    G: AffineRepr,
+{
+    /// Public keys of the node from all the changes.
+    pub public_key: G,
+
+    /// If true, then that child is the second one set. This means, that the co_path value of the
+    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
+    pub latest: bool,
+
+    /// Change type marker
+    pub change_type: Vec<BranchChangesTypeHint<G>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VerifierAggregationData<G>
 where
     G: AffineRepr,
@@ -67,23 +80,10 @@ where
     pub latest: bool,
 
     /// Change type marker
-    pub change_type: Vec<BranchChangesTypeHint>,
+    pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum AggregationChangeType {
-    UpdateKey,                 // The second one will overweight previous one
-    MakeBlank,                 // The second one will overweight previous one
-    MakeBlankThenAppendMember, // The second will overwrite the first, but the blanking mark requires.
-    AppendNode, // Multiple are forbidden because of disbalance they will bring on our souls??
-    AppendMemberThenUpdateKey, // requires two public keys
-    UpdateKeyThenAppendMember, // requires two public keys
-
-                // Leave
-                // UpdateKeyThenLeave
-}
-
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeAggregation<D>
 where
     D: RelatedData + Clone,
@@ -93,15 +93,6 @@ where
     pub data: D,
 
     pub marker: ProcessedMarker,
-}
-
-#[derive(Debug, Clone)]
-pub struct AggregationPathData<'a, D>
-where
-    D: RelatedData + Clone,
-{
-    node: &'a ChangeAggregation<D>,
-    path_part: Direction,
 }
 
 #[derive(Debug, Clone)]

@@ -1,10 +1,12 @@
 // Asynchronous Ratchet Tree implementation
 
+use crate::errors::ARTNodeError;
 use crate::helper_tools::iota_function;
-use crate::traits::ARTPrivateAPIHelper;
+use crate::traits::{ARTPrivateAPIHelper, ARTPublicAPI, ChildContainer};
 use crate::types::{
+    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesIter,
     BranchChangesTypeHint, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
-    UpdateData,
+    UpdateData, VerifierAggregationData,
 };
 use crate::{
     errors::ARTError,
@@ -14,8 +16,10 @@ use crate::{
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use cortado::CortadoAffine;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tracing::{debug, error};
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -100,7 +104,13 @@ where
     ) -> Result<UpdateData<G>, ARTError> {
         let (tk, changes, artefacts) = self.update_key(new_secret_key)?;
 
-        aggregation.extend(&changes, &artefacts, BranchChangesTypeHint::UpdateKey)?;
+        aggregation.extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::UpdateKey {
+                pk: self.public_key_of(new_secret_key),
+            },
+        )?;
 
         Ok((tk, changes, artefacts))
     }
@@ -111,16 +121,14 @@ where
         temporary_secret_key: &G::ScalarField,
         aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
     ) -> Result<UpdateData<G>, ARTError> {
-        let hint = !self
-            .get_node(&NodeIndex::Direction(path.to_vec()))?
-            .is_blank;
-
         let (tk, changes, artefacts) = self.make_blank(path, temporary_secret_key)?;
 
         aggregation.extend(
             &changes,
             &artefacts,
-            BranchChangesTypeHint::MakeBlank { initiation: hint },
+            BranchChangesTypeHint::MakeBlank {
+                blank_pk: self.public_key_of(temporary_secret_key),
+            },
         )?;
 
         Ok((tk, changes, artefacts))
@@ -159,6 +167,77 @@ where
         } else {
             self.update_private_art_with_options(changes, false, true)
         }
+    }
+
+    fn update_private_art_aggregation_v2(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError> {
+        for mut changes in BranchChangesIter::new(verifier_aggregation) {
+            for change in changes.iter_mut() {
+                change.node_index = change.node_index.as_index()?;
+                debug!("changes: {:#?}", change);
+                self.update_private_art(&*change)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_private_art_aggregation(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError> {
+        for (item, path) in AggregationNodeIterWithPath::new(verifier_aggregation) {
+            let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+
+            for change_type in &item.data.change_type {
+                match change_type {
+                    BranchChangesTypeHint::MakeBlank { .. } => {
+                        for i in 0..item_path.len() {
+                            let partial_path = item_path[0..i].to_vec();
+                            self.get_mut_node(&NodeIndex::Direction(partial_path))?
+                                .weight -= 1;
+                        }
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.is_blank = true;
+                    }
+                    BranchChangesTypeHint::AppendNode { .. } => {
+                        for i in 0..item_path.len() {
+                            let partial_path = item_path[0..i].to_vec();
+                            self.get_mut_node(&NodeIndex::Direction(partial_path))?
+                                .weight += 1;
+                        }
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        match corresponding_item.extend_or_replace(ARTNode::default()) {
+                            Ok(_) => {}
+                            Err(err) => {
+                                return Err(ARTError::from(err));
+                            }
+                        }
+                    }
+                    BranchChangesTypeHint::UpdateKey { .. } => {}
+                    BranchChangesTypeHint::AppendNodeFix => {}
+                }
+            }
+
+            let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+            corresponding_item.public_key = item.data.public_key;
+        }
+
+        self.update_node_index()?;
+        let (_, artefacts) = self.recompute_root_key_with_artefacts_using_secret_key(
+            self.get_secret_key(),
+            &self.get_node_index(),
+        )?;
+
+        self.set_path_secrets(artefacts.secrets);
+
+        Ok(())
     }
 
     fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError> {
@@ -205,6 +284,58 @@ where
         self.merge_with_skip(&[applied_change], unapplied_changes)?;
 
         Ok(())
+    }
+
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError> {
+        let mut resulting_aggregation =
+            ChangeAggregation::<VerifierAggregationData<G>>::derive_from(&aggregation)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(aggregation).skip(1) {
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
+
+            let aggregation_parent = path
+                .last()
+                .ok_or(ARTError::NoChanges)
+                .map(|(node, _)| node)?;
+
+            let resulting_target_node = resulting_aggregation
+                .get_mut_node(&parent_path)?
+                .get_mut_node(&[last_direction])?;
+
+            if let Ok(co_leaf) = aggregation_parent.get_node(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                let pk = co_leaf.data.public_key;
+                resulting_target_node.data.co_public_key = Some(pk);
+            } else if let Ok(parent) = self.get_node(&NodeIndex::Direction(parent_path.clone()))
+                && let Ok(other_child) = parent.get_child(&last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                resulting_target_node.data.co_public_key = Some(other_child.get_public_key());
+            } else {
+                // Find leaf in original art. There where no of his modifications as they are stored separately.
+                let mut leaf_traversal = parent_path.clone();
+                let mut leaf_pk = self.get_root().public_key;
+                while !leaf_traversal.is_empty() {
+                    if let Ok(leaf) = self.get_node(&NodeIndex::Direction(leaf_traversal.clone())) {
+                        leaf_pk = leaf.public_key;
+                        break;
+                    }
+
+                    let last_fir = leaf_traversal.pop().ok_or(ARTError::ARTLogicError)?;
+                    if let Direction::Right = last_fir {
+                        return Err(ARTError::InvalidInput);
+                    }
+                }
+
+                resulting_target_node.data.co_public_key = Some(leaf_pk);
+            }
+        }
+
+        Ok(resulting_aggregation)
     }
 }
 

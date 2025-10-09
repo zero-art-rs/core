@@ -1,4 +1,5 @@
 use crate::types::BranchChangesTypeHint;
+use ark_ec::AffineRepr;
 use std::mem;
 
 /// This is a trait used to represent the data stored in the node.
@@ -23,7 +24,10 @@ pub trait HasPublicKey<G> {
     fn get_public_key(&self) -> G;
 }
 
-pub trait HasChangeTypeHint {
+pub trait HasChangeTypeHint<G>
+where
+    G: AffineRepr,
+{
     /// Returns Branch change hint.
-    fn get_change_type(&self) -> &Vec<BranchChangesTypeHint>;
+    fn get_change_type(&self) -> &Vec<BranchChangesTypeHint<G>>;
 }

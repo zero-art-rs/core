@@ -1,12 +1,11 @@
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, HasChangeTypeHint, HasPublicKey, RelatedData};
 use crate::types::{
-    AggregationChangeType, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
+    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
     BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children,
     Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
-use ark_ec::hashing::curve_maps::parity;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
@@ -17,28 +16,67 @@ impl<D> ChangeAggregation<D>
 where
     D: RelatedData + Clone + Default,
 {
-    pub fn get_node(&self, path: &Vec<Direction>) -> Result<&Self, ARTError> {
+    pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ARTError> {
         let mut parent = self;
         for direction in path {
             parent = parent
                 .children
                 .get_child(*direction)
-                .ok_or(ARTError::InvalidInput)?;
+                .ok_or(ARTError::InternalOnly)?;
         }
 
         Ok(parent)
     }
 
     pub fn get_mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
-        let mut parent = &mut *self;
+        let mut parent = self;
         for direction in path {
             parent = parent
                 .children
                 .get_mut_child(*direction)
-                .ok_or(ARTError::InvalidInput)?;
+                .ok_or(ARTError::InternalOnly)?;
         }
 
         Ok(parent)
+    }
+
+    pub fn derive_from<DS>(prover_aggregation: &ChangeAggregation<DS>) -> Result<Self, ARTError>
+    where
+        D: From<DS>,
+        DS: RelatedData + Clone + Default,
+    {
+        let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
+        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
+
+        let verifier_data = D::from(node.data.clone());
+        let mut aggregation = ChangeAggregation::from(verifier_data);
+
+        for (node, path) in iter {
+            let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            if let Some(last_dir) = node_path.pop() {
+                let verifier_data = D::from(node.data.clone());
+                let next_node = ChangeAggregation::from(verifier_data);
+
+                if let Ok(child) = aggregation.get_mut_node(&*node_path) {
+                    child.children.set_child(last_dir, next_node);
+                }
+            }
+        }
+
+        Ok(aggregation)
+    }
+}
+
+impl<D> From<D> for ChangeAggregation<D>
+where
+    D: RelatedData + Clone + Default,
+{
+    fn from(data: D) -> Self {
+        Self {
+            children: Children::default(),
+            data,
+            marker: Default::default(),
+        }
     }
 }
 
@@ -53,7 +91,7 @@ where
         &mut self,
         change: &BranchChanges<G>,
         prover_artefacts: &ProverArtefacts<G>,
-        change_type_hint: BranchChangesTypeHint,
+        change_type_hint: BranchChangesTypeHint<G>,
     ) -> Result<(), ARTError> {
         let mut leaf_path = change.node_index.get_path()?;
 
@@ -61,31 +99,19 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        match change.change_type {
-            BranchChangesType::UpdateKey => {}
-            BranchChangesType::MakeBlank => {}
-            BranchChangesType::AppendNode => {
-                if let BranchChangesTypeHint::AppendNode { extend } = change_type_hint {
-                    if extend {
-                        leaf_path.pop();
-                    }
-                }
-            }
+        if let BranchChangesTypeHint::AppendNode { extend: true } = change_type_hint {
+            leaf_path.pop();
         }
 
-        let stashed_leaf = self
-            .get_node(&leaf_path)
-            .ok()
-            .map(|node| node.data.public_key);
+        let stashed_leaf = self.get_node(&leaf_path).map(|node| node.data.public_key);
 
         self.extend_tree_with(change, prover_artefacts)?;
 
         let target_leaf = self.get_mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
 
-        if let BranchChangesTypeHint::AppendNode { extend } = change_type_hint
-            && extend
-            && let Some(stashed_leaf) = stashed_leaf
+        if let BranchChangesTypeHint::AppendNode { extend: true } = change_type_hint
+            && let Ok(stashed_leaf) = stashed_leaf
         {
             let other_leaf = target_leaf
                 .children
@@ -96,6 +122,9 @@ where
                 .data
                 .change_type
                 .push(BranchChangesTypeHint::AppendNodeFix);
+            other_leaf.data.co_public_key = Some(
+                *change.public_keys.last().ok_or(ARTError::NoChanges)?
+            );
         }
 
         Ok(())
@@ -114,32 +143,33 @@ where
             .secrets
             .first()
             .ok_or(ARTError::InvalidInput)?;
-        // if leaf_path.is_empty() {
-        //     self.data.change_type.push(change.change_type);
-        // }
+
+        if change.public_keys.len() != leaf_path.len() + 1
+            || prover_artefacts.secrets.len() != leaf_path.len() + 1
+            || prover_artefacts.co_path.len() != leaf_path.len()
+        {
+            return Err(ARTError::InvalidInput);
+        }
 
         // Update other nodes.
         let mut parent = &mut *self;
         for (i, direction) in leaf_path.iter().enumerate() {
             // compute new child node
             let child_data = ProverAggregationData::<G> {
-                public_key: *change
-                    .public_keys
-                    .get(i + 1)
-                    .ok_or(ARTError::InvalidInput)?,
+                public_key: change.public_keys[i + 1],
                 co_public_key: Some(
-                    *prover_artefacts
-                        .co_path
-                        .get(i)
-                        .ok_or(ARTError::InvalidInput)?,
+                    prover_artefacts.co_path[prover_artefacts.co_path.len() - i - 1],
                 ),
                 change_type: vec![],
-                secret_key: *prover_artefacts
-                    .secrets
-                    .get(i + 1)
-                    .ok_or(ARTError::InvalidInput)?,
-                latest: parent.children.get_child(direction.other()).is_none(),
+                secret_key: prover_artefacts.secrets[i + 1],
+                latest: parent.children.get_child(direction.other()).is_some(),
+                // latest: true
             };
+
+            // update other_co_path
+            if let Some(child) = parent.children.get_mut_child(direction.other()) {
+                child.data.co_public_key = Some(change.public_keys[i + 1]);
+            }
 
             // Update parent
             parent = parent
@@ -149,57 +179,7 @@ where
             parent.data.extend(child_data);
         }
 
-        // parent.data.change_type.push(change.change_type);
-
         Ok(())
-    }
-}
-
-impl<G> ChangeAggregation<VerifierAggregationData<G>>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::ScalarField: PrimeField,
-{
-    fn get_mut_child_at(&mut self, path: &[Direction]) -> Option<&mut Self> {
-        let mut parent = self;
-        for dir in path {
-            if let Some(child) = parent.children.get_mut_child(*dir) {
-                parent = child;
-            } else {
-                return None;
-            }
-        }
-
-        Some(parent)
-    }
-}
-
-impl From<BranchChangesType> for AggregationChangeType {
-    fn from(change: BranchChangesType) -> Self {
-        match change {
-            BranchChangesType::MakeBlank => Self::MakeBlank,
-            BranchChangesType::AppendNode => Self::AppendNode,
-            BranchChangesType::UpdateKey => Self::UpdateKey,
-        }
-    }
-}
-
-impl Display for AggregationChangeType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AggregationChangeType::UpdateKey => write!(f, "UpdateKey"),
-            AggregationChangeType::MakeBlank => write!(f, "MakeBlank"),
-            AggregationChangeType::MakeBlankThenAppendMember => {
-                write!(f, "MakeBlankThenAppendMember")
-            }
-            AggregationChangeType::AppendNode => write!(f, "AppendNode"),
-            AggregationChangeType::AppendMemberThenUpdateKey => {
-                write!(f, "AppendMemberThenUpdateKey")
-            }
-            AggregationChangeType::UpdateKeyThenAppendMember => {
-                write!(f, "UpdateKeyThenAppendMember")
-            }
-        }
     }
 }
 
@@ -341,7 +321,7 @@ where
         path: &Vec<(&ChangeAggregation<D>, Direction)>,
     ) -> BranchChanges<G>
     where
-        D: HasPublicKey<G> + HasChangeTypeHint,
+        D: HasPublicKey<G> + HasChangeTypeHint<G>,
         G: AffineRepr,
     {
         let mut path_to_item = vec![];
@@ -374,7 +354,7 @@ where
         path: &Vec<(&ChangeAggregation<D>, Direction)>,
     ) -> BranchChanges<G>
     where
-        D: HasPublicKey<G> + HasChangeTypeHint,
+        D: HasPublicKey<G> + HasChangeTypeHint<G>,
         G: AffineRepr,
     {
         let mut path_to_item = vec![];
@@ -407,7 +387,7 @@ where
         path: &Vec<(&ChangeAggregation<D>, Direction)>,
     ) -> BranchChanges<G>
     where
-        D: HasPublicKey<G> + HasChangeTypeHint,
+        D: HasPublicKey<G> + HasChangeTypeHint<G>,
         G: AffineRepr,
     {
         let mut path_to_item = vec![];
@@ -430,7 +410,7 @@ where
         path: &Vec<(&ChangeAggregation<D>, Direction)>,
     ) -> BranchChanges<G>
     where
-        D: HasPublicKey<G> + HasChangeTypeHint,
+        D: HasPublicKey<G> + HasChangeTypeHint<G>,
         G: AffineRepr,
     {
         let mut path_to_item = vec![];
@@ -459,46 +439,6 @@ where
     }
 }
 
-// impl<'a, G> Iterator for BranchChangesIter<'a, ProverAggregationData<G>>
-// where
-//     G: AffineRepr,
-// {
-//     // type Item = (&'a ProverAggregation<G>, Vec<(&'a ProverAggregation<G>, Direction)>);
-//     type Item = Vec<BranchChanges<G>>;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         while let Some((item, path)) = self.inner_iter.next() {
-//             if item.children.is_leaf() {
-//                 let mut path_to_leaf = vec![];
-//                 let mut public_keys = vec![];
-//
-//                 for (node, dir) in &path {
-//                     path_to_leaf.push(*dir);
-//                     public_keys.push(node.data.public_key);
-//                 }
-//
-//                 public_keys.push(item.data.public_key);
-//                 let leaf_index = NodeIndex::from(path_to_leaf);
-//
-//                 let mut branch_changes = Vec::new();
-//                 if let Some((node, _)) = path.last() {
-//                     for change_type in &node.data.change_type {
-//                         branch_changes.push(BranchChanges {
-//                             change_type: *change_type,
-//                             public_keys: public_keys.clone(),
-//                             node_index: leaf_index.clone(),
-//                         })
-//                     }
-//                 }
-//
-//                 return Some(branch_changes);
-//             }
-//         }
-//
-//         None
-//     }
-// }
-
 impl<'a, G> Iterator for BranchChangesIter<'a, VerifierAggregationData<G>>
 where
     G: AffineRepr,
@@ -516,22 +456,19 @@ where
                         BranchChangesTypeHint::AppendNodeFix => {
                             continue;
                         }
-                        BranchChangesTypeHint::UpdateKey => Self::parse_key_update(item, &path),
+                        BranchChangesTypeHint::UpdateKey { .. } => {
+                            Self::parse_key_update(item, &path)
+                        }
                         BranchChangesTypeHint::MakeBlank { .. } => {
                             Self::parse_make_blank(item, &path)
                         }
-                        BranchChangesTypeHint::AppendNode { extend } => {
-                            let mut branch_change = if *extend {
-                                let mut branch_change = Self::parse_append_node(item, &path);
-                                // Add new node to change
-                                let new_public_key = item.children.get_right()?.data.public_key;
-                                branch_change.public_keys.push(new_public_key);
-                                branch_change.node_index.push(Direction::Right);
+                        BranchChangesTypeHint::AppendNode { .. } => {
+                            let mut branch_change = Self::parse_append_node(item, &path);
 
-                                branch_change
-                            } else {
-                                Self::parse_replace_node(item, &path)
-                            };
+                            // Add new node to change
+                            let new_public_key = item.children.get_right()?.data.public_key;
+                            branch_change.public_keys.push(new_public_key);
+                            branch_change.node_index.push(Direction::Right);
 
                             branch_change
                         }
@@ -542,12 +479,6 @@ where
             }
         }
         None
-    }
-}
-
-impl Default for AggregationChangeType {
-    fn default() -> Self {
-        Self::UpdateKey
     }
 }
 
@@ -565,43 +496,43 @@ where
     }
 }
 
-impl<G> TryFrom<ChangeAggregation<ProverAggregationData<G>>>
-    for ChangeAggregation<VerifierAggregationData<G>>
+impl<G> From<ProverAggregationData<G>> for AggregationData<G>
 where
     G: AffineRepr,
 {
-    type Error = ARTError;
-
-    fn try_from(
-        prover_aggregation: ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<Self, Self::Error> {
-        let mut iter = AggregationNodeIterWithPath::new(&prover_aggregation);
-        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
-
-        let verifier_data = VerifierAggregationData::<G>::from(node.data.clone());
-        let mut verifier_aggregation = ChangeAggregation {
-            children: Children::Leaf,
-            data: verifier_data,
-            marker: Default::default(),
-        };
-
-        for (node, path) in iter {
-            let mut node_path = path.iter().copied().map(|(_, dir)| dir).collect::<Vec<_>>();
-            if let Some(last_dir) = node_path.pop() {
-                let verifier_data = VerifierAggregationData::<G>::from(node.data.clone());
-                let next_node = ChangeAggregation {
-                    children: Children::Leaf,
-                    data: verifier_data,
-                    marker: Default::default(),
-                };
-
-                if let Some(child) = verifier_aggregation.get_mut_child_at(&*node_path) {
-                    child.children.set_child(last_dir, next_node);
-                }
-            }
+    fn from(prover_data: ProverAggregationData<G>) -> Self {
+        Self {
+            public_key: prover_data.public_key,
+            latest: prover_data.latest,
+            change_type: prover_data.change_type,
         }
+    }
+}
 
-        Ok(verifier_aggregation)
+impl<G> From<VerifierAggregationData<G>> for AggregationData<G>
+where
+    G: AffineRepr,
+{
+    fn from(verifier_data: VerifierAggregationData<G>) -> Self {
+        Self {
+            public_key: verifier_data.public_key,
+            latest: verifier_data.latest,
+            change_type: verifier_data.change_type,
+        }
+    }
+}
+
+impl<G> From<AggregationData<G>> for VerifierAggregationData<G>
+where
+    G: AffineRepr,
+{
+    fn from(aggregation_data: AggregationData<G>) -> Self {
+        Self {
+            public_key: aggregation_data.public_key,
+            co_public_key: None,
+            latest: aggregation_data.latest,
+            change_type: aggregation_data.change_type,
+        }
     }
 }
 
@@ -634,8 +565,8 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, type: {:?}",
-            pk_marker, co_pk_marker, sk_marker, self.change_type
+            "pk: {}, co_pk: {}, sk: {}, type: {:?}, latest: {}",
+            pk_marker, co_pk_marker, sk_marker, self.change_type, self.latest
         )
     }
 }
@@ -661,8 +592,27 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, type: {:?}",
-            pk_marker, co_pk_marker, self.change_type
+            "pk: {}, co_pk: {}, type: {:?}, latest: {}",
+            pk_marker, co_pk_marker, self.change_type, self.latest
+        )
+    }
+}
+
+impl<G> Display for AggregationData<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::BaseField: PrimeField,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let pk_marker = match self.public_key.x() {
+            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
+            None => "None".to_string(),
+        };
+
+        write!(
+            f,
+            "pk: {}, type: {:?}, latest: {}",
+            pk_marker, self.change_type, self.latest
         )
     }
 }

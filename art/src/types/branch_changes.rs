@@ -14,17 +14,22 @@ pub enum BranchChangesType {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-pub enum BranchChangesTypeHint {
+pub enum BranchChangesTypeHint<G>
+where
+    G: AffineRepr,
+{
     MakeBlank {
         /// If `initiation` is true, then the change was done for unblanked user. Else it is a
         /// participation in the user removal, and it should be merged
-        initiation: bool,
+        blank_pk: G,
     },
     AppendNode {
         /// If true, marks that the targeted node was blank. Else it wasn't.
         extend: bool,
     },
-    UpdateKey,
+    UpdateKey {
+        pk: G,
+    },
     /// Means, that the node can't be computed by usual means. This doesn't provide a branch
     /// change, but it works as a marker for key_update and make blank branch changes extractor.
     AppendNodeFix,

@@ -1,12 +1,16 @@
-use crate::types::{ChangeAggregation, Direction, NodeIndex, ProverAggregationData, UpdateData};
+use crate::types::AggregationData;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
-    types::{ARTRootKey, BranchChanges},
+    types::{
+        ARTRootKey, BranchChanges, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
+        UpdateData, VerifierAggregationData,
+    },
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use cortado::CortadoAffine;
 
 /// Trait which contains methods to work with abstract Private ART tree.
 ///
@@ -59,6 +63,16 @@ where
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
+    fn update_private_art_aggregation_v2(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError>;
+
+    fn update_private_art_aggregation(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError>;
+
     /// Update ART with `target_changes` for the user, which didnt participated it the
     /// merge conflict.
     fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError>;
@@ -73,6 +87,14 @@ where
         target_changes: &[BranchChanges<G>],
         base_fork: Self,
     ) -> Result<(), ARTError>;
+
+    /// Retrieve aggregation co_path values from the art
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>;
+
+    // fn get_latest_pk(&self, aggregation_root: &ChangeAggregation<AggregationData<G>>, path: &[Direction]) -> Result<G, ARTError>;
 }
 
 pub(crate) trait ARTPrivateAPIHelper<G>: ARTPublicAPI<G>

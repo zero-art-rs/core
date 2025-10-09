@@ -18,16 +18,16 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
-    use tracing::{debug, warn};
+    use tracing::{debug, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::types::BranchChangesTypeHint;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
         types::{
-            ARTRootKey, BranchChanges, BranchChangesIter, ChangeAggregation, LeafIterWithPath,
-            NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART,
-            VerifierAggregationData, VerifierArtefacts,
+            ARTRootKey, AggregationData, BranchChanges, BranchChangesIter, ChangeAggregation,
+            LeafIterWithPath, NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts,
+            PublicART, VerifierAggregationData, VerifierArtefacts,
         },
     };
     use zrt_zk::art::{art_prove, art_verify};
@@ -1728,7 +1728,7 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = create_random_secrets_with_rng(3, &mut rng);
+        let secrets = create_random_secrets_with_rng(7, &mut rng);
 
         let (user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
             &secrets,
@@ -1743,13 +1743,15 @@ mod tests {
         let mut user1: PrivateART<CortadoAffine> =
             PrivateART::deserialize(&public_art_bytes, &secrets[1]).unwrap();
 
-        let mut user1_2 = user1.clone();
+        let mut user2: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[4]).unwrap();
 
-        // let user2: PrivateART<CortadoAffine> =
-        //     PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+        let user1_2 = user1.clone();
 
         let user3: PrivateART<CortadoAffine> =
             PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+        let user4: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[3]).unwrap();
 
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
@@ -1762,46 +1764,189 @@ mod tests {
             .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
         debug!("user1-1:\n{}", user1.get_root());
+        debug!("change1: {:#?}", change1);
+        debug!("agg1:\n{}", agg);
+
+        // // Check
+        // let verifier_aggregation =
+        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
+        // let mut user1_clone = user1_2.clone();
+        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        // debug!("user1_clone: \n{}", user1_clone.get_root());
+        // assert_eq!(
+        //     user1,
+        //     user1_clone,
+        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+        //     user1.get_root(),
+        //     user1_clone.get_root(),
+        // );
+
+        let (_, change1_5, artefacts1_5) = user1
+            .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
+            .unwrap();
+        debug!("user1-1.5:\n{}", user1.get_root());
+        debug!("change1.5: {:#?}", change1_5);
+        debug!("agg1.5:\n{}", agg);
+
+        // // Check
+        // let verifier_aggregation =
+        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
+        // let mut user1_clone = user1_2.clone();
+        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        // debug!("user1_clone: \n{}", user1_clone.get_root());
+        // assert_eq!(
+        //     user1,
+        //     user1_clone,
+        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+        //     user1.get_root(),
+        //     user1_clone.get_root(),
+        // );
 
         let (_, change2, artefacts2) = user1
             .append_or_replace_node_and_aggregate(&sk2, &mut agg)
             .unwrap();
         debug!("user1-2:\n{}", user1.get_root());
+        debug!("change2: {:#?}", change2);
+        debug!("agg2:\n{}", agg);
+
+        // // Check
+        // let verifier_aggregation =
+        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
+        // let mut user1_clone = user1_2.clone();
+        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        // debug!("user1_clone: \n{}", user1_clone.get_root());
+        // assert_eq!(
+        //     user1,
+        //     user1_clone,
+        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+        //     user1.get_root(),
+        //     user1_clone.get_root(),
+        // );
 
         let (_, change3, artefacts3) = user1
             .append_or_replace_node_and_aggregate(&sk3, &mut agg)
             .unwrap();
         debug!("user1-3:\n{}", user1.get_root());
+        debug!("change3: {:#?}", change3);
+        debug!("agg3:\n{}", agg);
+
+        // // Check
+        // let verifier_aggregation =
+        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
+        // let mut user1_clone = user1_2.clone();
+        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        // debug!("user1_clone: \n{}", user1_clone.get_root());
+        // assert_eq!(
+        //     user1,
+        //     user1_clone,
+        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+        //     user1.get_root(),
+        //     user1_clone.get_root(),
+        // );
 
         let (_, change4, artefacts4) = user1
             .append_or_replace_node_and_aggregate(&sk4, &mut agg)
             .unwrap();
         debug!("user1-4:\n{}", user1.get_root());
-
-        debug!("change1: {:#?}", change1);
-        debug!("change2: {:#?}", change2);
-        debug!("change3: {:#?}", change3);
         debug!("change4: {:#?}", change4);
+        debug!("agg4:\n{}", agg);
+
+        // // Check
+        // let verifier_aggregation =
+        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
+        // let mut user1_clone = user1_2.clone();
+        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        // debug!("user1_clone: \n{}", user1_clone.get_root());
+        // assert_eq!(
+        //     user1,
+        //     user1_clone,
+        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+        //     user1.get_root(),
+        //     user1_clone.get_root(),
+        // );
+
+        for i in 0..100 {
+            let sk_i = Fr::rand(&mut rng);
+            let (_, change_i, _) = user1
+                .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
+                .unwrap();
+
+            let verifier_aggregation =
+                ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg)
+                    .unwrap();
+
+            let mut user1_clone = user1_2.clone();
+            user1_clone
+                .update_private_art_aggregation(&verifier_aggregation)
+                .unwrap();
+
+            assert_eq!(
+                user1,
+                user1_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user1_clone.get_root(),
+            );
+
+            let mut user2_clone = user2.clone();
+            user2_clone
+                .update_private_art_aggregation(&verifier_aggregation)
+                .unwrap();
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        debug!("prover aggregation: {}", agg);
 
         let verifier_aggregation =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(agg).unwrap();
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
 
-        debug!("verifier_aggregation:\n{}", verifier_aggregation);
+        let aggregation_from_prover =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
 
-        for mut changes in BranchChangesIter::new(&verifier_aggregation) {
-            for change in changes.iter_mut() {
-                change.node_index = change.node_index.as_index().unwrap();
-                debug!("changes: {:#?}", change);
-                user1_2.update_private_art(&change).unwrap()
-            }
-        }
+        let aggregation_from_verifier =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&verifier_aggregation)
+                .unwrap();
+
+        assert_eq!(
+            aggregation_from_prover, aggregation_from_verifier,
+            "Aggregations are equal from both sources."
+        );
+
+        let extracted_verifier_aggregation = user2
+            .get_aggregation_co_path(&aggregation_from_prover)
+            .unwrap();
+
+        assert_eq!(
+            verifier_aggregation, extracted_verifier_aggregation,
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
+            verifier_aggregation, extracted_verifier_aggregation,
+        );
+
+        let mut user1_clone = user1_2.clone();
+        user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        user2.update_private_art_aggregation(&verifier_aggregation).unwrap();
 
         assert_eq!(
             user1,
-            user1_2,
+            user1_clone,
+            "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_clone\n{}",
+            user1.get_root(),
+            user1_clone.get_root(),
+        );
+
+        assert_eq!(
+            user1,
+            user2,
             "Both users have the same view on the state of the art.\nUser1\n{}\nUser2\n{}",
             user1.get_root(),
-            user1_2.get_root(),
+            user2.get_root(),
         );
     }
 

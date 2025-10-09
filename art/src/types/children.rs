@@ -8,7 +8,7 @@ use ark_ec::AffineRepr;
 ///
 /// # Type Parameters
 /// - `C`: The type of the child nodes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Children<C>
 where
     C: Clone,
@@ -25,7 +25,7 @@ where
 ///
 /// # Type Parameters
 /// - `C`: The type of the child nodes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullChildren<C>
 where
     C: Clone,
