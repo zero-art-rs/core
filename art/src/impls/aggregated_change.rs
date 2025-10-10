@@ -121,7 +121,7 @@ where
             other_leaf
                 .data
                 .change_type
-                .push(BranchChangesTypeHint::AppendNodeFix);
+                .push(BranchChangesTypeHint::EphemeralUpdatedLeaf);
             other_leaf.data.co_public_key = Some(
                 *change.public_keys.last().ok_or(ARTError::NoChanges)?
             );
@@ -162,7 +162,6 @@ where
                 ),
                 change_type: vec![],
                 secret_key: prover_artefacts.secrets[i + 1],
-                latest: parent.children.get_child(direction.other()).is_some(),
                 // latest: true
             };
 
@@ -176,7 +175,7 @@ where
                 .children
                 .get_mut_child_or_create(*direction)
                 .ok_or(ARTError::InvalidInput)?;
-            parent.data.extend(child_data);
+            parent.data.aggregate(child_data);
         }
 
         Ok(())
@@ -335,7 +334,7 @@ where
             && node
                 .data
                 .get_change_type()
-                .contains(&BranchChangesTypeHint::AppendNodeFix)
+                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
         {
             public_keys.push(node.data.get_public_key());
         } else {
@@ -368,7 +367,7 @@ where
             && node
                 .data
                 .get_change_type()
-                .contains(&BranchChangesTypeHint::AppendNodeFix)
+                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
         {
             public_keys.push(node.data.get_public_key());
         } else {
@@ -424,7 +423,7 @@ where
             && node
                 .data
                 .get_change_type()
-                .contains(&BranchChangesTypeHint::AppendNodeFix)
+                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
         {
             public_keys.push(node.data.get_public_key());
         } else {
@@ -453,7 +452,7 @@ where
                 debug!("item.data.change_type: {:?}", item.data.change_type);
                 for change_type in &item.data.change_type {
                     branch_changes.push(match change_type {
-                        BranchChangesTypeHint::AppendNodeFix => {
+                        BranchChangesTypeHint::EphemeralUpdatedLeaf => {
                             continue;
                         }
                         BranchChangesTypeHint::UpdateKey { .. } => {
@@ -490,7 +489,6 @@ where
         Self {
             public_key: prover_data.public_key,
             co_public_key: prover_data.co_public_key,
-            latest: prover_data.latest,
             change_type: prover_data.change_type,
         }
     }
@@ -503,7 +501,6 @@ where
     fn from(prover_data: ProverAggregationData<G>) -> Self {
         Self {
             public_key: prover_data.public_key,
-            latest: prover_data.latest,
             change_type: prover_data.change_type,
         }
     }
@@ -516,7 +513,6 @@ where
     fn from(verifier_data: VerifierAggregationData<G>) -> Self {
         Self {
             public_key: verifier_data.public_key,
-            latest: verifier_data.latest,
             change_type: verifier_data.change_type,
         }
     }
@@ -530,7 +526,6 @@ where
         Self {
             public_key: aggregation_data.public_key,
             co_public_key: None,
-            latest: aggregation_data.latest,
             change_type: aggregation_data.change_type,
         }
     }
@@ -565,8 +560,8 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, type: {:?}, latest: {}",
-            pk_marker, co_pk_marker, sk_marker, self.change_type, self.latest
+            "pk: {}, co_pk: {}, sk: {}, type: {:?}",
+            pk_marker, co_pk_marker, sk_marker, self.change_type
         )
     }
 }
@@ -592,8 +587,8 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, type: {:?}, latest: {}",
-            pk_marker, co_pk_marker, self.change_type, self.latest
+            "pk: {}, co_pk: {}, type: {:?}",
+            pk_marker, co_pk_marker, self.change_type
         )
     }
 }
@@ -611,8 +606,8 @@ where
 
         write!(
             f,
-            "pk: {}, type: {:?}, latest: {}",
-            pk_marker, self.change_type, self.latest
+            "pk: {}, type: {:?}",
+            pk_marker, self.change_type
         )
     }
 }

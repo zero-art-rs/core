@@ -40,10 +40,6 @@ where
     /// Secret key of corresponding `public_key`
     pub secret_key: G::ScalarField,
 
-    /// If true, then that child is the second one set. This means, that the co_path value of the
-    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
-    pub latest: bool,
-
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
@@ -55,10 +51,6 @@ where
 {
     /// Public keys of the node from all the changes.
     pub public_key: G,
-
-    /// If true, then that child is the second one set. This means, that the co_path value of the
-    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
-    pub latest: bool,
 
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,
@@ -74,10 +66,6 @@ where
 
     // Public key of the neighbour of the node for every `public_key` except root. For root, if is empty.
     pub co_public_key: Option<G>,
-
-    /// If true, then that child is the second one set. This means, that the co_path value of the
-    /// node was taken from the original tree. If it is false, then co_path value is taken from updated part.
-    pub latest: bool,
 
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,

@@ -15,7 +15,7 @@ where
     }
 
     /// Extend `self` data with `other`.
-    fn extend(&mut self, other: Self);
+    fn aggregate(&mut self, other: Self);
 }
 
 /// Helper trait requiring public key getter

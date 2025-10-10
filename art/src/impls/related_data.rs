@@ -8,12 +8,11 @@ impl<G> RelatedData for ProverAggregationData<G>
 where
     G: AffineRepr,
 {
-    fn extend(&mut self, other: Self) {
+    fn aggregate(&mut self, other: Self) {
         self.public_key = other.public_key;
         self.secret_key = other.secret_key;
         self.co_public_key = other.co_public_key;
         self.change_type.extend(other.change_type);
-        self.latest = other.latest;
     }
 }
 
@@ -21,7 +20,7 @@ impl<G> RelatedData for VerifierAggregationData<G>
 where
     G: AffineRepr,
 {
-    fn extend(&mut self, other: Self) {
+    fn aggregate(&mut self, other: Self) {
         self.public_key = other.public_key;
         self.co_public_key = other.co_public_key;
         self.change_type.extend(other.change_type);
@@ -32,7 +31,7 @@ impl<G> RelatedData for AggregationData<G>
 where
     G: AffineRepr,
 {
-    fn extend(&mut self, other: Self) {
+    fn aggregate(&mut self, other: Self) {
         self.public_key = other.public_key;
         self.change_type.extend(other.change_type);
     }

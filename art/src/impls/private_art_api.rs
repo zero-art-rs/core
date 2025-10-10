@@ -221,7 +221,7 @@ where
                         }
                     }
                     BranchChangesTypeHint::UpdateKey { .. } => {}
-                    BranchChangesTypeHint::AppendNodeFix => {}
+                    BranchChangesTypeHint::EphemeralUpdatedLeaf => {}
                 }
             }
 

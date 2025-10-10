@@ -32,7 +32,7 @@ where
     },
     /// Means, that the node can't be computed by usual means. This doesn't provide a branch
     /// change, but it works as a marker for key_update and make blank branch changes extractor.
-    AppendNodeFix,
+    EphemeralUpdatedLeaf,
 }
 
 /// Helper data type, which contains information about ART change. Can be used to apply this

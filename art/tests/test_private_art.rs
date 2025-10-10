@@ -1767,40 +1767,12 @@ mod tests {
         debug!("change1: {:#?}", change1);
         debug!("agg1:\n{}", agg);
 
-        // // Check
-        // let verifier_aggregation =
-        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
-        // let mut user1_clone = user1_2.clone();
-        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        // debug!("user1_clone: \n{}", user1_clone.get_root());
-        // assert_eq!(
-        //     user1,
-        //     user1_clone,
-        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-        //     user1.get_root(),
-        //     user1_clone.get_root(),
-        // );
-
         let (_, change1_5, artefacts1_5) = user1
             .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
         debug!("user1-1.5:\n{}", user1.get_root());
         debug!("change1.5: {:#?}", change1_5);
         debug!("agg1.5:\n{}", agg);
-
-        // // Check
-        // let verifier_aggregation =
-        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
-        // let mut user1_clone = user1_2.clone();
-        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        // debug!("user1_clone: \n{}", user1_clone.get_root());
-        // assert_eq!(
-        //     user1,
-        //     user1_clone,
-        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-        //     user1.get_root(),
-        //     user1_clone.get_root(),
-        // );
 
         let (_, change2, artefacts2) = user1
             .append_or_replace_node_and_aggregate(&sk2, &mut agg)
@@ -1809,20 +1781,6 @@ mod tests {
         debug!("change2: {:#?}", change2);
         debug!("agg2:\n{}", agg);
 
-        // // Check
-        // let verifier_aggregation =
-        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
-        // let mut user1_clone = user1_2.clone();
-        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        // debug!("user1_clone: \n{}", user1_clone.get_root());
-        // assert_eq!(
-        //     user1,
-        //     user1_clone,
-        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-        //     user1.get_root(),
-        //     user1_clone.get_root(),
-        // );
-
         let (_, change3, artefacts3) = user1
             .append_or_replace_node_and_aggregate(&sk3, &mut agg)
             .unwrap();
@@ -1830,40 +1788,12 @@ mod tests {
         debug!("change3: {:#?}", change3);
         debug!("agg3:\n{}", agg);
 
-        // // Check
-        // let verifier_aggregation =
-        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
-        // let mut user1_clone = user1_2.clone();
-        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        // debug!("user1_clone: \n{}", user1_clone.get_root());
-        // assert_eq!(
-        //     user1,
-        //     user1_clone,
-        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-        //     user1.get_root(),
-        //     user1_clone.get_root(),
-        // );
-
         let (_, change4, artefacts4) = user1
             .append_or_replace_node_and_aggregate(&sk4, &mut agg)
             .unwrap();
         debug!("user1-4:\n{}", user1.get_root());
         debug!("change4: {:#?}", change4);
         debug!("agg4:\n{}", agg);
-
-        // // Check
-        // let verifier_aggregation =
-        //     ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::create_from(&agg).unwrap();
-        // let mut user1_clone = user1_2.clone();
-        // user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        // debug!("user1_clone: \n{}", user1_clone.get_root());
-        // assert_eq!(
-        //     user1,
-        //     user1_clone,
-        //     "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-        //     user1.get_root(),
-        //     user1_clone.get_root(),
-        // );
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
