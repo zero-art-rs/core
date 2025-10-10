@@ -1,10 +1,11 @@
 use crate::{
     helper_tools::{ark_de, ark_se},
-    types::{ARTNode, NodeIndex},
+    types::{NodeIndex},
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
+use crate::types::PublicART;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]
@@ -12,12 +13,8 @@ pub struct PrivateART<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
-    /// Referees to the root of ART tree structure.
-    pub root: Box<ARTNode<G>>,
-
-    /// Generator used to create the ART tree.
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub generator: G,
+    /// Public part of the art
+    pub public_art: PublicART<G>,
 
     /// Secret key of the leaf in the art. Used to compute toot secret key.
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]

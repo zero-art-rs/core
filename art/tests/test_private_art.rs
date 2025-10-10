@@ -881,6 +881,11 @@ mod tests {
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE - 1);
+
+                assert!(users_arts[i].get_root() == users_arts[0].get_root());
+                assert!(users_arts[i].get_generator() == users_arts[0].get_generator());
+                assert!(users_arts[i].get_root_key().ok() == users_arts[0].get_root_key().ok());
+
                 assert_eq!(users_arts[i], users_arts[0])
             }
         }
@@ -1095,7 +1100,7 @@ mod tests {
         // let (_, artefacts) = art.recompute_root_key_with_artefacts().unwrap();
 
         assert_eq!(
-            art.root.get_public_key(),
+            art.get_root().get_public_key(),
             CortadoAffine::generator().mul(tk.key).into_affine()
         );
 
@@ -1303,10 +1308,10 @@ mod tests {
             .merge_with_skip(&second_merged, &vec![first_changes.clone()])
             .unwrap();
 
-        assert_eq!(first.root.get_weight(), second.root.get_weight());
+        assert_eq!(first.get_root().get_weight(), second.get_root().get_weight());
         // debug!("first:\n{}", first.root);
         // debug!("second:\n{}", second.root);
-        assert_eq!(first.root, second.root);
+        assert_eq!(first.get_root(), second.get_root());
 
         // check leaf update correctness
         assert_eq!(
@@ -1347,7 +1352,7 @@ mod tests {
                 }
             }
 
-            assert_eq!(user_arts[i].root, first.root);
+            assert_eq!(user_arts[i].get_root(), first.get_root());
 
             assert_eq!(
                 user_arts[i]
@@ -1397,9 +1402,9 @@ mod tests {
         let def_art3 = art3.clone();
         let def_art4 = art4.clone();
 
-        assert_eq!(art1.root, art2.root);
-        assert_eq!(art1.root, art3.root);
-        assert_eq!(art1.root, art4.root);
+        assert_eq!(art1.get_root(), art2.get_root());
+        assert_eq!(art1.get_root(), art3.get_root());
+        assert_eq!(art1.get_root(), art4.get_root());
 
         let new_node1_sk = create_random_secrets(1)[0];
         let new_node2_sk = create_random_secrets(1)[0];
@@ -1416,25 +1421,25 @@ mod tests {
             generator: tk1.generator,
         };
 
-        assert_eq!(art1.root.get_public_key(), art1.public_key_of(&tk1.key));
-        assert_eq!(art2.root.get_public_key(), art2.public_key_of(&tk2.key));
-        assert_eq!(art3.root.get_public_key(), art3.public_key_of(&tk3.key));
-        assert_eq!(art4.root.get_public_key(), art4.public_key_of(&tk4.key));
+        assert_eq!(art1.get_root().get_public_key(), art1.public_key_of(&tk1.key));
+        assert_eq!(art2.get_root().get_public_key(), art2.public_key_of(&tk2.key));
+        assert_eq!(art3.get_root().get_public_key(), art3.public_key_of(&tk3.key));
+        assert_eq!(art4.get_root().get_public_key(), art4.public_key_of(&tk4.key));
 
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             *changes1.public_keys.get(0).unwrap()
         );
         assert_eq!(
-            art2.root.get_public_key(),
+            art2.get_root().get_public_key(),
             *changes2.public_keys.get(0).unwrap()
         );
         assert_eq!(
-            art3.root.get_public_key(),
+            art3.get_root().get_public_key(),
             *changes3.public_keys.get(0).unwrap()
         );
         assert_eq!(
-            art4.root.get_public_key(),
+            art4.get_root().get_public_key(),
             *changes4.public_keys.get(0).unwrap()
         );
 
@@ -1446,13 +1451,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&merged_tk.key)
         );
         assert_eq!(merged_tk, art1.get_root_key().unwrap());
         let tk1_merged = art1.get_root_key().unwrap();
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&tk1_merged.key)
         );
 
@@ -1465,7 +1470,7 @@ mod tests {
 
         // art2.update_node_index().unwrap();
         assert_eq!(
-            art2.root.get_public_key(),
+            art2.get_root().get_public_key(),
             art2.public_key_of(&merged_tk.key)
         );
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
@@ -1480,9 +1485,9 @@ mod tests {
             root_key_from_changes = root_key_from_changes.add(g.public_keys[0]).into_affine();
         }
         assert_eq!(root_key_from_changes, art1.public_key_of(&merged_tk.key));
-        assert_eq!(root_key_from_changes, art1.root.get_public_key());
+        assert_eq!(root_key_from_changes, art1.get_root().get_public_key());
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&art1.get_root_key().unwrap().key)
         );
 
@@ -1495,7 +1500,7 @@ mod tests {
             art2.get_node(&art2.node_index).unwrap().get_public_key()
         );
 
-        assert_eq!(art1.root, art2.root);
+        assert_eq!(art1.get_root(), art2.get_root());
 
         let all_changes = vec![changes1, changes2, changes3, changes4];
         for i in 0..TEST_GROUP_SIZE - 4 {
@@ -1503,9 +1508,9 @@ mod tests {
 
             let tk = user_arts[i].get_root_key().unwrap();
 
-            assert_eq!(root_key_from_changes, user_arts[i].root.get_public_key());
+            assert_eq!(root_key_from_changes, user_arts[i].get_root().get_public_key());
             assert_eq!(
-                user_arts[i].root.get_public_key(),
+                user_arts[i].get_root().get_public_key(),
                 user_arts[i].public_key_of(&tk.key)
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
@@ -1548,9 +1553,9 @@ mod tests {
         let art4 = user_arts.remove(4);
 
         // Sanity check
-        assert_eq!(art1.root, art2.root);
-        assert_eq!(art1.root, art3.root);
-        assert_eq!(art1.root, art4.root);
+        assert_eq!(art1.get_root(), art2.get_root());
+        assert_eq!(art1.get_root(), art3.get_root());
+        assert_eq!(art1.get_root(), art4.get_root());
 
         // Remove the user from the group (make his node blank).
         let new_node1_sk: Fr = create_random_secrets(1)[0];
@@ -1576,32 +1581,32 @@ mod tests {
 
         // Sanity check
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&*art1.path_secrets.last().unwrap())
         );
         assert_eq!(
-            art2.root.get_public_key(),
+            art2.get_root().get_public_key(),
             art3.public_key_of(&*art2.path_secrets.last().unwrap())
         );
         assert_eq!(
-            art3.root.get_public_key(),
+            art3.get_root().get_public_key(),
             art4.public_key_of(&*art3.path_secrets.last().unwrap())
         );
 
-        assert_eq!(art1.root.get_public_key(), art1.public_key_of(&tk1.key));
-        assert_eq!(art2.root.get_public_key(), art2.public_key_of(&tk2.key));
-        assert_eq!(art3.root.get_public_key(), art3.public_key_of(&tk3.key));
+        assert_eq!(art1.get_root().get_public_key(), art1.public_key_of(&tk1.key));
+        assert_eq!(art2.get_root().get_public_key(), art2.public_key_of(&tk2.key));
+        assert_eq!(art3.get_root().get_public_key(), art3.public_key_of(&tk3.key));
 
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             *changes1.public_keys.get(0).unwrap()
         );
         assert_eq!(
-            art2.root.get_public_key(),
+            art2.get_root().get_public_key(),
             *changes2.public_keys.get(0).unwrap()
         );
         assert_eq!(
-            art3.root.get_public_key(),
+            art3.get_root().get_public_key(),
             *changes3.public_keys.get(0).unwrap()
         );
 
@@ -1618,11 +1623,11 @@ mod tests {
         assert_eq!(*art1.path_secrets.last().unwrap(), merged_tk.key);
         assert_eq!(merged_tk, tk1_merged);
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&merged_tk.key)
         );
         assert_eq!(
-            art1.root.get_public_key(),
+            art1.get_root().get_public_key(),
             art1.public_key_of(&tk1_merged.key)
         );
 
@@ -1636,7 +1641,7 @@ mod tests {
 
         // Check Merge correctness
         assert_eq!(
-            art2.root.get_public_key(),
+            art2.get_root().get_public_key(),
             art2.public_key_of(&merged_tk.key)
         );
         assert_eq!(merged_tk, art2.get_root_key().unwrap());
@@ -1650,7 +1655,7 @@ mod tests {
             art2.get_node(&art4.node_index).unwrap().get_public_key()
         );
 
-        assert_eq!(art1.root, art2.root);
+        assert_eq!(art1.get_root(), art2.get_root());
 
         // Check merge correctness for other users
         let all_changes = vec![changes1, changes2, changes3];
@@ -1659,9 +1664,9 @@ mod tests {
 
             let tk = user_arts[i].get_root_key().unwrap();
 
-            assert_eq!(merged_pub_tk, user_arts[i].root.get_public_key());
+            assert_eq!(merged_pub_tk, user_arts[i].get_root().get_public_key());
             assert_eq!(
-                user_arts[i].root.get_public_key(),
+                user_arts[i].get_root().get_public_key(),
                 user_arts[i].public_key_of(&tk.key)
             );
             assert_eq!(merged_tk, user_arts[i].get_root_key().unwrap());
