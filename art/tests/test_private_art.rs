@@ -19,6 +19,7 @@ mod tests {
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
     use tracing::{debug, info, warn};
+    use tracing::field::debug;
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::types::BranchChangesTypeHint;
     use zrt_art::{
@@ -30,6 +31,8 @@ mod tests {
             PublicART, VerifierAggregationData, VerifierArtefacts,
         },
     };
+    use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
+    use tree_ds::prelude::{Node};
     use zrt_zk::art::{art_prove, art_verify};
 
     pub const TEST_GROUP_SIZE: usize = 100;
@@ -1736,7 +1739,7 @@ mod tests {
         )
         .unwrap();
 
-        debug!("Default art:\n{}", user0.get_root());
+        // debug!("Default art:\n{}", user0.get_root());
 
         // Serialise and deserialize art for the other users.
         let public_art_bytes = user0.serialize().unwrap();
@@ -1763,37 +1766,40 @@ mod tests {
         let (_, change1, artefacts1) = user1
             .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        debug!("user1-1:\n{}", user1.get_root());
-        debug!("change1: {:#?}", change1);
-        debug!("agg1:\n{}", agg);
+        // debug!("user1-1:\n{}", user1.get_root());
+        // debug!("change1: {:#?}", change1);
+        // debug!("agg1:\n{}", agg);
 
         let (_, change1_5, artefacts1_5) = user1
             .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        debug!("user1-1.5:\n{}", user1.get_root());
-        debug!("change1.5: {:#?}", change1_5);
-        debug!("agg1.5:\n{}", agg);
+        // debug!("user1-1.5:\n{}", user1.get_root());
+        // debug!("change1.5: {:#?}", change1_5);
+        // debug!("agg1.5:\n{}", agg);
 
         let (_, change2, artefacts2) = user1
             .append_or_replace_node_and_aggregate(&sk2, &mut agg)
             .unwrap();
-        debug!("user1-2:\n{}", user1.get_root());
-        debug!("change2: {:#?}", change2);
-        debug!("agg2:\n{}", agg);
+        // debug!("user1-2:\n{}", user1.get_root());
+        // debug!("change2: {:#?}", change2);
+        // debug!("agg2:\n{}", agg);
 
         let (_, change3, artefacts3) = user1
             .append_or_replace_node_and_aggregate(&sk3, &mut agg)
             .unwrap();
-        debug!("user1-3:\n{}", user1.get_root());
-        debug!("change3: {:#?}", change3);
-        debug!("agg3:\n{}", agg);
+        // debug!("user1-3:\n{}", user1.get_root());
+        // debug!("change3: {:#?}", change3);
+        // debug!("agg3:\n{}", agg);
 
         let (_, change4, artefacts4) = user1
             .append_or_replace_node_and_aggregate(&sk4, &mut agg)
             .unwrap();
-        debug!("user1-4:\n{}", user1.get_root());
-        debug!("change4: {:#?}", change4);
-        debug!("agg4:\n{}", agg);
+        // debug!("user1-4:\n{}", user1.get_root());
+        // debug!("change4: {:#?}", change4);
+        // debug!("agg4:\n{}", agg);
+
+        let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
+        debug!("tree_ds_tree:\n{}", tree_ds_tree);
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
@@ -1832,7 +1838,7 @@ mod tests {
             );
         }
 
-        debug!("prover aggregation: {}", agg);
+        // debug!("prover aggregation: {}", agg);
 
         let verifier_aggregation =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg).unwrap();

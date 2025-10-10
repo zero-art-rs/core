@@ -1,16 +1,14 @@
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, HasChangeTypeHint, HasPublicKey, RelatedData};
-use crate::types::{
-    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children,
-    Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
-};
+use crate::types::{AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex, NodeIterWithPath, ProverAggregationData, ProverArtefacts, VerifierAggregationData};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use tracing::debug;
+use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
+use tree_ds::prelude::{Node};
 
 impl<D> ChangeAggregation<D>
 where
@@ -228,6 +226,49 @@ where
                 right: Box::new(r.into()),
             },
         }
+    }
+}
+
+impl<G> From<&ProverAggregationData<G>> for AggregatedNodeData<G>
+where
+    G: AffineRepr,
+{
+    fn from(value: &ProverAggregationData<G>) -> Self {
+        Self {
+            public_key: value.public_key,
+            co_public_key: value.co_public_key,
+            secret_key: value.secret_key,
+            marker: false,
+        }
+    }
+}
+
+impl<G> TryFrom<&ChangeAggregation<ProverAggregationData<G>>> for ProverAggregationTree<G>
+where
+    G: AffineRepr,
+{
+    type Error = ARTError;
+
+    fn try_from(value: &ChangeAggregation<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
+        let mut resulting_tree: Self = Self::new(None);
+
+        let mut node_iter = AggregationNodeIterWithPath::new(&value);
+
+        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
+        let resulting_root = resulting_tree.add_node(Node::new(1, Some(AggregatedNodeData::from(&root.data))), None).unwrap();
+
+        for (agg_node, path) in node_iter {
+            let node_path = path.iter().map(|(_, dir)| *dir ).collect::<Vec<_>>();
+
+            let node_id = NodeIndex::get_index_from_path(&node_path)?;
+            let parent_id = node_id / 2;
+            resulting_tree.add_node(
+                Node::new(node_id, Some(AggregatedNodeData::from(&agg_node.data))),
+                Some(&parent_id)
+            ).map_err(|_| ARTError::TreeDS)?;
+        }
+
+        Ok(resulting_tree)
     }
 }
 

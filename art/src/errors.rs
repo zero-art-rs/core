@@ -42,4 +42,6 @@ pub enum ARTError {
     InternalOnly,
     #[error("Cant merge given changes.")]
     MergeInput,
+    #[error("Fail to update tree_ds tree.")]
+    TreeDS,
 }
