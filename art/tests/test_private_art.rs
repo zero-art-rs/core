@@ -895,7 +895,7 @@ mod tests {
                 let user_root_key = users_arts[i].get_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
-                assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE - 1);
+                assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE - 1);
                 assert_eq!(users_arts[i], main_user_art)
             }
         }
@@ -1959,6 +1959,8 @@ mod tests {
         Ok(())
     }
 
+    /// Test if non-mergable changes (without blank for the second time) can be aggregated and
+    /// applied correctly.
     #[test]
     fn test_branch_aggregation() {
         init_tracing_for_test();

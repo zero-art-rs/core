@@ -23,7 +23,7 @@ where
             parent = parent
                 .children
                 .get_child(*direction)
-                .ok_or(ARTError::NodeNotExists)?;
+                .ok_or(ARTError::PathNotExists)?;
         }
 
         Ok(parent)
@@ -146,7 +146,7 @@ where
             let other_leaf_data = &mut target_leaf
                 .children
                 .get_mut_child_or_create(Direction::Left)
-                .ok_or(ARTError::NodeNotExists)?
+                .ok_or(ARTError::PathNotExists)?
                 .data;
             other_leaf_data.public_key = stashed_leaf;
             other_leaf_data

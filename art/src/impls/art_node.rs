@@ -264,7 +264,7 @@ impl<G: AffineRepr> ARTNode<G> {
         match self {
             ARTNode::Leaf { .. } => ARTDisplayTree::Leaf {
                 public_key: format!(
-                    "{}leaf of weight: {}, x: {}",
+                    "{} leaf of weight: {}, x: {}",
                     blank_marker,
                     self.get_weight(),
                     pk_marker,
@@ -272,8 +272,7 @@ impl<G: AffineRepr> ARTNode<G> {
             },
             ARTNode::Internal { .. } => ARTDisplayTree::Inner {
                 public_key: format!(
-                    "{}node of weight: {}, x: {}",
-                    blank_marker,
+                    "Node of weight: {}, x: {}",
                     self.get_weight(),
                     pk_marker,
                 ),

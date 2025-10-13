@@ -2,11 +2,7 @@
 
 use crate::helper_tools::{iota_function, recompute_artefacts, common_prefix_size};
 use crate::traits::{ARTPrivateAPIHelper, ChildContainer};
-use crate::types::{
-    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
-    ChangeAggregation, Direction, NodeIndex, ProverAggregationData, UpdateData,
-    VerifierAggregationData,
-};
+use crate::types::{ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint, ChangeAggregation, Direction, LeafStatus, NodeIndex, ProverAggregationData, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
@@ -142,9 +138,9 @@ where
             None => self.find_path_to_lowest_leaf()?,
         };
 
-        let hint = !self
+        let hint = self
             .get_node(&NodeIndex::Direction(path.to_vec()))?
-            .is_blank;
+            .is_active();
 
         let (tk, changes, artefacts) = self.append_or_replace_node(secret_key)?;
 
@@ -179,19 +175,19 @@ where
                     BranchChangesTypeHint::MakeBlank { .. } => {
                         for i in 0..item_path.len() {
                             let partial_path = item_path[0..i].to_vec();
-                            self.get_mut_node(&NodeIndex::Direction(partial_path))?
-                                .weight -= 1;
+                            *self.get_mut_node(&NodeIndex::Direction(partial_path))?
+                                .get_mut_weight()? -= 1;
                         }
 
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-                        corresponding_item.is_blank = true;
+                        corresponding_item.set_status(LeafStatus::Blank)?;
                     }
                     BranchChangesTypeHint::AppendNode { .. } => {
                         for i in 0..item_path.len() {
                             let partial_path = item_path[0..i].to_vec();
-                            self.get_mut_node(&NodeIndex::Direction(partial_path))?
-                                .weight += 1;
+                            *self.get_mut_node(&NodeIndex::Direction(partial_path))?
+                                .get_mut_weight()? += 1;
                         }
 
                         let corresponding_item =
@@ -209,7 +205,7 @@ where
             }
 
             let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-            corresponding_item.public_key = item.data.public_key;
+            corresponding_item.set_public_key(item.data.public_key);
         }
 
         self.update_node_index()?;
@@ -358,13 +354,13 @@ where
             .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
             .count();
         for dir in &intersection {
-            partial_co_path.push(current_art_node.get_child(&dir.other())?.public_key);
+            partial_co_path.push(current_art_node.get_child(&dir.other())?.get_public_key());
 
             current_art_node = current_art_node.get_child(dir)?;
             current_agg_node = current_agg_node
                 .children
                 .get_child(*dir)
-                .ok_or(ARTError::NodeNotExists)?;
+                .ok_or(ARTError::PathNotExists)?;
 
             add_member_counter += current_agg_node
                 .data

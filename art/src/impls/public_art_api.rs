@@ -375,13 +375,13 @@ where
             } else {
                 // Find leaf in the original art somewhere on the path.
                 let mut leaf_traversal = parent_path.clone();
-                let mut leaf_pk = self.get_root().public_key;
+                let mut leaf_pk = self.get_root().get_public_key();
                 while let Some(last_dir) = leaf_traversal.pop() {
                     if let Ok(leaf_parent) =
                         self.get_node(&NodeIndex::Direction(leaf_traversal.clone()))
                         && let Ok(leaf) = leaf_parent.get_child(&last_dir)
                     {
-                        leaf_pk = leaf.public_key;
+                        leaf_pk = leaf.get_public_key();
                         break;
                     }
 
