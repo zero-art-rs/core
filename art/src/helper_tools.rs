@@ -61,6 +61,8 @@ pub fn common_prefix_size<T: Eq>(a: &[T], b: &[T]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
+/// Recompute artefacts using given `secret_key` as leaf secret key, and provided `co_path`
+/// public keys. `co_path` values are ordered from the leaves, to the root.
 pub fn recompute_artefacts<G>(
     secret_key: G::ScalarField,
     co_path: &[G],

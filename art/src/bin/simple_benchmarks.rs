@@ -125,7 +125,7 @@ fn bench_separate_operations_creation() {
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
         let def_other_private_art =
-            PrivateART::from_public_art(def_private_art.clone(), secrets[1]).unwrap();
+            PrivateART::from_public_art_and_secret(def_private_art.clone(), secrets[1]).unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -420,7 +420,7 @@ fn bench_operations_in_combination() {
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
         let def_other_private_art =
-            PrivateART::from_public_art(def_private_art.clone(), secrets[1]).unwrap();
+            PrivateART::from_public_art_and_secret(def_private_art.clone(), secrets[1]).unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();

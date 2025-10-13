@@ -27,8 +27,8 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    let user_agent1 = PrivateART::from_public_art(tree.clone(), secrets[0])?;
-    let user_agent2 = PrivateART::from_public_art(tree.clone(), secrets[1])?;
+    let user_agent1 = PrivateART::from_public_art_and_secret(tree.clone(), secrets[0])?;
+    let user_agent2 = PrivateART::from_public_art_and_secret(tree.clone(), secrets[1])?;
 
     Ok((user_agent1, user_agent2))
 }
@@ -44,7 +44,10 @@ where
 {
     let mut agents = Vec::new();
     for i in 0..number_of_agents {
-        agents.push(PrivateART::from_public_art(tree.clone(), secrets[i])?);
+        agents.push(PrivateART::from_public_art_and_secret(
+            tree.clone(),
+            secrets[i],
+        )?);
     }
 
     Ok(agents)
@@ -155,7 +158,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             &i,
             |b, &i| {
                 b.iter(|| {
-                    PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap()
+                    PrivateART::from_public_art_and_secret(trees[i].clone(), trees_secrets[i][0])
+                        .unwrap()
                 })
             },
         );
@@ -165,7 +169,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
         group.throughput(Throughput::Elements(TEST_SAMPLES[i] as u64));
 
         let mut public_art =
-            PrivateART::from_public_art(trees[i].clone(), trees_secrets[i][0]).unwrap();
+            PrivateART::from_public_art_and_secret(trees[i].clone(), trees_secrets[i][0]).unwrap();
 
         /// Key update
         let secret = Fr::rand(&mut rng);

@@ -24,10 +24,15 @@ where
         let secret_key = *secrets.first().ok_or(ARTError::InvalidInput)?;
         let (art, root_key) = PublicART::new_art_from_secrets(secrets, generator)?;
 
-        Ok((Self::from_public_art(art, secret_key)?, root_key))
+        Ok((Self::from_public_art_and_secret(art, secret_key)?, root_key))
     }
 
-    pub fn from_public_art<A>(mut other: A, secret_key: G::ScalarField) -> Result<Self, ARTError>
+    /// Creates new ART tree from other art. Uses `secret_key` to recompute `path_secrets`, so
+    /// might not work after merges.
+    pub fn from_public_art_and_secret<A>(
+        mut other: A,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError>
     where
         A: ARTPublicView<G> + ARTPublicAPI<G>,
     {
@@ -39,32 +44,51 @@ where
         let root = other.replace_root(Box::new(ARTNode::default()));
 
         Ok(Self {
-            root,
-            generator: other.get_generator(),
+            public_art: PublicART {
+                root,
+                generator: other.get_generator(),
+            },
             secret_key,
             node_index,
             path_secrets: artefacts.secrets,
         })
     }
 
-    pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&PublicART {
-            root: self.root.clone(),
-            generator: self.generator,
+    /// Creates new PrivateART from `other` ART and `path_secrets`.
+    pub fn from_public_art_and_path_secrets<A>(
+        mut other: A,
+        path_secrets: Vec<G::ScalarField>,
+    ) -> Result<Self, ARTError>
+    where
+        A: ARTPublicView<G> + ARTPublicAPI<G>,
+    {
+        let secret_key = *path_secrets.first().ok_or(ARTError::InvalidInput)?;
+        let node_index =
+            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
+                .as_index()?;
+        let root = other.replace_root(Box::default());
+
+        Ok(Self {
+            public_art: PublicART {
+                root,
+                generator: other.get_generator(),
+            },
+            secret_key,
+            node_index,
+            path_secrets,
         })
-        .map_err(ARTError::SerdeJson)
+    }
+
+    pub fn to_string(&self) -> Result<String, ARTError> {
+        serde_json::to_string(&self.public_art).map_err(ARTError::SerdeJson)
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        to_allocvec(&PublicART {
-            root: self.root.clone(),
-            generator: self.generator,
-        })
-        .map_err(ARTError::Postcard)
+        to_allocvec(&self.public_art).map_err(ARTError::Postcard)
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::from_public_art_and_secret(
             from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
             *secret_key,
         )
@@ -74,7 +98,7 @@ where
         canonical_json: &str,
         secret_key: &G::ScalarField,
     ) -> Result<Self, ARTError> {
-        Self::from_public_art(
+        Self::from_public_art_and_secret(
             serde_json::from_str::<PublicART<G>>(canonical_json).map_err(ARTError::SerdeJson)?,
             *secret_key,
         )
@@ -87,19 +111,19 @@ where
     G::BaseField: PrimeField,
 {
     fn get_root(&self) -> &ARTNode<G> {
-        &self.root
+        &self.public_art.root
     }
 
     fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>> {
-        &mut self.root
+        &mut self.public_art.root
     }
 
     fn get_generator(&self) -> G {
-        self.generator
+        self.public_art.generator
     }
 
     fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>> {
-        mem::replace(&mut self.root, new_root)
+        mem::replace(&mut self.public_art.root, new_root)
     }
 }
 
@@ -140,8 +164,8 @@ where
     Self: ARTPublicAPI<G>,
 {
     fn eq(&self, other: &Self) -> bool {
-        if self.root == other.root
-            && self.generator == other.generator
+        if self.get_root() == other.get_root()
+            && self.get_generator() == other.get_generator()
             && self.get_root_key().ok() == other.get_root_key().ok()
         {
             return true;

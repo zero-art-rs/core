@@ -1,7 +1,6 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::iota_function;
-use crate::helper_tools::{common_prefix_size, recompute_artefacts};
+use crate::helper_tools::{iota_function, recompute_artefacts, common_prefix_size};
 use crate::traits::{ARTPrivateAPIHelper, ChildContainer};
 use crate::types::{
     ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
@@ -56,7 +55,7 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = self.get_node(&NodeIndex::from(path.to_vec()))?.is_blank;
+        let append_changes = !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active(); //.is_blank;
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
@@ -160,7 +159,7 @@ where
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && self.get_node(&changes.node_index)?.is_blank
+            && !self.get_node(&changes.node_index)?.is_active()
         {
             self.update_private_art_with_options(changes, true, false)
         } else {
