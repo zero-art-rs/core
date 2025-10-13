@@ -1,14 +1,19 @@
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, HasChangeTypeHint, HasPublicKey, RelatedData};
-use crate::types::{AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex, NodeIterWithPath, ProverAggregationData, ProverArtefacts, VerifierAggregationData};
+use crate::types::{
+    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
+    BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children,
+    Direction, NodeIndex, NodeIterWithPath, ProverAggregationData, ProverArtefacts,
+    VerifierAggregationData,
+};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use tracing::debug;
+use tree_ds::prelude::Node;
 use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
-use tree_ds::prelude::{Node};
 
 impl<D> ChangeAggregation<D>
 where
@@ -73,7 +78,6 @@ where
         Self {
             children: Children::default(),
             data,
-            marker: Default::default(),
         }
     }
 }
@@ -111,18 +115,17 @@ where
         if let BranchChangesTypeHint::AppendNode { extend: true } = change_type_hint
             && let Ok(stashed_leaf) = stashed_leaf
         {
-            let other_leaf = target_leaf
+            let other_leaf_data = &mut target_leaf
                 .children
                 .get_mut_child_or_create(Direction::Left)
-                .ok_or(ARTError::ARTLogicError)?;
-            other_leaf.data.public_key = stashed_leaf;
-            other_leaf
-                .data
+                .ok_or(ARTError::ARTLogicError)?
+                .data;
+            other_leaf_data.public_key = stashed_leaf;
+            other_leaf_data
                 .change_type
                 .push(BranchChangesTypeHint::EphemeralUpdatedLeaf);
-            other_leaf.data.co_public_key = Some(
-                *change.public_keys.last().ok_or(ARTError::NoChanges)?
-            );
+            other_leaf_data.co_public_key =
+                Some(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
         }
 
         Ok(())
@@ -255,17 +258,24 @@ where
         let mut node_iter = AggregationNodeIterWithPath::new(&value);
 
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
-        let resulting_root = resulting_tree.add_node(Node::new(1, Some(AggregatedNodeData::from(&root.data))), None).unwrap();
+        resulting_tree
+            .add_node(
+                Node::new(1, Some(AggregatedNodeData::from(&root.data))),
+                None,
+            )
+            .unwrap();
 
         for (agg_node, path) in node_iter {
-            let node_path = path.iter().map(|(_, dir)| *dir ).collect::<Vec<_>>();
+            let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
 
             let node_id = NodeIndex::get_index_from_path(&node_path)?;
             let parent_id = node_id / 2;
-            resulting_tree.add_node(
-                Node::new(node_id, Some(AggregatedNodeData::from(&agg_node.data))),
-                Some(&parent_id)
-            ).map_err(|_| ARTError::TreeDS)?;
+            resulting_tree
+                .add_node(
+                    Node::new(node_id, Some(AggregatedNodeData::from(&agg_node.data))),
+                    Some(&parent_id),
+                )
+                .map_err(|_| ARTError::TreeDS)?;
         }
 
         Ok(resulting_tree)
@@ -483,7 +493,6 @@ impl<'a, G> Iterator for BranchChangesIter<'a, VerifierAggregationData<G>>
 where
     G: AffineRepr,
 {
-    // type Item = (&'a ProverAggregation<G>, Vec<(&'a ProverAggregation<G>, Direction)>);
     type Item = Vec<BranchChanges<G>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -645,10 +654,6 @@ where
             None => "None".to_string(),
         };
 
-        write!(
-            f,
-            "pk: {}, type: {:?}",
-            pk_marker, self.change_type
-        )
+        write!(f, "pk: {}, type: {:?}", pk_marker, self.change_type)
     }
 }

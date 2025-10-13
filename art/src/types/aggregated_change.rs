@@ -1,5 +1,5 @@
 use crate::traits::RelatedData;
-use crate::types::{BranchChangesTypeHint, Children, Direction, ProcessedMarker};
+use crate::types::{BranchChangesTypeHint, Children, Direction};
 use ark_ec::AffineRepr;
 use display_tree::DisplayTree;
 
@@ -79,8 +79,6 @@ where
     pub children: Children<Self>,
 
     pub data: D,
-
-    pub marker: ProcessedMarker,
 }
 
 #[derive(Debug, Clone)]

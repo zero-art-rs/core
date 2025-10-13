@@ -5,7 +5,6 @@ mod artefacts;
 mod branch_changes;
 mod children;
 mod node_index;
-mod node_marker;
 mod private_art;
 mod public_art;
 
@@ -21,7 +20,6 @@ pub use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use branch_changes::{BranchChanges, BranchChangesType, BranchChangesTypeHint};
 pub use children::{Children, FullChildren};
 pub use node_index::{Direction, NodeIndex};
-pub use node_marker::ProcessedMarker;
 pub use private_art::PrivateART;
 pub use public_art::PublicART;
 

@@ -18,8 +18,10 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
-    use tracing::{debug, info, warn};
     use tracing::field::debug;
+    use tracing::{debug, info, warn};
+    use tree_ds::prelude::Node;
+    use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::types::BranchChangesTypeHint;
     use zrt_art::{
@@ -31,8 +33,6 @@ mod tests {
             PublicART, VerifierAggregationData, VerifierArtefacts,
         },
     };
-    use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
-    use tree_ds::prelude::{Node};
     use zrt_zk::art::{art_prove, art_verify};
 
     pub const TEST_GROUP_SIZE: usize = 100;
@@ -1798,8 +1798,9 @@ mod tests {
         // debug!("change4: {:#?}", change4);
         // debug!("agg4:\n{}", agg);
 
+        // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
-        debug!("tree_ds_tree:\n{}", tree_ds_tree);
+        // debug!("tree_ds_tree:\n{}", tree_ds_tree);
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
@@ -1866,8 +1867,12 @@ mod tests {
         );
 
         let mut user1_clone = user1_2.clone();
-        user1_clone.update_private_art_aggregation(&verifier_aggregation).unwrap();
-        user2.update_private_art_aggregation(&verifier_aggregation).unwrap();
+        user1_clone
+            .update_private_art_aggregation(&verifier_aggregation)
+            .unwrap();
+        user2
+            .update_private_art_aggregation(&verifier_aggregation)
+            .unwrap();
 
         assert_eq!(
             user1,

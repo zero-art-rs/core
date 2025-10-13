@@ -1,6 +1,6 @@
-use std::fmt::{write, Display, Formatter};
 use ark_ec::AffineRepr;
-use tree_ds::prelude::{Tree};
+use std::fmt::{Display, Formatter};
+use tree_ds::prelude::Tree;
 
 pub type ProverAggregationTree<G> = Tree<u64, AggregatedNodeData<G>>;
 
@@ -12,9 +12,8 @@ where
     pub public_key: G,
     pub co_public_key: Option<G>,
     pub secret_key: G::ScalarField,
-    pub marker: bool
+    pub marker: bool,
 }
-
 
 impl<G> Display for AggregatedNodeData<G>
 where
@@ -34,7 +33,13 @@ where
             None => "None".to_string(),
         };
 
-        let sk_marker = self.secret_key.to_string().chars().take(8).collect::<String>() + "...";
+        let sk_marker = self
+            .secret_key
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>()
+            + "...";
 
         write!(
             f,
