@@ -75,6 +75,21 @@ impl NodeIndex {
         Ok(is_subpath)
     }
 
+    /// Returns an intersection with the other index, i.e. the path from root to the last common
+    /// node on both paths
+    pub fn intersect_with(&self, other: &NodeIndex) -> Result<Vec<Direction>, ARTError> {
+        let mut intersection: Vec<Direction> = vec![];
+        for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
+            if a == b {
+                intersection.push(*a);
+            } else {
+                return Ok(intersection);
+            }
+        }
+
+        Ok(intersection)
+    }
+
     /// Computes the path to the node starting from the root.
     fn get_path_from_index(index: u64) -> Result<Vec<Direction>, ARTError> {
         if index == 0 {

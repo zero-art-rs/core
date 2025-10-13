@@ -18,6 +18,6 @@ pub fn init_tracing_for_test() {
     _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_timer(LocalTimer)
-        .with_target(false)
+        .with_target(true)
         .try_init();
 }

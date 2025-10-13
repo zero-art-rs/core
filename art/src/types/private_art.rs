@@ -1,11 +1,11 @@
+use crate::types::PublicART;
 use crate::{
     helper_tools::{ark_de, ark_se},
-    types::{NodeIndex},
+    types::NodeIndex,
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
-use crate::types::PublicART;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(bound = "")]

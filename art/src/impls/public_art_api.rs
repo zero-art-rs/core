@@ -54,7 +54,7 @@ where
                     .map(|(_, direction)| *direction)
                     .collect::<Vec<Direction>>();
 
-                return self.get_mut_node(&NodeIndex::Direction(path))
+                return self.get_mut_node(&NodeIndex::Direction(path));
             }
         }
 
@@ -79,7 +79,7 @@ where
                     .map(|(_, direction)| *direction)
                     .collect::<Vec<Direction>>();
 
-                return self.get_mut_node(&NodeIndex::Direction(path))
+                return self.get_mut_node(&NodeIndex::Direction(path));
             }
         }
 

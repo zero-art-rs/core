@@ -44,7 +44,10 @@ where
 {
     let mut agents = Vec::new();
     for i in 0..number_of_agents {
-        agents.push(PrivateART::from_public_art_and_secret(tree.clone(), secrets[i])?);
+        agents.push(PrivateART::from_public_art_and_secret(
+            tree.clone(),
+            secrets[i],
+        )?);
     }
 
     Ok(agents)
@@ -155,7 +158,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
             &i,
             |b, &i| {
                 b.iter(|| {
-                    PrivateART::from_public_art_and_secret(trees[i].clone(), trees_secrets[i][0]).unwrap()
+                    PrivateART::from_public_art_and_secret(trees[i].clone(), trees_secrets[i][0])
+                        .unwrap()
                 })
             },
         );
