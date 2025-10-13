@@ -18,19 +18,16 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
-    use tracing::field::debug;
     use tracing::{debug, info, warn};
-    use tree_ds::prelude::Node;
-    use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
+    use utils::aggregations::ProverAggregationTree;
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
-    use zrt_art::types::BranchChangesTypeHint;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
         types::{
-            ARTRootKey, AggregationData, BranchChanges, BranchChangesIter, ChangeAggregation,
-            LeafIterWithPath, NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts,
-            PublicART, VerifierAggregationData, VerifierArtefacts,
+            ARTRootKey, AggregationData, BranchChanges, ChangeAggregation, LeafIterWithPath,
+            NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART,
+            VerifierAggregationData, VerifierArtefacts,
         },
     };
     use zrt_zk::art::{art_prove, art_verify};
@@ -769,7 +766,7 @@ mod tests {
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().weight, TEST_GROUP_SIZE - 1);
-                assert_eq!(users_arts[i], users_arts[0])
+                assert_eq!(users_arts[i], main_user_art)
             }
         }
 
@@ -1739,23 +1736,22 @@ mod tests {
         )
         .unwrap();
 
-        // debug!("Default art:\n{}", user0.get_root());
-
         // Serialise and deserialize art for the other users.
         let public_art_bytes = user0.serialize().unwrap();
         let mut user1: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[1]).unwrap();
+            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
 
         let mut user2: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[4]).unwrap();
+            PrivateART::deserialize(&public_art_bytes, &secrets[3]).unwrap();
 
         let user1_2 = user1.clone();
 
         let user3: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+            PrivateART::deserialize(&public_art_bytes, &secrets[4]).unwrap();
         let user4: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[3]).unwrap();
+            PrivateART::deserialize(&public_art_bytes, &secrets[5]).unwrap();
 
+        // Create aggregation
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
         let sk1 = Fr::rand(&mut rng);
@@ -1766,41 +1762,25 @@ mod tests {
         let (_, change1, artefacts1) = user1
             .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        // debug!("user1-1:\n{}", user1.get_root());
-        // debug!("change1: {:#?}", change1);
-        // debug!("agg1:\n{}", agg);
 
         let (_, change1_5, artefacts1_5) = user1
             .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        // debug!("user1-1.5:\n{}", user1.get_root());
-        // debug!("change1.5: {:#?}", change1_5);
-        // debug!("agg1.5:\n{}", agg);
 
         let (_, change2, artefacts2) = user1
             .append_or_replace_node_and_aggregate(&sk2, &mut agg)
             .unwrap();
-        // debug!("user1-2:\n{}", user1.get_root());
-        // debug!("change2: {:#?}", change2);
-        // debug!("agg2:\n{}", agg);
 
         let (_, change3, artefacts3) = user1
             .append_or_replace_node_and_aggregate(&sk3, &mut agg)
             .unwrap();
-        // debug!("user1-3:\n{}", user1.get_root());
-        // debug!("change3: {:#?}", change3);
-        // debug!("agg3:\n{}", agg);
 
         let (_, change4, artefacts4) = user1
             .append_or_replace_node_and_aggregate(&sk4, &mut agg)
             .unwrap();
-        // debug!("user1-4:\n{}", user1.get_root());
-        // debug!("change4: {:#?}", change4);
-        // debug!("agg4:\n{}", agg);
 
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
-        // debug!("tree_ds_tree:\n{}", tree_ds_tree);
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
@@ -1812,23 +1792,11 @@ mod tests {
                 ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg)
                     .unwrap();
 
-            let mut user1_clone = user1_2.clone();
-            user1_clone
-                .update_private_art_aggregation(&verifier_aggregation)
-                .unwrap();
-
-            assert_eq!(
-                user1,
-                user1_clone,
-                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-                user1.get_root(),
-                user1_clone.get_root(),
-            );
-
             let mut user2_clone = user2.clone();
             user2_clone
-                .update_private_art_aggregation(&verifier_aggregation)
+                .update_private_art_with_aggregation(&verifier_aggregation)
                 .unwrap();
+            assert_eq!(user1.get_root_key().ok(), user2_clone.get_root_key().ok(),);
 
             assert_eq!(
                 user1,
@@ -1838,8 +1806,6 @@ mod tests {
                 user2_clone.get_root(),
             );
         }
-
-        // debug!("prover aggregation: {}", agg);
 
         let verifier_aggregation =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
@@ -1868,10 +1834,10 @@ mod tests {
 
         let mut user1_clone = user1_2.clone();
         user1_clone
-            .update_private_art_aggregation(&verifier_aggregation)
+            .update_private_art_with_aggregation(&verifier_aggregation)
             .unwrap();
         user2
-            .update_private_art_aggregation(&verifier_aggregation)
+            .update_private_art_with_aggregation(&verifier_aggregation)
             .unwrap();
 
         assert_eq!(

@@ -89,12 +89,3 @@ where
     pub current_node: Option<&'a ChangeAggregation<D>>,
     pub path: Vec<(&'a ChangeAggregation<D>, Direction)>,
 }
-
-/// Iterator for `ChangesAggregation`, which returns `BranchChanges` in the aggregation.
-#[derive(Debug, Clone)]
-pub struct BranchChangesIter<'a, D>
-where
-    D: RelatedData + Clone,
-{
-    pub inner_iter: AggregationNodeIterWithPath<'a, D>,
-}

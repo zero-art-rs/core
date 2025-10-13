@@ -14,6 +14,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use tracing::error;
+use crate::types::{AggregationData, AggregationNodeIterWithPath, ChangeAggregation, VerifierAggregationData};
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -32,8 +33,7 @@ where
             }
         }
 
-        error!("Failed to find a path to the node, as it isn't exists");
-        Err(ARTError::PathNotExists)
+        Err(ARTError::NodeNotExists)
     }
 
     fn recompute_root_key_with_artefacts_using_secret_key(
@@ -289,6 +289,62 @@ where
         }
 
         Ok(())
+    }
+
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError> {
+        let mut resulting_aggregation =
+            ChangeAggregation::<VerifierAggregationData<G>>::derive_from(&aggregation)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(aggregation).skip(1) {
+            // Collect parent path.
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
+
+            let aggregation_parent = path
+                .last()
+                .ok_or(ARTError::NoChanges)
+                .map(|(node, _)| *node)?;
+
+            let resulting_target_node = resulting_aggregation
+                .get_mut_node(&parent_path)?
+                .get_mut_node(&[last_direction])?;
+
+            if let Ok(co_leaf) = aggregation_parent.get_node(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                let pk = co_leaf.data.public_key;
+                resulting_target_node.data.co_public_key = Some(pk);
+            } else if let Ok(parent) = self.get_node(&NodeIndex::Direction(parent_path.clone()))
+                && let Ok(other_child) = parent.get_child(&last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                resulting_target_node.data.co_public_key = Some(other_child.get_public_key());
+            } else {
+                // Find leaf in the original art somewhere on the path.
+                let mut leaf_traversal = parent_path.clone();
+                let mut leaf_pk = self.get_root().public_key;
+                while let Some(last_dir) = leaf_traversal.pop() {
+                    if let Ok(leaf_parent) =
+                        self.get_node(&NodeIndex::Direction(leaf_traversal.clone()))
+                        && let Ok(leaf) = leaf_parent.get_child(&last_dir)
+                    {
+                        leaf_pk = leaf.public_key;
+                        break;
+                    }
+
+                    // Handle error case, because this must be always present in aggregation tree.
+                    if let Direction::Right = last_dir {
+                        return Err(ARTError::InvalidInput);
+                    }
+                }
+
+                resulting_target_node.data.co_public_key = Some(leaf_pk);
+            }
+        }
+
+        Ok(resulting_aggregation)
     }
 }
 

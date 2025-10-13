@@ -1,4 +1,4 @@
-use crate::types::{ChangeAggregation, UpdateData, VerifierAggregationData};
+use crate::types::{AggregationData, ChangeAggregation, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     types::{
@@ -102,6 +102,12 @@ where
         applied_changes: &[BranchChanges<G>],
         target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError>;
+
+    /// Retrieve aggregation co_path values from the art
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>;
 }
 
 pub(crate) trait ARTPublicAPIHelper<G>

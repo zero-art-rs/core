@@ -1,17 +1,15 @@
 use crate::errors::ARTError;
-use crate::traits::{ChildContainer, HasChangeTypeHint, HasPublicKey, RelatedData};
+use crate::traits::{ChildContainer, RelatedData};
 use crate::types::{
     AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesIter, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children,
-    Direction, NodeIndex, NodeIterWithPath, ProverAggregationData, ProverArtefacts,
-    VerifierAggregationData,
+    BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex,
+    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
-use tracing::debug;
 use tree_ds::prelude::Node;
 use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
 
@@ -25,7 +23,7 @@ where
             parent = parent
                 .children
                 .get_child(*direction)
-                .ok_or(ARTError::InternalOnly)?;
+                .ok_or(ARTError::NodeNotExists)?;
         }
 
         Ok(parent)
@@ -67,6 +65,36 @@ where
         }
 
         Ok(aggregation)
+    }
+
+    /// Return `true` if the specified path exists in the tree, otherwise `false`.
+    pub fn contain(&self, path: &[Direction]) -> bool {
+        let mut current_node = self;
+        for direction in path {
+            if let Some(child) = current_node.children.get_child(*direction) {
+                current_node = child;
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Returns a common path between aggregation `self`, and the given `path`.
+    pub fn get_intersection(&self, path: &[Direction]) -> Vec<Direction> {
+        let mut intersection = Vec::new();
+        let mut current_node = self;
+        for dir in path {
+            if let Some(child) = current_node.children.get_child(*dir) {
+                intersection.push(*dir);
+                current_node = child;
+            } else {
+                return intersection;
+            }
+        }
+
+        intersection
     }
 }
 
@@ -118,7 +146,7 @@ where
             let other_leaf_data = &mut target_leaf
                 .children
                 .get_mut_child_or_create(Direction::Left)
-                .ok_or(ARTError::ARTLogicError)?
+                .ok_or(ARTError::NodeNotExists)?
                 .data;
             other_leaf_data.public_key = stashed_leaf;
             other_leaf_data
@@ -163,7 +191,6 @@ where
                 ),
                 change_type: vec![],
                 secret_key: prover_artefacts.secrets[i + 1],
-                // latest: true
             };
 
             // update other_co_path
@@ -351,182 +378,6 @@ where
             return Some(return_item);
         }
 
-        None
-    }
-}
-
-/// BranchChangesIter iterates over branch changes provided by the aggregation.
-impl<'a, D> BranchChangesIter<'a, D>
-where
-    D: RelatedData + Clone + Default,
-{
-    pub fn new(root: &'a ChangeAggregation<D>) -> Self {
-        Self {
-            inner_iter: AggregationNodeIterWithPath::new(root),
-        }
-    }
-
-    fn parse_key_update<G>(
-        item: &ChangeAggregation<D>,
-        path: &Vec<(&ChangeAggregation<D>, Direction)>,
-    ) -> BranchChanges<G>
-    where
-        D: HasPublicKey<G> + HasChangeTypeHint<G>,
-        G: AffineRepr,
-    {
-        let mut path_to_item = vec![];
-        let mut public_keys = vec![];
-        for (node, dir) in path {
-            path_to_item.push(*dir);
-            public_keys.push(node.data.get_public_key());
-        }
-
-        if let Some(node) = item.children.get_left()
-            && node
-                .data
-                .get_change_type()
-                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
-        {
-            public_keys.push(node.data.get_public_key());
-        } else {
-            public_keys.push(item.data.get_public_key());
-        }
-
-        BranchChanges {
-            change_type: BranchChangesType::UpdateKey,
-            public_keys,
-            node_index: NodeIndex::from(path_to_item),
-        }
-    }
-
-    fn parse_make_blank<G>(
-        item: &ChangeAggregation<D>,
-        path: &Vec<(&ChangeAggregation<D>, Direction)>,
-    ) -> BranchChanges<G>
-    where
-        D: HasPublicKey<G> + HasChangeTypeHint<G>,
-        G: AffineRepr,
-    {
-        let mut path_to_item = vec![];
-        let mut public_keys = vec![];
-        for (node, dir) in path {
-            path_to_item.push(*dir);
-            public_keys.push(node.data.get_public_key());
-        }
-
-        if let Some(node) = item.children.get_left()
-            && node
-                .data
-                .get_change_type()
-                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
-        {
-            public_keys.push(node.data.get_public_key());
-        } else {
-            public_keys.push(item.data.get_public_key());
-        }
-
-        BranchChanges {
-            change_type: BranchChangesType::MakeBlank,
-            public_keys,
-            node_index: NodeIndex::from(path_to_item),
-        }
-    }
-
-    fn parse_append_node<G>(
-        item: &ChangeAggregation<D>,
-        path: &Vec<(&ChangeAggregation<D>, Direction)>,
-    ) -> BranchChanges<G>
-    where
-        D: HasPublicKey<G> + HasChangeTypeHint<G>,
-        G: AffineRepr,
-    {
-        let mut path_to_item = vec![];
-        let mut public_keys = vec![];
-        for (node, dir) in path {
-            path_to_item.push(*dir);
-            public_keys.push(node.data.get_public_key());
-        }
-        public_keys.push(item.data.get_public_key());
-
-        BranchChanges {
-            change_type: BranchChangesType::AppendNode,
-            public_keys,
-            node_index: NodeIndex::from(path_to_item),
-        }
-    }
-
-    fn parse_replace_node<G>(
-        item: &ChangeAggregation<D>,
-        path: &Vec<(&ChangeAggregation<D>, Direction)>,
-    ) -> BranchChanges<G>
-    where
-        D: HasPublicKey<G> + HasChangeTypeHint<G>,
-        G: AffineRepr,
-    {
-        let mut path_to_item = vec![];
-        let mut public_keys = vec![];
-        for (node, dir) in path {
-            path_to_item.push(*dir);
-            public_keys.push(node.data.get_public_key());
-        }
-
-        if let Some(node) = item.children.get_left()
-            && node
-                .data
-                .get_change_type()
-                .contains(&BranchChangesTypeHint::EphemeralUpdatedLeaf)
-        {
-            public_keys.push(node.data.get_public_key());
-        } else {
-            public_keys.push(item.data.get_public_key());
-        }
-
-        BranchChanges {
-            change_type: BranchChangesType::AppendNode,
-            public_keys,
-            node_index: NodeIndex::from(path_to_item),
-        }
-    }
-}
-
-impl<'a, G> Iterator for BranchChangesIter<'a, VerifierAggregationData<G>>
-where
-    G: AffineRepr,
-{
-    type Item = Vec<BranchChanges<G>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some((item, path)) = self.inner_iter.next() {
-            if !item.data.change_type.is_empty() {
-                let mut branch_changes = Vec::new();
-                debug!("item.data.change_type: {:?}", item.data.change_type);
-                for change_type in &item.data.change_type {
-                    branch_changes.push(match change_type {
-                        BranchChangesTypeHint::EphemeralUpdatedLeaf => {
-                            continue;
-                        }
-                        BranchChangesTypeHint::UpdateKey { .. } => {
-                            Self::parse_key_update(item, &path)
-                        }
-                        BranchChangesTypeHint::MakeBlank { .. } => {
-                            Self::parse_make_blank(item, &path)
-                        }
-                        BranchChangesTypeHint::AppendNode { .. } => {
-                            let mut branch_change = Self::parse_append_node(item, &path);
-
-                            // Add new node to change
-                            let new_public_key = item.children.get_right()?.data.public_key;
-                            branch_change.public_keys.push(new_public_key);
-                            branch_change.node_index.push(Direction::Right);
-
-                            branch_change
-                        }
-                    })
-                }
-
-                return Some(branch_changes);
-            }
-        }
         None
     }
 }

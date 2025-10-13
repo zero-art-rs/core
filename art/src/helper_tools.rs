@@ -1,9 +1,11 @@
 use crate::errors::ARTError;
-use ark_ec::AffineRepr;
+use crate::types::ProverArtefacts;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
+use tracing::debug;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -53,4 +55,35 @@ where
     Ok(Scalar::from_bytes_mod_order(
         (&point.into_bigint().to_bytes_le()[..]).try_into()?,
     ))
+}
+
+pub fn common_prefix_size<T: Eq>(a: &[T], b: &[T]) -> usize {
+    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+}
+
+pub fn recompute_artefacts<G>(
+    secret_key: G::ScalarField,
+    co_path: &[G],
+) -> Result<ProverArtefacts<G>, ARTError>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    let mut ark_secret = secret_key;
+
+    let mut secrets: Vec<G::ScalarField> = vec![secret_key];
+    let mut path: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
+    for public_key in co_path {
+        ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+        secrets.push(ark_secret);
+        path.push(G::generator().mul(ark_secret).into_affine());
+    }
+
+    let artefacts = ProverArtefacts {
+        path,
+        co_path: co_path.to_vec(),
+        secrets,
+    };
+
+    Ok(artefacts)
 }
