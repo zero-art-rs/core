@@ -106,6 +106,13 @@ where
     fn get_artefact_secrets_from_change(
         &self,
         changes: &BranchChanges<G>,
-        fork: &mut Self,
+    ) -> Result<Vec<G::ScalarField>, ARTError>;
+
+    /// instead of recomputing path secretes from the leaf to root, this method takes some secret
+    /// leaf on the path, and recompute the remaining path_secrets. `partial_co_path` is a co-path
+    /// from some inner node to the root.
+    fn get_partial_path_secrets(
+        &self,
+        partial_co_path: &[G],
     ) -> Result<Vec<G::ScalarField>, ARTError>;
 }

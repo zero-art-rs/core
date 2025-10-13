@@ -1,5 +1,7 @@
 use crate::errors::ARTError;
+use crate::types::ProverArtefacts;
 use ark_ec::AffineRepr;
+use ark_ec::CurveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
@@ -53,4 +55,33 @@ where
     Ok(Scalar::from_bytes_mod_order(
         (&point.into_bigint().to_bytes_le()[..]).try_into()?,
     ))
+}
+
+/// Recompute artefacts using given `secret_key` as leaf secret key, and provided `co_path`
+/// public keys. `co_path` values are ordered from the leaves, to the root.
+pub fn recompute_artefacts<G>(
+    secret_key: G::ScalarField,
+    co_path: &[G],
+) -> Result<ProverArtefacts<G>, ARTError>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    let mut ark_secret = secret_key;
+
+    let mut secrets: Vec<G::ScalarField> = vec![secret_key];
+    let mut path: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
+    for public_key in co_path {
+        ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
+        secrets.push(ark_secret);
+        path.push(G::generator().mul(ark_secret).into_affine());
+    }
+
+    let artefacts = ProverArtefacts {
+        path,
+        co_path: co_path.to_vec(),
+        secrets,
+    };
+
+    Ok(artefacts)
 }

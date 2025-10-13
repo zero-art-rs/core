@@ -1,6 +1,6 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::iota_function;
+use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::traits::ARTPrivateAPIHelper;
 use crate::types::{Direction, NodeIndex};
 use crate::{
@@ -233,16 +233,13 @@ where
             }
         }
 
-        // create a fork of the art, to correctly append change
-        let mut fork = self.clone();
-
         self.update_public_art_with_options(changes, append_changes, update_weights)?;
 
         if let BranchChangesType::AppendNode = &changes.change_type {
             self.update_node_index()?;
         };
 
-        let artefact_secrets = self.get_artefact_secrets_from_change(changes, &mut fork)?;
+        let artefact_secrets = self.get_artefact_secrets_from_change(changes)?;
 
         self.update_path_secrets(artefact_secrets, &changes.node_index, append_changes)?;
 
@@ -276,8 +273,6 @@ where
         base_fork: A,
     ) -> Result<(), ARTError> {
         for change in target_changes {
-            let mut fork = base_fork.clone();
-
             if self.get_node_index().is_subpath_of(&change.node_index)? {
                 match change.change_type {
                     BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
@@ -292,7 +287,7 @@ where
                 }
             }
 
-            let secrets = self.get_artefact_secrets_from_change(change, &mut fork)?;
+            let secrets = base_fork.get_artefact_secrets_from_change(change)?;
 
             self.update_path_secrets(secrets, &change.node_index, true)?;
         }
@@ -303,22 +298,43 @@ where
     fn get_artefact_secrets_from_change(
         &self,
         changes: &BranchChanges<G>,
-        fork: &mut Self,
     ) -> Result<Vec<G::ScalarField>, ARTError> {
-        fork.update_public_art_with_options(changes, false, true)?;
-        if let BranchChangesType::AppendNode = &changes.change_type {
-            fork.update_node_index()?;
-        };
+        let intersection = self.get_node_index().intersect_with(&changes.node_index)?;
 
-        let co_path_values = fork.get_co_path_values(fork.get_node_index())?;
-        let mut secrets = Vec::with_capacity(co_path_values.len() + 1);
-        secrets.push(fork.get_secret_key());
-        let mut ark_secret = fork.get_secret_key();
-        for public_key in co_path_values.iter() {
-            ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(ark_secret);
+        let mut co_path = Vec::new();
+        let mut current_node = self.get_root();
+        for dir in &intersection {
+            co_path.push(current_node.get_child(&dir.other())?.get_public_key());
+            current_node = current_node.get_child(dir)?;
         }
 
+        if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {
+            co_path.push(*public_key);
+        }
+
+        co_path.reverse();
+
+        let secrets = self.get_partial_path_secrets(&co_path)?;
+
         Ok(secrets)
+    }
+
+    fn get_partial_path_secrets(
+        &self,
+        partial_co_path: &[G],
+    ) -> Result<Vec<G::ScalarField>, ARTError> {
+        let updated_path_len = partial_co_path.len();
+
+        let level_sk =
+            self.get_path_secrets()[self.get_path_secrets().len() - updated_path_len - 1];
+
+        let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, partial_co_path)?;
+
+        let mut new_path_secrets = self.get_path_secrets().clone();
+        for (sk, i) in secrets.iter().rev().zip((0..new_path_secrets.len()).rev()) {
+            new_path_secrets[i] = *sk;
+        }
+
+        Ok(new_path_secrets)
     }
 }

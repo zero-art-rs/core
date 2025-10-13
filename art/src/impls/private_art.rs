@@ -29,7 +29,10 @@ where
 
     /// Creates new ART tree from other art. Uses `secret_key` to recompute `path_secrets`, so
     /// might not work after merges.
-    pub fn from_public_art_and_secret<A>(mut other: A, secret_key: G::ScalarField) -> Result<Self, ARTError>
+    pub fn from_public_art_and_secret<A>(
+        mut other: A,
+        secret_key: G::ScalarField,
+    ) -> Result<Self, ARTError>
     where
         A: ARTPublicView<G> + ARTPublicAPI<G>,
     {
@@ -52,7 +55,10 @@ where
     }
 
     /// Creates new PrivateART from `other` ART and `path_secrets`.
-    pub fn from_public_art_and_path_secrets<A>(mut other: A, path_secrets: Vec<G::ScalarField>) -> Result<Self, ARTError>
+    pub fn from_public_art_and_path_secrets<A>(
+        mut other: A,
+        path_secrets: Vec<G::ScalarField>,
+    ) -> Result<Self, ARTError>
     where
         A: ARTPublicView<G> + ARTPublicAPI<G>,
     {
@@ -63,7 +69,7 @@ where
         let root = other.replace_root(Box::default());
 
         Ok(Self {
-            public_art:  PublicART {
+            public_art: PublicART {
                 root,
                 generator: other.get_generator(),
             },
@@ -74,13 +80,11 @@ where
     }
 
     pub fn to_string(&self) -> Result<String, ARTError> {
-        serde_json::to_string(&self.public_art)
-        .map_err(ARTError::SerdeJson)
+        serde_json::to_string(&self.public_art).map_err(ARTError::SerdeJson)
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        to_allocvec(&self.public_art)
-        .map_err(ARTError::Postcard)
+        to_allocvec(&self.public_art).map_err(ARTError::Postcard)
     }
 
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
