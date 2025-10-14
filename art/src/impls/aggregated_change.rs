@@ -129,7 +129,7 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        if let BranchChangesTypeHint::AppendNode { extend: true } = change_type_hint {
+        if let BranchChangesTypeHint::AppendNode { extend: true, .. } = change_type_hint {
             leaf_path.pop();
         }
 
@@ -140,7 +140,7 @@ where
         let target_leaf = self.get_mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
 
-        if let BranchChangesTypeHint::AppendNode { extend: true } = change_type_hint
+        if let BranchChangesTypeHint::AppendNode { extend: true, .. } = change_type_hint
             && let Ok(stashed_leaf) = stashed_leaf
         {
             let other_leaf_data = &mut target_leaf

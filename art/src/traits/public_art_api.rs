@@ -86,11 +86,17 @@ where
         append_changes: bool,
     ) -> Result<(), ARTError>;
 
-    /// Returns node by the given NodeIndex
+    /// Returns node by the given `index`.
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
-    /// Returns mutable node by the given NodeIndex
+    /// Returns node on the end of the given `path`.
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError>;
+
+    /// Returns mutable node by the given `index`.
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
+
+    /// Returns mutable node on the end of the given `path`.
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;

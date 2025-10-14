@@ -144,10 +144,21 @@ where
 
         let (tk, changes, artefacts) = self.append_or_replace_node(secret_key)?;
 
+        let ext_pk = match hint {
+            true => Some(self
+                .get_node(&NodeIndex::Direction(path.to_vec()))?
+                .get_public_key()),
+            false => None,
+        };
+
         aggregation.extend(
             &changes,
             &artefacts,
-            BranchChangesTypeHint::AppendNode { extend: hint },
+            BranchChangesTypeHint::AppendNode {
+                extend: hint,
+                pk: self.public_key_of(secret_key),
+                ext_pk,
+            },
         )?;
 
         Ok((tk, changes, artefacts))
@@ -163,6 +174,26 @@ where
         }
     }
 
+    fn update_public_art_upper_branch(
+        &mut self,
+        path: &[Direction],
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError> {
+        // Update root
+        let mut current_agg_node = verifier_aggregation;
+        self.get_mut_root().set_public_key(current_agg_node.data.public_key);
+
+        // Update other nodes
+        for (i, dir) in path.into_iter().enumerate() {
+            current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::InvalidAggregation)?;
+            let target_node = self.get_mut_node_with_path(&path[0..i + 1])?;
+            target_node.set_public_key(current_agg_node.data.public_key);
+            // debug!("current_agg_node.data.public_key: {}", current_agg_node.data.public_key);
+        }
+
+        Ok(())
+    }
+
     fn update_private_art_with_aggregation(
         &mut self,
         verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
@@ -170,42 +201,59 @@ where
         for (item, path) in AggregationNodeIterWithPath::new(verifier_aggregation) {
             let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
 
+            debug!("item.data.change_type: {:?}", item.data.change_type);
             for change_type in &item.data.change_type {
+                // debug!("Self:\n{}", self.get_root());
                 match change_type {
-                    BranchChangesTypeHint::MakeBlank { .. } => {
+                    BranchChangesTypeHint::MakeBlank { blank_pk } => {
                         for i in 0..item_path.len() {
                             let partial_path = item_path[0..i].to_vec();
                             *self.get_mut_node(&NodeIndex::Direction(partial_path))?
                                 .get_mut_weight()? -= 1;
                         }
 
+                        self.update_public_art_upper_branch(&item_path, &verifier_aggregation)?;
+
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
                         corresponding_item.set_status(LeafStatus::Blank)?;
+                        corresponding_item.set_public_key(*blank_pk);
+
+                        debug!("after blank corresponding_item: {}", corresponding_item);
                     }
-                    BranchChangesTypeHint::AppendNode { .. } => {
+                    BranchChangesTypeHint::AppendNode { extend, pk, ext_pk } => {
                         for i in 0..item_path.len() {
                             let partial_path = item_path[0..i].to_vec();
                             *self.get_mut_node(&NodeIndex::Direction(partial_path))?
                                 .get_mut_weight()? += 1;
                         }
 
+                        let mut parent_path = item_path.clone();
+                        parent_path.pop();
+                        self.update_public_art_upper_branch(&parent_path, &verifier_aggregation)?;
+
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-                        match corresponding_item.extend_or_replace(ARTNode::default()) {
-                            Ok(_) => {}
-                            Err(err) => {
-                                return Err(ARTError::from(err));
-                            }
+                        corresponding_item.extend_or_replace(ARTNode::new_leaf(*pk))?;
+
+
+                        if let Some(ext_pk) = ext_pk {
+                            corresponding_item.set_public_key(*ext_pk)
                         }
+                        debug!("after append -{extend}- corresponding_item: {}", corresponding_item);
                     }
-                    BranchChangesTypeHint::UpdateKey { .. } => {}
-                    BranchChangesTypeHint::EphemeralUpdatedLeaf => {}
+                    BranchChangesTypeHint::UpdateKey { pk } => {
+                        self.update_public_art_upper_branch(&item_path, &verifier_aggregation)?;
+
+                        let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_public_key(*pk);
+                    }
+                    BranchChangesTypeHint::EphemeralUpdatedLeaf => {} //ignore
                 }
             }
 
-            let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-            corresponding_item.set_public_key(item.data.public_key);
+            // let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+            // corresponding_item.set_public_key(item.data.public_key);
         }
 
         self.update_node_index()?;

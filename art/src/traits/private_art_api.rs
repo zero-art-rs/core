@@ -62,6 +62,12 @@ where
     /// Updates art by applying changes. Also updates `path_secrets` and `node_index`.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
+    fn update_public_art_upper_branch(
+        &mut self,
+        path: &[Direction],
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError>;
+
     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
     /// and `node_index`.
     fn update_private_art_with_aggregation(

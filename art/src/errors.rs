@@ -44,4 +44,6 @@ pub enum ARTError {
     MergeInput,
     #[error("Fail to update tree_ds tree.")]
     TreeDS,
+    #[error("Provided aggregation is invalid.")]
+    InvalidAggregation,
 }

@@ -224,8 +224,12 @@ where
     }
 
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        self.get_node_with_path(&index.get_path()?)
+    }
+
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError> {
         let mut node = self.get_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_child(direction)?;
         }
 
@@ -233,8 +237,12 @@ where
     }
 
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        self.get_mut_node_with_path(&index.get_path()?)
+    }
+
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError> {
         let mut node = self.get_mut_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_mut_child(direction)?;
         }
 

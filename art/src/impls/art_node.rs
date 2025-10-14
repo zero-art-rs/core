@@ -236,7 +236,9 @@ impl<G: AffineRepr> ARTNode<G> {
         match self {
             ARTNode::Leaf { status, .. } => {
                 match status {
-                    LeafStatus::Active => self.extend(other),
+                    LeafStatus::Active => {
+                        self.extend(other)
+                    },
                     _ => _ = self.replace_with(other),
                 };
             }
