@@ -1,8 +1,12 @@
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, RelatedData};
-use crate::types::{AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData};
-use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, Zero};
+use crate::types::{
+    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
+    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex,
+    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+};
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
@@ -99,7 +103,10 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        if let BranchChangesTypeHint::AppendNode { extend: true, .. } = change_type_hint {
+        if let BranchChangesTypeHint::AppendNode {
+            ext_pk: Some(_), ..
+        } = change_type_hint
+        {
             leaf_path.pop();
         }
 
@@ -131,7 +138,6 @@ where
             .secrets
             .first()
             .ok_or(ARTError::InvalidInput)?;
-
 
         // Update other nodes.
         let mut parent = &mut *self;
@@ -197,7 +203,7 @@ where
     fn from(value: &ChangeAggregation<D>) -> Self {
         match &value.children {
             Children::Leaf => AggregationDisplayTree::Leaf {
-                public_key: format!("Leaf: {}", value.data,),
+                public_key: format!("Leaf: {}", value.data),
             },
             Children::Route { c, direction } => AggregationDisplayTree::Route {
                 public_key: format!("Route: {} -> {:?}", value.data, direction),
@@ -445,7 +451,9 @@ where
         write!(
             f,
             "pk: {}, co_pk: {}, sk: {}, type: {:?}",
-            pk_marker, co_pk_marker, sk_marker,
+            pk_marker,
+            co_pk_marker,
+            sk_marker,
             self.change_type
                 .iter()
                 .map(|change_type| BranchChangesType::from(change_type))
@@ -476,7 +484,8 @@ where
         write!(
             f,
             "pk: {}, co_pk: {}, type: {:?}",
-            pk_marker, co_pk_marker,
+            pk_marker,
+            co_pk_marker,
             self.change_type
                 .iter()
                 .map(|change_type| BranchChangesType::from(change_type))
@@ -501,9 +510,9 @@ where
             "pk: {}, type: {:?}",
             pk_marker,
             self.change_type
-            .iter()
-            .map(|change_type| BranchChangesType::from(change_type))
-            .collect::<Vec<_>>(),
+                .iter()
+                .map(|change_type| BranchChangesType::from(change_type))
+                .collect::<Vec<_>>(),
         )
     }
 }

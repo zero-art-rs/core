@@ -1,8 +1,12 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::{iota_function, recompute_artefacts, common_prefix_size};
+use crate::helper_tools::{common_prefix_size, iota_function, recompute_artefacts};
 use crate::traits::{ARTPrivateAPIHelper, ARTPublicAPI, ChildContainer};
-use crate::types::{ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint, ChangeAggregation, Direction, LeafStatus, NodeIndex, ProverAggregationData, UpdateData, VerifierAggregationData};
+use crate::types::{
+    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
+    ChangeAggregation, Direction, LeafStatus, NodeIndex, ProverAggregationData, UpdateData,
+    VerifierAggregationData,
+};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
@@ -51,7 +55,10 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = matches!(self.get_node_with_path(&path)?.get_status(), Some(LeafStatus::Blank));
+        let append_changes = matches!(
+            self.get_node_with_path(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
@@ -115,7 +122,10 @@ where
         temporary_secret_key: &G::ScalarField,
         aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
     ) -> Result<UpdateData<G>, ARTError> {
-        let merge = matches!(self.get_node_with_path(&path)?.get_status(), Some(LeafStatus::Blank));
+        let merge = matches!(
+            self.get_node_with_path(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
         if merge {
             return Err(ARTError::InvalidMergeInput);
         }
@@ -126,7 +136,7 @@ where
             &changes,
             &artefacts,
             BranchChangesTypeHint::MakeBlank {
-                blank_pk: self.public_key_of(temporary_secret_key),
+                pk: self.public_key_of(temporary_secret_key),
                 merge,
             },
         )?;
@@ -151,9 +161,10 @@ where
         let (tk, changes, artefacts) = self.append_or_replace_node(secret_key)?;
 
         let ext_pk = match hint {
-            true => Some(self
-                .get_node(&NodeIndex::Direction(path.to_vec()))?
-                .get_public_key()),
+            true => Some(
+                self.get_node(&NodeIndex::Direction(path.to_vec()))?
+                    .get_public_key(),
+            ),
             false => None,
         };
 
@@ -161,7 +172,6 @@ where
             &changes,
             &artefacts,
             BranchChangesTypeHint::AppendNode {
-                extend: hint,
                 pk: self.public_key_of(secret_key),
                 ext_pk,
             },

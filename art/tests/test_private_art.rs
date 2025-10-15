@@ -22,6 +22,7 @@ mod tests {
     use tracing::{debug, info, warn};
     use utils::aggregations::ProverAggregationTree;
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
+    use zrt_art::types::LeafIter;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
@@ -2027,9 +2028,62 @@ mod tests {
                 .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
                 .unwrap();
 
-            let verifier_aggregation =
-                ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg)
-                    .unwrap();
+            let aggregation =
+                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
+
+            let mut user2_clone = user2.clone();
+            user2_clone
+                .update_private_art_with_aggregation(&verifier_aggregation)
+                .unwrap();
+            assert_eq!(user1.get_root_key().ok(), user2_clone.get_root_key().ok(),);
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        let root_clone = user1.get_root().clone();
+        let mut leaf_iter = LeafIterWithPath::new(&root_clone).skip(10).take(10);
+
+        for (_, path) in leaf_iter {
+            let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let (_, change_i, _) = user1
+                .make_blank_and_aggregate(&path, &Fr::rand(&mut rng), &mut agg)
+                .unwrap();
+
+            let aggregation =
+                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
+
+            let mut user2_clone = user2.clone();
+            user2_clone
+                .update_private_art_with_aggregation(&verifier_aggregation)
+                .unwrap();
+            assert_eq!(user1.get_root_key().ok(), user2_clone.get_root_key().ok(),);
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        for i in 0..100 {
+            let sk_i = Fr::rand(&mut rng);
+            let (_, change_i, _) = user1
+                .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
+                .unwrap();
+
+            let aggregation =
+                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
 
             let mut user2_clone = user2.clone();
             user2_clone
@@ -2109,9 +2163,11 @@ mod tests {
             &secrets,
             &CortadoAffine::generator(),
         )
-            .unwrap();
+        .unwrap();
 
-        let user3_path = user0.get_path_to_leaf(&user0.public_key_of(&secrets[4])).unwrap();
+        let user3_path = user0
+            .get_path_to_leaf(&user0.public_key_of(&secrets[4]))
+            .unwrap();
         user0.make_blank(&user3_path, &Fr::rand(&mut rng)).unwrap();
 
         // Create aggregation
@@ -2119,17 +2175,17 @@ mod tests {
 
         let sk1 = Fr::rand(&mut rng);
 
-        let result = user0
-            .make_blank_and_aggregate(&user3_path, &sk1, &mut agg);
+        let result = user0.make_blank_and_aggregate(&user3_path, &sk1, &mut agg);
 
         assert!(
-            matches!(result.err(), Some(ARTError::InvalidMergeInput)),
-            "Fail to merge unmergable change."
+            matches!(result, Err(ARTError::InvalidMergeInput)),
+            "Fail to get Error ARTError::InvalidMergeInput. Instead got {:?}.",
+            result
         );
     }
 
     #[test]
-    fn test_branch_aggregation_root_only() {
+    fn test_branch_aggregation_from_one_node() {
         init_tracing_for_test();
 
         // Init test context.
@@ -2138,21 +2194,38 @@ mod tests {
             &vec![Fr::rand(&mut rng)],
             &CortadoAffine::generator(),
         )
-            .unwrap();
+        .unwrap();
 
         let mut pub_art = user0.public_art.clone();
 
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
-        user0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg).unwrap();
+        user0
+            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            .unwrap();
 
-        let verify_agg = ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        user0
+            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            .unwrap();
+
+        user0
+            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            .unwrap();
+
+        user0
+            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            .unwrap();
+
+        let verify_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
         let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-        pub_art.update_public_art_with_aggregation(&verify_agg).unwrap()
+        let result = pub_art
+            .update_public_art_with_aggregation(&verify_agg)
+            .unwrap();
 
-        // assert!(
-        //     matches!(result.err(), Some(ARTError::InvalidMergeInput)),
-        //     "Fail to merge unmergable change."
-        // );
+        assert_eq!(
+            pub_art,
+            user0.public_art,
+        )
     }
 
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {

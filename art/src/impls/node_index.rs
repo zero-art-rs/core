@@ -1,6 +1,5 @@
 use crate::errors::ARTError;
 use crate::types::{Direction, NodeIndex};
-use std::ops::Deref;
 use tracing::error;
 
 impl Direction {

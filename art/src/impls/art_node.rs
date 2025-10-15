@@ -4,7 +4,6 @@ use crate::types::{
     NodeIterWithPath,
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use std::mem;
@@ -244,9 +243,7 @@ impl<G: AffineRepr> ARTNode<G> {
         match self {
             ARTNode::Leaf { status, .. } => {
                 match status {
-                    LeafStatus::Active => {
-                        self.extend(other)
-                    },
+                    LeafStatus::Active => self.extend(other),
                     _ => _ = self.replace_with(other),
                 };
             }
@@ -281,11 +278,7 @@ impl<G: AffineRepr> ARTNode<G> {
                 ),
             },
             ARTNode::Internal { .. } => ARTDisplayTree::Inner {
-                public_key: format!(
-                    "Node of weight: {}, x: {}",
-                    self.get_weight(),
-                    pk_marker,
-                ),
+                public_key: format!("Node of weight: {}, x: {}", self.get_weight(), pk_marker,),
                 left: Box::new(self.get_left().unwrap().display_analog()),
                 right: Box::new(self.get_right().unwrap().display_analog()),
             },

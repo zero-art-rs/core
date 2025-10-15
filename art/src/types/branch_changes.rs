@@ -19,23 +19,22 @@ where
     G: AffineRepr,
 {
     MakeBlank {
-        /// If `initiation` is true, then the change was done for unblanked user. Else it is a
-        /// participation in the user removal, and it should be merged
-        blank_pk: G,
+        /// Public key used for blanking.
+        pk: G,
 
+        /// If true, that blanking is the commit blanking, else it is initialisation.
         merge: bool,
     },
     AppendNode {
-        /// If true, marks that the targeted node was blank. Else it wasn't.
-        extend: bool,
-
-        /// If some the node was extended and this is a key else not.
+        /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
+        /// of the node, else the node was replaced.
         ext_pk: Option<G>,
 
-        /// New user public key
-        pk: G
+        /// New user public key.
+        pk: G,
     },
     UpdateKey {
+        /// New public key
         pk: G,
     },
 }
