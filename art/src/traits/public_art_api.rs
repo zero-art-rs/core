@@ -125,6 +125,12 @@ where
         target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError>;
 
+    fn get_last_leaf_pk_on_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError>;
+
     /// Retrieve aggregation co_path values from the art
     fn get_aggregation_co_path(
         &self,

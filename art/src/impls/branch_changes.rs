@@ -26,18 +26,15 @@ impl Default for BranchChangesType {
     }
 }
 
-impl<G> TryFrom<BranchChangesTypeHint<G>> for BranchChangesType
+impl<G> From<&BranchChangesTypeHint<G>> for BranchChangesType
 where
     G: AffineRepr,
 {
-    type Error = ARTError;
-
-    fn try_from(value: BranchChangesTypeHint<G>) -> Result<Self, Self::Error> {
+    fn from(value: &BranchChangesTypeHint<G>) -> Self {
         match value {
-            BranchChangesTypeHint::MakeBlank { .. } => Ok(BranchChangesType::MakeBlank),
-            BranchChangesTypeHint::AppendNode { .. } => Ok(BranchChangesType::AppendNode),
-            BranchChangesTypeHint::UpdateKey { .. } => Ok(BranchChangesType::UpdateKey),
-            _ => Err(ARTError::InvalidInput),
+            BranchChangesTypeHint::MakeBlank { .. } => BranchChangesType::MakeBlank,
+            BranchChangesTypeHint::AppendNode { .. } => BranchChangesType::AppendNode,
+            BranchChangesTypeHint::UpdateKey { .. } => BranchChangesType::UpdateKey,
         }
     }
 }

@@ -2021,7 +2021,6 @@ mod tests {
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
 
-
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
             let (_, change_i, _) = user1

@@ -14,7 +14,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use tracing::error;
+use tracing::{debug, error};
 use crate::traits::{ARTPrivateAPI, ChildContainer};
 use crate::types::{AggregationData, AggregationNodeIterWithPath, ChangeAggregation, VerifierAggregationData};
 
@@ -351,6 +351,62 @@ where
         Ok(())
     }
 
+    fn get_last_leaf_pk_on_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError> {
+        let mut leaf_public_key = self.get_root().get_public_key();
+
+        let mut current_art_node = Some(self.get_root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            // Retrieve leaf public key from art
+            if let Some(art_node) = current_art_node {
+                if let Ok(node) = art_node.get_child(dir) {
+                    if let ARTNode::Leaf {public_key, .. } = node {
+                        leaf_public_key = *public_key;
+                    }
+
+                    current_art_node = Some(node);
+                } else {
+                    current_art_node = None;
+                }
+            }
+
+            // Retrieve leaf public key updates form aggregation
+            if let Some(agg_node) = current_agg_node {
+                if let Some(node) = agg_node.children.get_child(*dir) {
+                    for change_type in &node.data.change_type {
+                        match change_type {
+                            BranchChangesTypeHint::MakeBlank { blank_pk, .. } => leaf_public_key = *blank_pk,
+                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
+                                if let Some(replacement_pk) = ext_pk {
+                                    match path.get(i + 1) {
+                                        Some(Direction::Right) => leaf_public_key = *pk,
+                                        Some(Direction::Left) => {},
+                                        None => leaf_public_key = *replacement_pk,
+                                    }
+                                } else {
+                                    leaf_public_key = *pk;
+                                }
+                            }
+                            BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+                        }
+                    }
+
+                    current_agg_node = Some(node);
+                } else {
+                    current_agg_node = None;
+                }
+            }
+
+            // current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::NoChanges)?;
+        }
+
+        Ok(leaf_public_key)
+    }
+
     fn get_aggregation_co_path(
         &self,
         aggregation: &ChangeAggregation<AggregationData<G>>,
@@ -359,7 +415,6 @@ where
             ChangeAggregation::<VerifierAggregationData<G>>::try_from(aggregation)?;
 
         for (_, path) in AggregationNodeIterWithPath::new(aggregation).skip(1) {
-            // Collect parent path.
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
 
@@ -382,25 +437,9 @@ where
                 // Try to retrieve Co-path from the original ART
                 resulting_target_node.data.co_public_key = Some(other_child.get_public_key());
             } else {
-                // Find leaf in the original art somewhere on the path.
-                let mut leaf_traversal = parent_path.clone();
-                let mut leaf_pk = self.get_root().get_public_key();
-                while let Some(last_dir) = leaf_traversal.pop() {
-                    if let Ok(leaf_parent) =
-                        self.get_node(&NodeIndex::Direction(leaf_traversal.clone()))
-                        && let Ok(leaf) = leaf_parent.get_child(&last_dir)
-                    {
-                        leaf_pk = leaf.get_public_key();
-                        break;
-                    }
-
-                    // Handle error case, because this must be always present in aggregation tree.
-                    if let Direction::Right = last_dir {
-                        return Err(ARTError::InvalidInput);
-                    }
-                }
-
-                resulting_target_node.data.co_public_key = Some(leaf_pk);
+                let mut path = parent_path.clone();
+                path.push(last_direction.other());
+                resulting_target_node.data.co_public_key = Some(self.get_last_leaf_pk_on_path(aggregation, &path)?);
             }
         }
 
@@ -465,7 +504,6 @@ where
                         let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
                         corresponding_item.set_public_key(*pk);
                     }
-                    BranchChangesTypeHint::EphemeralUpdatedLeaf => {} //ignore
                 }
             }
 

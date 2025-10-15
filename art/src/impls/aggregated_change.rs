@@ -1,10 +1,6 @@
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, RelatedData};
-use crate::types::{
-    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex,
-    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
-};
+use crate::types::{AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -107,28 +103,10 @@ where
             leaf_path.pop();
         }
 
-        let stashed_leaf = self.get_node(&leaf_path).map(|node| node.data.public_key);
-
         self.extend_tree_with(change, prover_artefacts)?;
 
         let target_leaf = self.get_mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
-
-        if let BranchChangesTypeHint::AppendNode { extend: true, .. } = change_type_hint
-            && let Ok(stashed_leaf) = stashed_leaf
-        {
-            let other_leaf_data = &mut target_leaf
-                .children
-                .get_mut_child_or_create(Direction::Left)
-                .ok_or(ARTError::PathNotExists)?
-                .data;
-            other_leaf_data.public_key = stashed_leaf;
-            other_leaf_data
-                .change_type
-                .push(BranchChangesTypeHint::EphemeralUpdatedLeaf);
-            other_leaf_data.co_public_key =
-                Some(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
-        }
 
         Ok(())
     }
@@ -467,7 +445,11 @@ where
         write!(
             f,
             "pk: {}, co_pk: {}, sk: {}, type: {:?}",
-            pk_marker, co_pk_marker, sk_marker, self.change_type
+            pk_marker, co_pk_marker, sk_marker,
+            self.change_type
+                .iter()
+                .map(|change_type| BranchChangesType::from(change_type))
+                .collect::<Vec<_>>(),
         )
     }
 }
@@ -494,7 +476,11 @@ where
         write!(
             f,
             "pk: {}, co_pk: {}, type: {:?}",
-            pk_marker, co_pk_marker, self.change_type
+            pk_marker, co_pk_marker,
+            self.change_type
+                .iter()
+                .map(|change_type| BranchChangesType::from(change_type))
+                .collect::<Vec<_>>(),
         )
     }
 }
@@ -510,6 +496,14 @@ where
             None => "None".to_string(),
         };
 
-        write!(f, "pk: {}, type: {:?}", pk_marker, self.change_type)
+        write!(
+            f,
+            "pk: {}, type: {:?}",
+            pk_marker,
+            self.change_type
+            .iter()
+            .map(|change_type| BranchChangesType::from(change_type))
+            .collect::<Vec<_>>(),
+        )
     }
 }
