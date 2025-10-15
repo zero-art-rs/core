@@ -14,7 +14,8 @@ where
         mem::replace(self, other)
     }
 
-    /// Extend `self` data with `other`.
+    /// Extend `self` data with `other`. If `replace` is `true`, then replace all the date,
+    /// else store them both.
     fn aggregate(&mut self, other: Self);
 }
 

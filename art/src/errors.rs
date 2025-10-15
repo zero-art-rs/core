@@ -40,8 +40,8 @@ pub enum ARTError {
     NonLeafNode,
     #[error("The method can't be applied to the leaf node.")]
     InternalOnly,
-    #[error("Cant merge given changes.")]
-    MergeInput,
+    #[error("Can't merge given changes.")]
+    InvalidMergeInput,
     #[error("Fail to update tree_ds tree.")]
     TreeDS,
     #[error("Provided aggregation is invalid.")]

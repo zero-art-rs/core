@@ -1,7 +1,7 @@
 // Asynchronous Ratchet Tree implementation
 
 use crate::helper_tools::{iota_function, recompute_artefacts, common_prefix_size};
-use crate::traits::{ARTPrivateAPIHelper, ChildContainer};
+use crate::traits::{ARTPrivateAPIHelper, ARTPublicAPI, ChildContainer};
 use crate::types::{ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint, ChangeAggregation, Direction, LeafStatus, NodeIndex, ProverAggregationData, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
@@ -51,7 +51,7 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active(); //.is_blank;
+        let append_changes = matches!(self.get_node_with_path(&path)?.get_status(), Some(LeafStatus::Blank));
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 
@@ -115,6 +115,11 @@ where
         temporary_secret_key: &G::ScalarField,
         aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
     ) -> Result<UpdateData<G>, ARTError> {
+        let merge = matches!(self.get_node_with_path(&path)?.get_status(), Some(LeafStatus::Blank));
+        if merge {
+            return Err(ARTError::InvalidMergeInput);
+        }
+
         let (tk, changes, artefacts) = self.make_blank(path, temporary_secret_key)?;
 
         aggregation.extend(
@@ -122,6 +127,7 @@ where
             &artefacts,
             BranchChangesTypeHint::MakeBlank {
                 blank_pk: self.public_key_of(temporary_secret_key),
+                merge,
             },
         )?;
 
@@ -178,17 +184,51 @@ where
         &mut self,
         path: &[Direction],
         verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+        append_changes: bool,
+        skip: usize,
     ) -> Result<(), ARTError> {
         // Update root
         let mut current_agg_node = verifier_aggregation;
-        self.get_mut_root().set_public_key(current_agg_node.data.public_key);
+        if skip == 0 {
+            match append_changes {
+                true => self.get_mut_root().merge_public_key(current_agg_node.data.public_key),
+                false => self.get_mut_root().set_public_key(current_agg_node.data.public_key),
+            }
+        }
 
-        // Update other nodes
-        for (i, dir) in path.into_iter().enumerate() {
-            current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::InvalidAggregation)?;
+
+        for i in 1..skip {
+            current_agg_node = current_agg_node.children.get_child(path[i]).ok_or(ARTError::InvalidAggregation)?;
+        }
+
+        for i in skip..path.len() {
+            current_agg_node = current_agg_node.children.get_child(path[i + skip]).ok_or(ARTError::InvalidAggregation)?;
             let target_node = self.get_mut_node_with_path(&path[0..i + 1])?;
-            target_node.set_public_key(current_agg_node.data.public_key);
-            // debug!("current_agg_node.data.public_key: {}", current_agg_node.data.public_key);
+
+            match append_changes {
+                true => target_node.merge_public_key(current_agg_node.data.public_key),
+                false => target_node.set_public_key(current_agg_node.data.public_key),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
+    ) -> Result<(), ARTError> {
+        for i in 0..path.len() {
+            let partial_path = path[0..i].to_vec();
+            let weight = self.get_mut_node(&NodeIndex::Direction(partial_path))?
+                .get_mut_weight()?;
+
+            if increment_weight {
+                *weight += 1;
+            } else {
+                *weight -= 1;
+            }
         }
 
         Ok(())
@@ -201,36 +241,36 @@ where
         for (item, path) in AggregationNodeIterWithPath::new(verifier_aggregation) {
             let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
 
-            debug!("item.data.change_type: {:?}", item.data.change_type);
             for change_type in &item.data.change_type {
-                // debug!("Self:\n{}", self.get_root());
                 match change_type {
-                    BranchChangesTypeHint::MakeBlank { blank_pk } => {
-                        for i in 0..item_path.len() {
-                            let partial_path = item_path[0..i].to_vec();
-                            *self.get_mut_node(&NodeIndex::Direction(partial_path))?
-                                .get_mut_weight()? -= 1;
+                    BranchChangesTypeHint::MakeBlank { blank_pk, merge } => {
+                        if !*merge {
+                            self.update_branch_weight(&item_path, false)?;
                         }
 
-                        self.update_public_art_upper_branch(&item_path, &verifier_aggregation)?;
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0
+                        )?;
 
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
                         corresponding_item.set_status(LeafStatus::Blank)?;
                         corresponding_item.set_public_key(*blank_pk);
-
-                        debug!("after blank corresponding_item: {}", corresponding_item);
                     }
                     BranchChangesTypeHint::AppendNode { extend, pk, ext_pk } => {
-                        for i in 0..item_path.len() {
-                            let partial_path = item_path[0..i].to_vec();
-                            *self.get_mut_node(&NodeIndex::Direction(partial_path))?
-                                .get_mut_weight()? += 1;
-                        }
+                        self.update_branch_weight(&item_path, true)?;
 
                         let mut parent_path = item_path.clone();
                         parent_path.pop();
-                        self.update_public_art_upper_branch(&parent_path, &verifier_aggregation)?;
+                        self.update_public_art_upper_branch(
+                            &parent_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
 
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
@@ -240,10 +280,14 @@ where
                         if let Some(ext_pk) = ext_pk {
                             corresponding_item.set_public_key(*ext_pk)
                         }
-                        debug!("after append -{extend}- corresponding_item: {}", corresponding_item);
                     }
                     BranchChangesTypeHint::UpdateKey { pk } => {
-                        self.update_public_art_upper_branch(&item_path, &verifier_aggregation)?;
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
 
                         let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
                         corresponding_item.set_public_key(*pk);
@@ -252,12 +296,10 @@ where
                 }
             }
 
-            // let corresponding_item = self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-            // corresponding_item.set_public_key(item.data.public_key);
         }
 
         self.update_node_index()?;
-        self.update_path_secrets_with_aggregation_tree(&verifier_aggregation, false)?;
+        self.update_path_secrets_with_aggregation_tree(&verifier_aggregation)?;
 
         Ok(())
     }
@@ -267,7 +309,7 @@ where
         for change in target_changes {
             if let BranchChangesType::AppendNode = change.change_type {
                 if append_member_count > 1 {
-                    return Err(ARTError::MergeInput);
+                    return Err(ARTError::InvalidMergeInput);
                 }
 
                 append_member_count += 1;
@@ -288,14 +330,14 @@ where
     ) -> Result<(), ARTError> {
         // Currently, it will fail if the first applied change is append_member.
         if let BranchChangesType::AppendNode = applied_change.change_type {
-            return Err(ARTError::MergeInput);
+            return Err(ARTError::InvalidMergeInput);
         }
 
         let mut append_member_count = 0;
         for change in unapplied_changes {
             if let BranchChangesType::AppendNode = change.change_type {
                 if append_member_count > 1 {
-                    return Err(ARTError::MergeInput);
+                    return Err(ARTError::InvalidMergeInput);
                 }
 
                 append_member_count += 1;
@@ -374,9 +416,7 @@ where
 
     fn update_path_secrets_with_aggregation_tree(
         &mut self,
-        // mut other_path_secrets: Vec<G::ScalarField>,
         aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-        append_changes: bool,
     ) -> Result<(), ARTError> {
         let path_secrets = self.get_path_secrets().clone();
 

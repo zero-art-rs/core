@@ -159,6 +159,14 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
+    pub fn merge_public_key(&mut self, new_public_key: G) {
+        let new_public_key = new_public_key.add(self.get_public_key()).into_affine();
+        match self {
+            Self::Internal { public_key, .. } => *public_key = new_public_key,
+            Self::Leaf { public_key, .. } => *public_key = new_public_key,
+        }
+    }
+
     pub fn set_public_key_with_options(&mut self, new_public_key: G, append: bool) {
         let new_public_key = match append {
             true => new_public_key.add(self.get_public_key()).into_affine(),

@@ -5,8 +5,8 @@ use crate::types::{
     BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex,
     ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
-use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
@@ -166,6 +166,13 @@ where
     ) -> Result<(), ARTError> {
         let leaf_path = change.node_index.get_path()?;
 
+        if change.public_keys.len() != leaf_path.len() + 1
+            || prover_artefacts.secrets.len() != leaf_path.len() + 1
+            || prover_artefacts.co_path.len() != leaf_path.len()
+        {
+            return Err(ARTError::InvalidInput);
+        }
+
         // Update root.
         self.data.public_key = *change.public_keys.first().ok_or(ARTError::EmptyART)?;
         self.data.secret_key = *prover_artefacts
@@ -173,12 +180,6 @@ where
             .first()
             .ok_or(ARTError::InvalidInput)?;
 
-        if change.public_keys.len() != leaf_path.len() + 1
-            || prover_artefacts.secrets.len() != leaf_path.len() + 1
-            || prover_artefacts.co_path.len() != leaf_path.len()
-        {
-            return Err(ARTError::InvalidInput);
-        }
 
         // Update other nodes.
         let mut parent = &mut *self;

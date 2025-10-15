@@ -22,14 +22,16 @@ where
         /// If `initiation` is true, then the change was done for unblanked user. Else it is a
         /// participation in the user removal, and it should be merged
         blank_pk: G,
+
+        merge: bool,
     },
     AppendNode {
         /// If true, marks that the targeted node was blank. Else it wasn't.
         extend: bool,
-        
+
         /// If some the node was extended and this is a key else not.
         ext_pk: Option<G>,
-        
+
         /// New user public key
         pk: G
     },

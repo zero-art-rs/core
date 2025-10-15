@@ -2001,39 +2001,32 @@ mod tests {
         let (_, change1, artefacts1) = user1
             .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        debug!("change1: {:#?}", change1);
 
         let (_, change1_5, artefacts1_5) = user1
             .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
             .unwrap();
-        debug!("change1_5: {:#?}", change1_5);
 
         let (_, change2, artefacts2) = user1
             .append_or_replace_node_and_aggregate(&sk2, &mut agg)
             .unwrap();
-        debug!("change2: {:#?}", change2);
 
         let (_, change3, artefacts3) = user1
             .append_or_replace_node_and_aggregate(&sk3, &mut agg)
             .unwrap();
-        debug!("change3: {:#?}", change3);
 
         let (_, change4, artefacts4) = user1
             .append_or_replace_node_and_aggregate(&sk4, &mut agg)
             .unwrap();
-        debug!("change4: {:#?}", change4);
 
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
 
-        debug!("agg:\n{}", agg);
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
             let (_, change_i, _) = user1
                 .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
                 .unwrap();
-            debug!("change_i: {:#?}", change_i);
 
             let verifier_aggregation =
                 ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg)
@@ -2110,7 +2103,8 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = create_random_secrets_with_rng(7, &mut rng);
+        let group_length = 7;
+        let secrets = create_random_secrets_with_rng(group_length, &mut rng);
 
         let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
             &secrets,
@@ -2121,125 +2115,17 @@ mod tests {
         let user3_path = user0.get_path_to_leaf(&user0.public_key_of(&secrets[4])).unwrap();
         user0.make_blank(&user3_path, &Fr::rand(&mut rng)).unwrap();
 
-        // Serialise and deserialize art for the other users.
-        let public_art_bytes = user0.serialize().unwrap();
-        let mut user1: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
-
-        let mut user2: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[3]).unwrap();
-
-        let user1_2 = user1.clone();
-
-        // let user3: PrivateART<CortadoAffine> =
-        //     PrivateART::deserialize(&public_art_bytes, &secrets[4]).unwrap();
-        let user4: PrivateART<CortadoAffine> =
-            PrivateART::deserialize(&public_art_bytes, &secrets[5]).unwrap();
-
         // Create aggregation
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
         let sk1 = Fr::rand(&mut rng);
-        let sk2 = Fr::rand(&mut rng);
-        let sk3 = Fr::rand(&mut rng);
-        let sk4 = Fr::rand(&mut rng);
 
-        let (_, change1, artefacts1) = user1
-            .make_blank_and_aggregate(&user3_path, &sk1, &mut agg)
-            .unwrap();
+        let result = user0
+            .make_blank_and_aggregate(&user3_path, &sk1, &mut agg);
 
-        let (_, change1_5, artefacts1_5) = user1
-            .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
-            .unwrap();
-
-        let (_, change2, artefacts2) = user1
-            .append_or_replace_node_and_aggregate(&sk2, &mut agg)
-            .unwrap();
-
-        let (_, change3, artefacts3) = user1
-            .append_or_replace_node_and_aggregate(&sk3, &mut agg)
-            .unwrap();
-
-        let (_, change4, artefacts4) = user1
-            .append_or_replace_node_and_aggregate(&sk4, &mut agg)
-            .unwrap();
-
-        // Check successful ProverAggregationTree conversion to tree_ds tree
-        let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg).unwrap();
-
-        for i in 0..100 {
-            let sk_i = Fr::rand(&mut rng);
-            let (_, change_i, _) = user1
-                .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
-                .unwrap();
-
-            let verifier_aggregation =
-                ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg)
-                    .unwrap();
-
-            let mut user2_clone = user2.clone();
-            user2_clone
-                .update_private_art_with_aggregation(&verifier_aggregation)
-                .unwrap();
-            assert_eq!(user1.get_root_key().ok(), user2_clone.get_root_key().ok(),);
-            // assert_eq!(user1.get_root(), user2_clone.get_root());
-
-            assert_eq!(
-                user1,
-                user2_clone,
-                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
-                user1.get_root(),
-                user2_clone.get_root(),
-            );
-        }
-
-        let verifier_aggregation =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
-
-        let aggregation_from_prover =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
-
-        let aggregation_from_verifier =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&verifier_aggregation)
-                .unwrap();
-
-        assert_eq!(
-            aggregation_from_prover, aggregation_from_verifier,
-            "Aggregations are equal from both sources."
-        );
-
-        let extracted_verifier_aggregation = user2
-            .get_aggregation_co_path(&aggregation_from_prover)
-            .unwrap();
-
-        assert_eq!(
-            verifier_aggregation, extracted_verifier_aggregation,
-            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
-            verifier_aggregation, extracted_verifier_aggregation,
-        );
-
-        let mut user1_clone = user1_2.clone();
-        user1_clone
-            .update_private_art_with_aggregation(&verifier_aggregation)
-            .unwrap();
-        user2
-            .update_private_art_with_aggregation(&verifier_aggregation)
-            .unwrap();
-
-        assert_eq!(
-            user1,
-            user1_clone,
-            "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_clone\n{}",
-            user1.get_root(),
-            user1_clone.get_root(),
-        );
-
-        assert_eq!(
-            user1,
-            user2,
-            "Both users have the same view on the state of the art.\nUser1\n{}\nUser2\n{}",
-            user1.get_root(),
-            user2.get_root(),
+        assert!(
+            matches!(result.err(), Some(ARTError::InvalidMergeInput)),
+            "Fail to merge unmergable change."
         );
     }
 

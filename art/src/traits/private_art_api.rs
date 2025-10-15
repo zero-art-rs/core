@@ -66,6 +66,16 @@ where
         &mut self,
         path: &[Direction],
         verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+        append_changes: bool,
+        skip: usize,
+    ) -> Result<(), ARTError>;
+
+    /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
+    /// then increment weight by one, else decrement it by one.
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
     ) -> Result<(), ARTError>;
 
     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
@@ -113,9 +123,7 @@ where
     /// takes the ChangeAggregation tree.
     fn update_path_secrets_with_aggregation_tree(
         &mut self,
-        // other_path_secrets: Vec<G::ScalarField>,
         updated_nodes: &ChangeAggregation<VerifierAggregationData<G>>,
-        append_changes: bool,
     ) -> Result<(), ARTError>;
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
