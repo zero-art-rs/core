@@ -2029,7 +2029,7 @@ mod tests {
                 .unwrap();
 
             let verifier_aggregation =
-                ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg)
+                ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg)
                     .unwrap();
 
             let mut user2_clone = user2.clone();
@@ -2048,13 +2048,13 @@ mod tests {
         }
 
         let verifier_aggregation =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let aggregation_from_prover =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&agg).unwrap();
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let aggregation_from_verifier =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::derive_from(&verifier_aggregation)
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation)
                 .unwrap();
 
         assert_eq!(
@@ -2127,6 +2127,33 @@ mod tests {
             matches!(result.err(), Some(ARTError::InvalidMergeInput)),
             "Fail to merge unmergable change."
         );
+    }
+
+    #[test]
+    fn test_branch_aggregation_root_only() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![Fr::rand(&mut rng)],
+            &CortadoAffine::generator(),
+        )
+            .unwrap();
+
+        let mut pub_art = user0.public_art.clone();
+
+        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        user0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg).unwrap();
+
+        let verify_agg = ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        pub_art.update_public_art_with_aggregation(&verify_agg).unwrap()
+
+        // assert!(
+        //     matches!(result.err(), Some(ARTError::InvalidMergeInput)),
+        //     "Fail to merge unmergable change."
+        // );
     }
 
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {

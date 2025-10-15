@@ -41,32 +41,6 @@ where
         Ok(parent)
     }
 
-    pub fn derive_from<DS>(prover_aggregation: &ChangeAggregation<DS>) -> Result<Self, ARTError>
-    where
-        D: From<DS>,
-        DS: RelatedData + Clone + Default,
-    {
-        let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
-        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
-
-        let verifier_data = D::from(node.data.clone());
-        let mut aggregation = ChangeAggregation::from(verifier_data);
-
-        for (node, path) in iter {
-            let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            if let Some(last_dir) = node_path.pop() {
-                let verifier_data = D::from(node.data.clone());
-                let next_node = ChangeAggregation::from(verifier_data);
-
-                if let Ok(child) = aggregation.get_mut_node(&*node_path) {
-                    child.children.set_child(last_dir, next_node);
-                }
-            }
-        }
-
-        Ok(aggregation)
-    }
-
     /// Return `true` if the specified path exists in the tree, otherwise `false`.
     pub fn contain(&self, path: &[Direction]) -> bool {
         let mut current_node = self;
@@ -271,6 +245,36 @@ where
             secret_key: value.secret_key,
             marker: false,
         }
+    }
+}
+
+impl<D1, D2> TryFrom<&ChangeAggregation<D1>> for ChangeAggregation<D2>
+where
+    D1: RelatedData + Clone + Default,
+    D2: RelatedData + From<D1> + Clone + Default,
+{
+    type Error = ARTError;
+
+    fn try_from(prover_aggregation: &ChangeAggregation<D1>) -> Result<Self, Self::Error> {
+        let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
+        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
+
+        let verifier_data = D2::from(node.data.clone());
+        let mut aggregation = ChangeAggregation::from(verifier_data);
+
+        for (node, path) in iter {
+            let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            if let Some(last_dir) = node_path.pop() {
+                let verifier_data = D2::from(node.data.clone());
+                let next_node = ChangeAggregation::from(verifier_data);
+
+                if let Ok(child) = aggregation.get_mut_node(&*node_path) {
+                    child.children.set_child(last_dir, next_node);
+                }
+            }
+        }
+
+        Ok(aggregation)
     }
 }
 

@@ -130,6 +130,12 @@ where
         &self,
         aggregation: &ChangeAggregation<AggregationData<G>>,
     ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>;
+
+    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    fn update_public_art_with_aggregation(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError>;
 }
 
 pub(crate) trait ARTPublicAPIHelper<G>
@@ -193,5 +199,23 @@ where
         &mut self,
         merged_changes: &[BranchChanges<G>],
         target_change: &BranchChanges<G>,
+    ) -> Result<(), ARTError>;
+
+    /// allowes to update public keys on the given `path` with values provided in
+    /// `verifier_aggregation`. Also it allows to skip and not update first `skip` nodes on path.
+    fn update_public_art_upper_branch(
+        &mut self,
+        path: &[Direction],
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+        append_changes: bool,
+        skip: usize,
+    ) -> Result<(), ARTError>;
+
+    /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
+    /// then increment weight by one, else decrement it by one.
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
     ) -> Result<(), ARTError>;
 }
