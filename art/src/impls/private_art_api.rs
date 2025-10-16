@@ -98,7 +98,8 @@ where
     fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError> {
         let (tk, mut changes, artefacts) = self.update_key(&new_secret_key)?;
         let index = self.get_node_index().clone();
-        self.get_mut_node(&index)?.set_status(LeafStatus::PendingRemoval)?;
+        self.get_mut_node(&index)?
+            .set_status(LeafStatus::PendingRemoval)?;
 
         changes.change_type = BranchChangesType::Leave;
 
@@ -107,7 +108,10 @@ where
 
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && matches!(self.get_node(&changes.node_index)?.get_status(), Some(LeafStatus::Blank))
+            && matches!(
+                self.get_node(&changes.node_index)?.get_status(),
+                Some(LeafStatus::Blank)
+            )
         {
             self.update_private_art_with_options(changes, true, false)
         } else {

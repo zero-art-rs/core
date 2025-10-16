@@ -11,7 +11,7 @@ pub enum BranchChangesType {
     MakeBlank,
     AppendNode,
     UpdateKey,
-    Leave
+    Leave,
 }
 
 /// Helper data type, which contains information about ART change. Can be used to apply this

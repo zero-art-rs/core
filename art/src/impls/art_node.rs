@@ -271,11 +271,7 @@ impl<G: AffineRepr> ARTNode<G> {
                 ),
             },
             ARTNode::Internal { .. } => ARTDisplayTree::Inner {
-                public_key: format!(
-                    "Node of weight: {}, x: {}",
-                    self.get_weight(),
-                    pk_marker,
-                ),
+                public_key: format!("Node of weight: {}, x: {}", self.get_weight(), pk_marker,),
                 left: Box::new(self.get_left().unwrap().display_analog()),
                 right: Box::new(self.get_right().unwrap().display_analog()),
             },

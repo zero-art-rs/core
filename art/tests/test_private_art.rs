@@ -1402,9 +1402,8 @@ mod tests {
             CortadoAffine::generator().mul(&(sk_1)).into_affine()
         );
 
-
-        let (_, blank_change2, _) = art1.make_blank(&art_2_path, &sk_2).unwrap();
-        art3.update_private_art(&blank_change2).unwrap();
+        let (_, blank_change2, _) = art3.make_blank(&art_2_path, &sk_2).unwrap();
+        art1.update_private_art(&blank_change2).unwrap();
         assert_eq!(art1, art3);
         assert!(matches!(
             art1.get_node(&art_2_index).unwrap().get_status(),
@@ -1415,6 +1414,7 @@ mod tests {
             CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
         );
 
+        assert_eq!(art1.secret_key, secrets[0]);
     }
 
     #[test]

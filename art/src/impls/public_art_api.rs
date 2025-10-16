@@ -242,7 +242,10 @@ where
 
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && !self.get_node(&changes.node_index)?.is_active()
+            && matches!(
+                self.get_node(&changes.node_index)?.get_status(),
+                Some(LeafStatus::Blank)
+            )
         {
             self.update_public_art_with_options(changes, true, false)
         } else {
@@ -270,7 +273,8 @@ where
                 )?;
             }
             BranchChangesType::Leave => {
-                self.get_mut_node(&changes.node_index)?.set_status(LeafStatus::PendingRemoval)?;
+                self.get_mut_node(&changes.node_index)?
+                    .set_status(LeafStatus::PendingRemoval)?;
                 // let mut update_path = changes.node_index.get_path()?;
                 // // update_path.pop();
                 // self.update_weights(&update_path, false)?;
@@ -304,7 +308,7 @@ where
             match change.change_type {
                 BranchChangesType::UpdateKey => {
                     key_update_changes.push(change.clone());
-                },
+                }
                 BranchChangesType::Leave => {
                     key_update_changes.push(change.clone());
                 }
@@ -451,9 +455,7 @@ where
 
     fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
         for (i, dir) in path.iter().enumerate() {
-            let current_node = self.get_mut_node(
-                &NodeIndex::Direction(path[0..i].to_vec())
-            )?;
+            let current_node = self.get_mut_node(&NodeIndex::Direction(path[0..i].to_vec()))?;
             if increment {
                 *current_node.get_mut_weight()? += 1;
             } else {
