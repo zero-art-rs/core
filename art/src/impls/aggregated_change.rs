@@ -1,3 +1,5 @@
+/// TODO: refactor this file
+
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, RelatedData};
 use crate::types::{
@@ -11,7 +13,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use tree_ds::prelude::Node;
-use utils::aggregations::{AggregatedNodeData, ProverAggregationTree};
+use zrt_zk::aggregated_art::{ProverAggregatedNodeData, VerifierAggregatedNodeData, ProverAggregationTree};
 
 impl<D> ChangeAggregation<D>
 where

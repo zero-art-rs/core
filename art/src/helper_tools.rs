@@ -27,7 +27,7 @@ where
     a.map_err(serde::de::Error::custom)
 }
 
-/// Iota function is a function which converts computed public secret to scalar field. It can
+/// Iota function is a function which converts a point to scalar field element. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
 pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>

@@ -1,8 +1,0 @@
-[package]
-name = "utils"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-ark-ec = { workspace = true }
-tree-ds = {  version = "0.2.0", features = ["auto_id"] }

@@ -1701,14 +1701,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63a545481291138910575129486daeaf8ac54aee4387fe7906919f7830c7d9d"
 
 [[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "ark-ec 0.5.0 (git+https://github.com/arkworks-rs/algebra?rev=7601bf9)",
- "tree-ds",
-]
-
-[[package]]
 name = "uuid"
 version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2008,7 +2000,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tree-ds",
- "utils",
  "zkp",
  "zrt-zk",
 ]
@@ -2043,9 +2034,12 @@ dependencies = [
  "hex",
  "merlin",
  "once_cell",
+ "postcard",
  "rand 0.8.5",
  "rand_core 0.6.4",
+ "serde",
  "tracing",
  "tracing-subscriber",
+ "tree-ds",
  "zkp",
 ]

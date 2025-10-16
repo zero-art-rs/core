@@ -21,6 +21,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"]}
 zkp = { workspace = true, git = "https://github.com/juja256/zkp", features = ["rangeproof", "rangeproof_batchable"]}
 once_cell = { workspace = true }
+tree-ds = { workspace = true, features = ["auto_id", "serde", "async"] }
+serde = {workspace = true, features = ["derive"]}
+postcard = {workspace = true, features = ["alloc"]}
 
 [profile.test]
 inherits = "release"
@@ -29,4 +32,4 @@ inherits = "release"
 cross_sigma = []
 multi_thread_prover = []
 multi_thread_verifier = []
-default = ["multi_thread_prover", "multi_thread_verifier"]
+#default = ["multi_thread_prover", "multi_thread_verifier"]

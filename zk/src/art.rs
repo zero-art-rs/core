@@ -11,11 +11,12 @@ use ark_std::log2;
 use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof as BPR1CSProof, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::ristretto::CompressedRistretto as DalekCompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::{Rng, thread_rng};
 use rand_core::{OsRng, le};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
 use zkp::toolbox::SchnorrCS;
 use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
@@ -28,11 +29,11 @@ use crate::dh::{art_level_gadget, dh_gadget};
 use crate::gadgets::r1cs_utils::AllocatedScalar;
 use zkp::CompactProof;
 
-#[derive(Clone)]
-pub struct R1CSProof(BPR1CSProof);
+#[derive(Clone, Serialize, Deserialize)]
+pub struct R1CSProof(pub BPR1CSProof);
 
-#[derive(Clone)]
-pub struct CompressedRistrettoWrapper(CompressedRistretto);
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompressedRistretto(pub DalekCompressedRistretto);
 
 #[cfg(feature = "cross_sigma")]
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
@@ -44,9 +45,17 @@ pub struct ARTProof {
 #[cfg(not(feature = "cross_sigma"))]
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ARTProof {
-    pub Rι: (Vec<R1CSProof>, Vec<CompressedRistrettoWrapper>), // Rδ gadget proofs
-    pub Rσ: CompactProof<cortado::Fr>,                         // sigma part of the proof
+    pub Rι: (Vec<R1CSProof>, Vec<CompressedRistretto>), // Rδ gadget proofs
+    pub Rσ: CompactProof<cortado::Fr>,                  // sigma part of the proof
 }
+
+impl PartialEq for R1CSProof {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bytes() == other.0.to_bytes()
+    }
+}
+
+impl Eq for R1CSProof {}
 
 impl CanonicalSerialize for R1CSProof {
     fn serialize_with_mode<W: std::io::Write>(
@@ -91,7 +100,15 @@ impl CanonicalDeserialize for R1CSProof {
     }
 }
 
-impl CanonicalSerialize for CompressedRistrettoWrapper {
+impl PartialEq for CompressedRistretto {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bytes() == other.0.to_bytes()
+    }
+}
+
+impl Eq for CompressedRistretto {}
+
+impl CanonicalSerialize for CompressedRistretto {
     fn serialize_with_mode<W: std::io::Write>(
         &self,
         mut writer: W,
@@ -111,13 +128,13 @@ impl CanonicalSerialize for CompressedRistrettoWrapper {
     }
 }
 
-impl ark_serialize::Valid for CompressedRistrettoWrapper {
+impl ark_serialize::Valid for CompressedRistretto {
     fn check(&self) -> Result<(), SerializationError> {
         Ok(())
     }
 }
 
-impl CanonicalDeserialize for CompressedRistrettoWrapper {
+impl CanonicalDeserialize for CompressedRistretto {
     fn deserialize_with_mode<R: std::io::Read>(
         mut reader: R,
         _compress: ark_serialize::Compress,
@@ -127,15 +144,15 @@ impl CanonicalDeserialize for CompressedRistrettoWrapper {
         let proof_len = u32::deserialize_compressed(&mut reader)? as usize;
         let mut proof_bytes = vec![0u8; proof_len];
         reader.read_exact(&mut proof_bytes)?;
-        let point = CompressedRistretto::from_slice(&proof_bytes)
+        let point = DalekCompressedRistretto::from_slice(&proof_bytes)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
 
-        Ok(CompressedRistrettoWrapper(point))
+        Ok(CompressedRistretto(point))
     }
 }
 
 /// Estimate the number of generators needed for the given depth
-fn estimate_bp_gens(mut height: usize, dh_ver: u32) -> usize {
+pub(crate) fn estimate_bp_gens(mut height: usize, dh_ver: u32) -> usize {
     #[cfg(feature = "multi_thread_prover")]
     {
         height = 1
@@ -216,14 +233,14 @@ fn Rι_prove(
     Q_b: Vec<CortadoAffine>, // reciprocal public keys
     λ_a: Vec<Scalar>,        // secrets
     blindings: Vec<Scalar>,  // blinding factors for λ_a
-) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
+) -> Result<(Vec<R1CSProof>, Vec<DalekCompressedRistretto>), R1CSError> {
     let start = Instant::now();
     let k = Q_b.len();
     assert!(k == λ_a.len() - 1, "length mismatch");
 
     #[cfg(feature = "multi_thread_prover")]
     {
-        let commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k + 1]));
+        let commitments = Arc::new(Mutex::new(vec![DalekCompressedRistretto::default(); k + 1]));
         let proofs = Arc::new(Mutex::new(vec![None; k]));
         let mut handles = Vec::new();
         for i in 0..k {
@@ -317,8 +334,8 @@ fn Rι_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     proofs: Vec<R1CSProof>,
-    Q_b: Vec<CortadoAffine>,               // k
-    commitments: Vec<CompressedRistretto>, // k+1
+    Q_b: Vec<CortadoAffine>,                    // k
+    commitments: Vec<DalekCompressedRistretto>, // k+1
 ) -> Result<(), R1CSError> {
     let start = Instant::now();
     assert!(Q_b.len() == commitments.len() - 1, "length mismatch");
@@ -385,14 +402,14 @@ fn Rδ_prove(
     Q_a: Vec<CortadoAffine>, // path public keys
     λ_a: Vec<Scalar>,        // secrets
     blindings: Vec<Scalar>,  // blinding factors for λ_a
-) -> Result<(Vec<R1CSProof>, Vec<CompressedRistrettoWrapper>), R1CSError> {
+) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
     let start = Instant::now();
     let k = Q_b.len();
     assert!(k == λ_a.len() - 1, "length mismatch");
 
     #[cfg(feature = "multi_thread_prover")]
     {
-        let commitments = Arc::new(Mutex::new(vec![CompressedRistretto::default(); k + 1]));
+        let commitments = Arc::new(Mutex::new(vec![DalekCompressedRistretto::default(); k + 1]));
         let proofs = Arc::new(Mutex::new(vec![None; k]));
         let mut handles = Vec::new();
         for i in 0..k {
@@ -457,7 +474,7 @@ fn Rδ_prove(
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|point| CompressedRistrettoWrapper(*point))
+                .map(|point| CompressedRistretto(*point))
                 .collect(),
         ))
     }
@@ -499,7 +516,7 @@ fn Rδ_prove(
             vec![R1CSProof(proof)],
             commitments
                 .iter()
-                .map(|c| CompressedRistrettoWrapper(*c))
+                .map(|c| CompressedRistretto(*c))
                 .collect(),
         ))
     }
@@ -509,9 +526,9 @@ fn Rδ_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     proofs: Vec<R1CSProof>,
-    Q_b: Vec<CortadoAffine>,                      // k
-    Q_a: Vec<CortadoAffine>,                      // k
-    commitments: Vec<CompressedRistrettoWrapper>, // k+1
+    Q_b: Vec<CortadoAffine>,               // k
+    Q_a: Vec<CortadoAffine>,               // k
+    commitments: Vec<CompressedRistretto>, // k+1
 ) -> Result<(), R1CSError> {
     let start = Instant::now();
     assert!(Q_b.len() == commitments.len() - 1, "length mismatch");
@@ -580,35 +597,6 @@ fn Rδ_verify(
     );
 
     Ok(())
-}
-
-/// generate random witness for $\mathcal{R}_{\mathsf{upd}}$
-fn random_witness_gen(k: u32) -> (Vec<cortado::Fr>, Vec<CortadoAffine>, Vec<CortadoAffine>) {
-    let start = Instant::now();
-    let mut blinding_rng = rand::thread_rng();
-    let mut λ = Vec::new();
-    let mut Q_a = Vec::new();
-    let mut Q_b = Vec::new();
-    let mut λ_a: cortado::Fr = blinding_rng.r#gen();
-    Q_a.push((CortadoAffine::generator() * λ_a).into_affine());
-    λ.push(λ_a);
-
-    for i in 0..k {
-        let r: cortado::Fr = blinding_rng.r#gen();
-        let q_b = (CortadoAffine::generator() * r).into_affine();
-        Q_b.push(q_b);
-        let R = (q_b * λ_a).into_affine();
-        λ_a = R.x().unwrap().into_bigint().into();
-        λ.push(λ_a);
-        let q_a = (CortadoAffine::generator() * λ_a).into_affine();
-        Q_a.push(q_a);
-    }
-    debug!(
-        "Witness generation for Rι with depth {} took {:?}",
-        k,
-        start.elapsed()
-    );
-    (λ, Q_a, Q_b)
 }
 
 /// generate an ART update proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself), additional public keys R,
@@ -789,6 +777,34 @@ mod tests {
 
     use super::*;
 
+    /// generate random witness for $\mathcal{R}_{\mathsf{upd}}$
+    fn random_witness_gen(k: u32) -> (Vec<cortado::Fr>, Vec<CortadoAffine>, Vec<CortadoAffine>) {
+        let start = Instant::now();
+        let mut blinding_rng = rand::thread_rng();
+        let mut λ = Vec::new();
+        let mut Q_a = Vec::new();
+        let mut Q_b = Vec::new();
+        let mut λ_a: cortado::Fr = blinding_rng.r#gen();
+        Q_a.push((CortadoAffine::generator() * λ_a).into_affine());
+        λ.push(λ_a);
+    
+        for i in 0..k {
+            let r: cortado::Fr = blinding_rng.r#gen();
+            let q_b = (CortadoAffine::generator() * r).into_affine();
+            Q_b.push(q_b);
+            let R = (q_b * λ_a).into_affine();
+            λ_a = R.x().unwrap().into_bigint().into();
+            λ.push(λ_a);
+            let q_a = (CortadoAffine::generator() * λ_a).into_affine();
+            Q_a.push(q_a);
+        }
+        debug!(
+            "Witness generation for Rι with depth {} took {:?}",
+            k,
+            start.elapsed()
+        );
+        (λ, Q_a, Q_b)
+    }
     /*fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
         let mut blinding_rng = rand::thread_rng();
         let pc_gens = PedersenGens::default();
