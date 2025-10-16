@@ -1281,7 +1281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_make_blank_with_statuses() {
+    fn test_leaf_status_affect_on_make_blank() {
         init_tracing_for_test();
 
         if TEST_GROUP_SIZE < 2 {
@@ -1336,6 +1336,85 @@ mod tests {
                 .mul(&(secrets[1] + sk_1 + sk_2))
                 .into_affine()
         );
+    }
+
+    #[test]
+    fn test_leave() {
+        init_tracing_for_test();
+
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
+            return;
+        }
+
+        let seed = rand::random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
+        let (art, _) =
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+        let mut art2 = PrivateART::from_public_art_and_secret(art.clone(), secrets[1]).unwrap();
+
+        let art_2_path = art
+            .get_path_to_leaf(&CortadoAffine::generator().mul(&secrets[1]).into_affine())
+            .unwrap();
+        let art_2_index = NodeIndex::from(art_2_path.clone());
+
+        let leave_sk = Fr::rand(&mut rng);
+        let (_, leave_change, _) = art2.leave(leave_sk).unwrap();
+        assert!(matches!(
+            art2.get_node(&art_2_index).unwrap().get_status(),
+            Some(LeafStatus::PendingRemoval)
+        ));
+        assert_eq!(
+            art2.get_node(&art_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(leave_sk)).into_affine()
+        );
+
+        let sk_1 = Fr::rand(&mut rng);
+        let sk_2 = Fr::rand(&mut rng);
+
+        // usual update
+        let mut art1 = art.clone();
+        let mut art3 = PrivateART::from_public_art_and_secret(art.clone(), secrets[2]).unwrap();
+
+        art1.update_private_art(&leave_change).unwrap();
+        art3.update_private_art(&leave_change).unwrap();
+        assert_eq!(art1, art3);
+        assert!(matches!(
+            art1.get_node(&art_2_index).unwrap().get_status(),
+            Some(LeafStatus::PendingRemoval)
+        ));
+        assert_eq!(
+            art1.get_node(&art_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(leave_sk)).into_affine()
+        );
+
+        let (_, blank_change1, _) = art1.make_blank(&art_2_path, &sk_1).unwrap();
+        art3.update_private_art(&blank_change1).unwrap();
+        assert_eq!(art1.get_root_key().unwrap(), art3.get_root_key().unwrap());
+        assert!(matches!(
+            art1.get_node(&art_2_index).unwrap().get_status(),
+            Some(LeafStatus::Blank)
+        ));
+        assert_eq!(
+            art1.get_node(&art_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1)).into_affine()
+        );
+
+
+        let (_, blank_change2, _) = art1.make_blank(&art_2_path, &sk_2).unwrap();
+        art3.update_private_art(&blank_change2).unwrap();
+        assert_eq!(art1, art3);
+        assert!(matches!(
+            art1.get_node(&art_2_index).unwrap().get_status(),
+            Some(LeafStatus::Blank)
+        ));
+        assert_eq!(
+            art1.get_node(&art_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
     }
 
     #[test]

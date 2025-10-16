@@ -32,10 +32,12 @@ pub enum ARTError {
     NoChanges,
     #[error("The art has no nodes.")]
     EmptyART,
-    #[error("Can't apply blank changes to itself.")]
+    #[error("Can't apply blank operation change to itself.")]
     InapplicableBlanking,
-    #[error("Can't apply key update changes to itself.")]
+    #[error("Can't apply key operation update change to itself.")]
     InapplicableKeyUpdate,
+    #[error("Can't apply leave operation update change to itself.")]
+    InapplicableLeave,
     #[error("The method can't be applied to the non leaf node.")]
     NonLeafNode,
     #[error("Cant merge given changes.")]

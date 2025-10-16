@@ -2,7 +2,7 @@
 
 use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::traits::ARTPrivateAPIHelper;
-use crate::types::{Direction, LeafStatus, NodeIndex};
+use crate::types::{Direction, LeafStatus, NodeIndex, UpdateData};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
@@ -34,7 +34,7 @@ where
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         self.set_secret_key(new_secret_key);
 
-        let (tk, changers, artefacts) = self.update_art_branch_with_leaf_secret_key(
+        let (tk, changes, artefacts) = self.update_art_branch_with_leaf_secret_key(
             new_secret_key,
             &self.get_node_index().get_path()?,
             false,
@@ -43,7 +43,7 @@ where
         self.set_path_secrets(artefacts.secrets.clone());
         self.update_node_index()?;
 
-        Ok((tk, changers, artefacts))
+        Ok((tk, changes, artefacts))
     }
 
     fn make_blank(
@@ -95,9 +95,19 @@ where
         Ok((tk, changes, artefacts))
     }
 
+    fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError> {
+        let (tk, mut changes, artefacts) = self.update_key(&new_secret_key)?;
+        let index = self.get_node_index().clone();
+        self.get_mut_node(&index)?.set_status(LeafStatus::PendingRemoval)?;
+
+        changes.change_type = BranchChangesType::Leave;
+
+        Ok((tk, changes, artefacts))
+    }
+
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && !self.get_node(&changes.node_index)?.is_active()
+            && matches!(self.get_node(&changes.node_index)?.get_status(), Some(LeafStatus::Blank))
         {
             self.update_private_art_with_options(changes, true, false)
         } else {
@@ -227,6 +237,7 @@ where
             match changes.change_type {
                 BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
                 BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                BranchChangesType::Leave => return Err(ARTError::InapplicableLeave),
                 BranchChangesType::AppendNode => {
                     // Extend path_secrets. Append additional leaf secret to the start.
                     let mut new_path_secrets =
@@ -281,6 +292,7 @@ where
                 match change.change_type {
                     BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
                     BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                    BranchChangesType::Leave => return Err(ARTError::InapplicableLeave),
                     BranchChangesType::AppendNode => {
                         // Extend path_secrets. Append additional leaf secret to the start.
                         let mut new_path_secrets =

@@ -269,6 +269,12 @@ where
                     update_weights,
                 )?;
             }
+            BranchChangesType::Leave => {
+                self.get_mut_node(&changes.node_index)?.set_status(LeafStatus::PendingRemoval)?;
+                // let mut update_path = changes.node_index.get_path()?;
+                // // update_path.pop();
+                // self.update_weights(&update_path, false)?;
+            }
         }
 
         self.update_art_with_changes(changes, append_changes)
@@ -297,6 +303,9 @@ where
         for change in target_changes {
             match change.change_type {
                 BranchChangesType::UpdateKey => {
+                    key_update_changes.push(change.clone());
+                },
+                BranchChangesType::Leave => {
                     key_update_changes.push(change.clone());
                 }
                 BranchChangesType::MakeBlank => {
@@ -436,6 +445,21 @@ where
         }
 
         target_node.set_status(LeafStatus::Blank)?;
+
+        Ok(())
+    }
+
+    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
+        for (i, dir) in path.iter().enumerate() {
+            let current_node = self.get_mut_node(
+                &NodeIndex::Direction(path[0..i].to_vec())
+            )?;
+            if increment {
+                *current_node.get_mut_weight()? += 1;
+            } else {
+                *current_node.get_mut_weight()? -= 1;
+            }
+        }
 
         Ok(())
     }

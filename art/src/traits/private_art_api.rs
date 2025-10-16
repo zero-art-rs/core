@@ -1,4 +1,4 @@
-use crate::types::{Direction, NodeIndex, UpdateData};
+use crate::types::{Direction, NodeIndex, ProverArtefacts, UpdateData};
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
@@ -36,6 +36,9 @@ where
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<UpdateData<G>, ARTError>;
+
+    /// Remove yourself from the art.
+    fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError>;
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
