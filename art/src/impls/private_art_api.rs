@@ -2,7 +2,7 @@
 
 use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::traits::ARTPrivateAPIHelper;
-use crate::types::{Direction, NodeIndex};
+use crate::types::{Direction, LeafStatus, NodeIndex};
 use crate::{
     errors::ARTError,
     traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
@@ -51,7 +51,11 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active(); //.is_blank;
+        // let append_changes = !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active(); //.is_blank;
+        let append_changes = matches!(
+            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
+            Some(LeafStatus::Blank)
+        );
         let (mut tk, changes, artefacts) =
             self.make_blank_in_public_art(path, temporary_secret_key)?;
 

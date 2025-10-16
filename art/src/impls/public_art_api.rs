@@ -178,11 +178,11 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (append_changes, update_weights) =
-            match !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active() {
-                true => (true, false),
-                false => (false, true),
-            };
+        let append_changes = matches!(
+            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+        let update_weights = !append_changes;
 
         self.make_blank_without_changes_with_options(path, update_weights)?;
 

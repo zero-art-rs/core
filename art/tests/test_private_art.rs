@@ -23,6 +23,7 @@ mod tests {
     use zkp::toolbox::cross_dleq::PedersenBasis;
     use zkp::toolbox::dalek_ark::ristretto255_to_ark;
     use zrt_art::traits::ARTPrivateView;
+    use zrt_art::types::LeafStatus;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
@@ -1277,6 +1278,64 @@ mod tests {
         );
 
         assert_eq!(verification_result, Ok(()));
+    }
+
+    #[test]
+    fn test_make_blank_with_statuses() {
+        init_tracing_for_test();
+
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
+            return;
+        }
+
+        let seed = rand::random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
+        let (art, _) =
+            PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+        let sk_1 = Fr::rand(&mut rng);
+        let sk_2 = Fr::rand(&mut rng);
+        let user_2_path = art
+            .get_path_to_leaf(&CortadoAffine::generator().mul(&secrets[1]).into_affine())
+            .unwrap();
+        let user_2_index = NodeIndex::from(user_2_path.clone());
+
+        // usual update
+        let mut art1 = art.clone();
+        art1.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
+        art1.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        assert_eq!(
+            art1.get_node(&user_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art2 = art.clone();
+        art2.get_mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::PendingRemoval)
+            .unwrap();
+        art2.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
+        art2.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        assert_eq!(
+            art2.get_node(&user_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art3 = art.clone();
+        art3.get_mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::Blank)
+            .unwrap();
+        art3.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
+        art3.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        assert_eq!(
+            art3.get_node(&user_2_index).unwrap().get_public_key(),
+            CortadoAffine::generator()
+                .mul(&(secrets[1] + sk_1 + sk_2))
+                .into_affine()
+        );
     }
 
     #[test]
