@@ -1,20 +1,17 @@
-use crate::types::LeafStatus;
-use crate::{
-    errors::ARTError,
-    helper_tools::iota_function,
-    traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView},
-    types::{
-        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
-        NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierArtefacts,
-    },
+use crate::errors::ARTError;
+use crate::helper_tools::iota_function;
+use crate::traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView, ChildContainer};
+use crate::types::{
+    ARTNode, ARTRootKey, AggregationData, AggregationNodeIterWithPath, BranchChanges,
+    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Direction, LeafIterWithPath,
+    LeafStatus, NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierAggregationData,
+    VerifierArtefacts,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
-use tracing::error;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -223,8 +220,12 @@ where
     }
 
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        self.get_node_with_path(&index.get_path()?)
+    }
+
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError> {
         let mut node = self.get_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_child(direction)?;
         }
 
@@ -232,8 +233,12 @@ where
     }
 
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        self.get_mut_node_with_path(&index.get_path()?)
+    }
+
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError> {
         let mut node = self.get_mut_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_mut_child(direction)?;
         }
 
@@ -353,6 +358,128 @@ where
 
         Ok(())
     }
+
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError> {
+        let mut resulting_aggregation =
+            ChangeAggregation::<VerifierAggregationData<G>>::try_from(aggregation)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(aggregation).skip(1) {
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
+
+            let aggregation_parent = path
+                .last()
+                .ok_or(ARTError::NoChanges)
+                .map(|(node, _)| *node)?;
+
+            let resulting_target_node = resulting_aggregation
+                .get_mut_node(&parent_path)?
+                .get_mut_node(&[last_direction])?;
+
+            // Update co-path
+            let pk = if let Ok(co_leaf) = aggregation_parent.get_node(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                co_leaf.data.public_key
+            } else if let Ok(parent) = self.get_node(&NodeIndex::Direction(parent_path.clone()))
+                && let Ok(other_child) = parent.get_child(&last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                other_child.get_public_key()
+            } else {
+                // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
+                let mut path = parent_path.clone();
+                path.push(last_direction.other());
+                self.get_last_public_key_on_path(aggregation, &path)?
+            };
+            resulting_target_node.data.co_public_key = Some(pk);
+        }
+
+        Ok(resulting_aggregation)
+    }
+
+    fn update_public_art_with_aggregation(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<(), ARTError> {
+        for (item, path) in AggregationNodeIterWithPath::new(verifier_aggregation) {
+            let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+
+            for change_type in &item.data.change_type {
+                match change_type {
+                    BranchChangesTypeHint::MakeBlank {
+                        pk: blank_pk,
+                        merge,
+                    } => {
+                        if !*merge {
+                            self.update_branch_weight(&item_path, false)?;
+                        }
+
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_status(LeafStatus::Blank)?;
+                        corresponding_item.set_public_key(*blank_pk);
+                    }
+                    BranchChangesTypeHint::AppendNode { pk, ext_pk } => {
+                        self.update_branch_weight(&item_path, true)?;
+
+                        let mut parent_path = item_path.clone();
+                        parent_path.pop();
+                        self.update_public_art_upper_branch(
+                            &parent_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.extend_or_replace(ARTNode::new_leaf(*pk))?;
+
+                        if let Some(ext_pk) = ext_pk {
+                            corresponding_item.set_public_key(*ext_pk)
+                        }
+                    }
+                    BranchChangesTypeHint::UpdateKey { pk } => {
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_public_key(*pk);
+                    }
+                    BranchChangesTypeHint::Leave { pk } => {
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_status(LeafStatus::PendingRemoval)?;
+                        corresponding_item.set_public_key(*pk);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<G, A> ARTPublicAPIHelper<G> for A
@@ -454,12 +581,12 @@ where
     }
 
     fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
-        for (i, dir) in path.iter().enumerate() {
-            let current_node = self.get_mut_node(&NodeIndex::Direction(path[0..i].to_vec()))?;
+        for i in 0..path.len() {
+            let current_node_weight = self.get_mut_node_with_path(&path[0..i])?.get_mut_weight()?;
             if increment {
-                *current_node.get_mut_weight()? += 1;
+                *current_node_weight += 1;
             } else {
-                *current_node.get_mut_weight()? -= 1;
+                *current_node_weight -= 1;
             }
         }
 
@@ -616,5 +743,128 @@ where
         }
 
         Ok(())
+    }
+
+    fn update_public_art_upper_branch(
+        &mut self,
+        path: &[Direction],
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+        append_changes: bool,
+        skip: usize,
+    ) -> Result<(), ARTError> {
+        // Update root
+        let mut current_agg_node = verifier_aggregation;
+        if skip == 0 {
+            match append_changes {
+                true => self
+                    .get_mut_root()
+                    .merge_public_key(current_agg_node.data.public_key),
+                false => self
+                    .get_mut_root()
+                    .set_public_key(current_agg_node.data.public_key),
+            }
+        }
+
+        for i in 1..skip {
+            current_agg_node = current_agg_node
+                .children
+                .get_child(path[i])
+                .ok_or(ARTError::InvalidAggregation)?;
+        }
+
+        for i in skip..path.len() {
+            current_agg_node = current_agg_node
+                .children
+                .get_child(path[i + skip])
+                .ok_or(ARTError::InvalidAggregation)?;
+            let target_node = self.get_mut_node_with_path(&path[0..i + 1])?;
+
+            match append_changes {
+                true => target_node.merge_public_key(current_agg_node.data.public_key),
+                false => target_node.set_public_key(current_agg_node.data.public_key),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
+    ) -> Result<(), ARTError> {
+        for i in 0..path.len() {
+            let partial_path = path[0..i].to_vec();
+            let weight = self
+                .get_mut_node(&NodeIndex::Direction(partial_path))?
+                .get_mut_weight()?;
+
+            if increment_weight {
+                *weight += 1;
+            } else {
+                *weight -= 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_last_public_key_on_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError> {
+        let mut leaf_public_key = self.get_root().get_public_key();
+
+        let mut current_art_node = Some(self.get_root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            // Retrieve leaf public key from art
+            if let Some(art_node) = current_art_node {
+                if let Ok(node) = art_node.get_child(dir) {
+                    if let ARTNode::Leaf { public_key, .. } = node {
+                        leaf_public_key = *public_key;
+                    }
+
+                    current_art_node = Some(node);
+                } else {
+                    current_art_node = None;
+                }
+            }
+
+            // Retrieve leaf public key updates form aggregation
+            if let Some(agg_node) = current_agg_node {
+                if let Some(node) = agg_node.children.get_child(*dir) {
+                    for change_type in &node.data.change_type {
+                        match change_type {
+                            BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {
+                                leaf_public_key = *blank_pk
+                            }
+                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
+                                if let Some(replacement_pk) = ext_pk {
+                                    match path.get(i + 1) {
+                                        Some(Direction::Right) => leaf_public_key = *pk,
+                                        Some(Direction::Left) => {}
+                                        None => leaf_public_key = *replacement_pk,
+                                    }
+                                } else {
+                                    leaf_public_key = *pk;
+                                }
+                            }
+                            BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+                            BranchChangesTypeHint::Leave { pk } => leaf_public_key = *pk,
+                        }
+                    }
+
+                    current_agg_node = Some(node);
+                } else {
+                    current_agg_node = None;
+                }
+            }
+
+            // current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::NoChanges)?;
+        }
+
+        Ok(leaf_public_key)
     }
 }

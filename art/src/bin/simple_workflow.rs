@@ -1,17 +1,18 @@
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
-use ark_std::rand::SeedableRng;
 use ark_std::rand::prelude::StdRng;
+use ark_std::rand::{SeedableRng, thread_rng};
 use bulletproofs::PedersenGens;
 use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_art::{
-    traits::{ARTPrivateAPI, ARTPublicAPI},
-    types::PrivateART,
+use zrt_art::traits::{ARTPrivateAPI, ARTPublicAPI};
+use zrt_art::types::{AggregationData, ChangeAggregation, PrivateART, ProverAggregationData};
+use zrt_zk::aggregated_art::{
+    ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
 };
 use zrt_zk::art::{art_prove, art_verify};
 
@@ -192,7 +193,98 @@ fn merge_conflict_changes() {
     );
 }
 
+fn branch_aggregation_proof_verify() {
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+    let (mut art0, _) =
+        PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+
+    let mut art1 =
+        PrivateART::<CortadoAffine>::from_public_art_and_secret(art0.clone(), secrets[1]).unwrap();
+
+    let target_3 = art0
+        .get_path_to_leaf(&art0.public_key_of(&secrets[3]))
+        .unwrap();
+
+    // Create default aggregation
+    let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+
+    // Perform some changes
+    art0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        .unwrap();
+    art0.make_blank_and_aggregate(&target_3, &Fr::rand(&mut rng), &mut agg)
+        .unwrap();
+    art0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        .unwrap();
+    art0.leave_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        .unwrap();
+
+    // Generate pedersen basis
+    let gens = PedersenGens::default();
+    let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
+        CortadoAffine::generator(),
+        CortadoAffine::new_unchecked(ALT_GENERATOR_X, ALT_GENERATOR_Y),
+        ristretto255_to_ark(gens.B).unwrap(),
+        ristretto255_to_ark(gens.B_blinding).unwrap(),
+    );
+
+    // Gather associated data
+    let associated_data = b"data";
+
+    // Use some auxiliary keys for proof
+    let secret_keys = vec![Fr::rand(&mut rng)];
+    let public_keys = vec![art0.public_key_of(&secret_keys[0])];
+
+    // Add random blinding to every node of the tree.
+    agg.set_random_blinding_factors(&mut thread_rng()).unwrap();
+
+    // Get ProverAggregationTree for proof.
+    let prover_tree = ProverAggregationTree::try_from(&agg).unwrap();
+
+    // Create proof
+    let proof = art_aggregated_prove(
+        basis.clone(),
+        associated_data,
+        &prover_tree,
+        public_keys.clone(),
+        secret_keys,
+    )
+    .unwrap();
+
+    // To send aggregation tree to other users, remove helper dala like secret path
+    // keys, and co_path public keys.
+    let plain_agg = ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+    // When you receive `plain_agg` aggregation, you need to add public keys back to the tree
+    // for verification.
+    let extracted_agg = art0.get_aggregation_co_path(&plain_agg).unwrap();
+
+    // Then this tree can be converted to the VerifierAggregationTree
+    let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
+
+    // Verify proof
+    let result = art_aggregated_verify(
+        basis.clone(),
+        associated_data,
+        &verifier_tree,
+        public_keys,
+        &proof,
+    );
+
+    assert!(result.is_ok());
+
+    // Finally update private art with the `extracted_agg` aggregation.
+    art1.update_private_art_with_aggregation(&extracted_agg)
+        .unwrap();
+
+    assert_eq!(art0, art1);
+}
+
 fn main() {
     general_example();
     merge_conflict_changes();
+    branch_aggregation_proof_verify();
 }

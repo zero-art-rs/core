@@ -4,7 +4,6 @@ use crate::types::{
     NodeIterWithPath,
 };
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use std::mem;
@@ -153,6 +152,14 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     pub fn set_public_key(&mut self, new_public_key: G) {
+        match self {
+            Self::Internal { public_key, .. } => *public_key = new_public_key,
+            Self::Leaf { public_key, .. } => *public_key = new_public_key,
+        }
+    }
+
+    pub fn merge_public_key(&mut self, new_public_key: G) {
+        let new_public_key = new_public_key.add(self.get_public_key()).into_affine();
         match self {
             Self::Internal { public_key, .. } => *public_key = new_public_key,
             Self::Leaf { public_key, .. } => *public_key = new_public_key,
@@ -393,7 +400,7 @@ where
                 self.display_analog(),
                 Style::default()
                     .indentation(4)
-                    .char_set(CharSet::DOUBLE_LINE)
+                    .char_set(CharSet::SINGLE_LINE)
             )
         )
     }

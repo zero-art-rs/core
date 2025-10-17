@@ -1,4 +1,8 @@
-use crate::{errors::ARTError, types::BranchChanges};
+use crate::types::BranchChangesTypeHint;
+use crate::{
+    errors::ARTError,
+    types::{BranchChanges, BranchChangesType},
+};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
@@ -13,5 +17,25 @@ where
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
         from_bytes(bytes).map_err(ARTError::Postcard)
+    }
+}
+
+impl Default for BranchChangesType {
+    fn default() -> Self {
+        Self::UpdateKey
+    }
+}
+
+impl<G> From<&BranchChangesTypeHint<G>> for BranchChangesType
+where
+    G: AffineRepr,
+{
+    fn from(value: &BranchChangesTypeHint<G>) -> Self {
+        match value {
+            BranchChangesTypeHint::MakeBlank { .. } => BranchChangesType::MakeBlank,
+            BranchChangesTypeHint::AppendNode { .. } => BranchChangesType::AppendNode,
+            BranchChangesTypeHint::UpdateKey { .. } => BranchChangesType::UpdateKey,
+            BranchChangesTypeHint::Leave { .. } => BranchChangesType::Leave,
+        }
     }
 }

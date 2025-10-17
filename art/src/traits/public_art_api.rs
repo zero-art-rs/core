@@ -1,4 +1,4 @@
-use crate::types::UpdateData;
+use crate::types::{AggregationData, ChangeAggregation, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     types::{
@@ -86,11 +86,17 @@ where
         append_changes: bool,
     ) -> Result<(), ARTError>;
 
-    /// Returns node by the given NodeIndex
+    /// Returns node by the given `index`.
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
-    /// Returns mutable node by the given NodeIndex
+    /// Returns node on the end of the given `path`.
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError>;
+
+    /// Returns mutable node by the given `index`.
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
+
+    /// Returns mutable node on the end of the given `path`.
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
@@ -117,6 +123,18 @@ where
         &mut self,
         applied_changes: &[BranchChanges<G>],
         target_changes: &[BranchChanges<G>],
+    ) -> Result<(), ARTError>;
+
+    /// Retrieve aggregation co_path values from the art
+    fn get_aggregation_co_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>;
+
+    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    fn update_public_art_with_aggregation(
+        &mut self,
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
     ) -> Result<(), ARTError>;
 }
 
@@ -183,4 +201,30 @@ where
         merged_changes: &[BranchChanges<G>],
         target_change: &BranchChanges<G>,
     ) -> Result<(), ARTError>;
+
+    /// allowes to update public keys on the given `path` with values provided in
+    /// `verifier_aggregation`. Also it allows to skip and not update first `skip` nodes on path.
+    fn update_public_art_upper_branch(
+        &mut self,
+        path: &[Direction],
+        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
+        append_changes: bool,
+        skip: usize,
+    ) -> Result<(), ARTError>;
+
+    /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
+    /// then increment weight by one, else decrement it by one.
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
+    ) -> Result<(), ARTError>;
+
+    /// Retrieve the last public key on given `path`, by applying required changes from the
+    /// `aggregation`.
+    fn get_last_public_key_on_path(
+        &self,
+        aggregation: &ChangeAggregation<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError>;
 }

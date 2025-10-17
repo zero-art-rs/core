@@ -40,6 +40,12 @@ pub enum ARTError {
     InapplicableLeave,
     #[error("The method can't be applied to the non leaf node.")]
     NonLeafNode,
-    #[error("Cant merge given changes.")]
-    MergeInput,
+    #[error("The method can't be applied to the leaf node.")]
+    InternalOnly,
+    #[error("Can't merge given changes.")]
+    InvalidMergeInput,
+    #[error("Fail to update tree_ds tree.")]
+    TreeDS,
+    #[error("Provided aggregation is invalid.")]
+    InvalidAggregation,
 }

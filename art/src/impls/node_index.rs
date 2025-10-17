@@ -75,7 +75,24 @@ impl NodeIndex {
         Ok(is_subpath)
     }
 
-    /// Returns an intersection with the other index, i.e. the path from root to the last common
+    pub fn push(&mut self, dir: Direction) {
+        match self {
+            NodeIndex::Index(index) => match dir {
+                Direction::Left => *index = *index << 1,
+                Direction::Right => *index = (*index << 1) + 1,
+            },
+            NodeIndex::Coordinate(level, position) => {
+                *level += 1;
+                match dir {
+                    Direction::Left => *position = *position << 1,
+                    Direction::Right => *position = (*position << 1) + 1,
+                }
+            }
+            NodeIndex::Direction(path) => path.push(dir),
+        }
+    }
+
+    /// Returns an intersection with the other index, i.e. the path from root to the lowest common
     /// node on both paths
     pub fn intersect_with(&self, other: &NodeIndex) -> Result<Vec<Direction>, ARTError> {
         let mut intersection: Vec<Direction> = vec![];
@@ -195,8 +212,22 @@ impl From<Vec<Direction>> for NodeIndex {
     }
 }
 
+impl TryFrom<NodeIndex> for Vec<Direction> {
+    type Error = ARTError;
+
+    fn try_from(path: NodeIndex) -> Result<Self, Self::Error> {
+        path.get_path()
+    }
+}
+
 impl From<(u64, u64)> for NodeIndex {
     fn from((level, position): (u64, u64)) -> Self {
         Self::Coordinate(level, position)
+    }
+}
+
+impl Default for NodeIndex {
+    fn default() -> Self {
+        NodeIndex::Index(1)
     }
 }
