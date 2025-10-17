@@ -152,12 +152,18 @@ impl CanonicalDeserialize for CompressedRistretto {
 }
 
 /// Estimate the number of generators needed for the given depth
-pub(crate) fn estimate_bp_gens(mut height: usize, dh_ver: u32) -> usize {
+pub(crate) fn estimate_bp_gens(mut height: usize, leaves: usize, dh_ver: u32) -> usize {
     #[cfg(feature = "multi_thread_prover")]
     {
         height = 1
     }
     let eps = 5;
+
+    let scalar_mul_complexity = match dh_ver {
+        1 => 1521,
+        2 => 1268,
+        _ => 0,
+    };
 
     let level_complexity: usize = match dh_ver {
         #[cfg(feature = "cross_sigma")]
@@ -170,8 +176,14 @@ pub(crate) fn estimate_bp_gens(mut height: usize, dh_ver: u32) -> usize {
         2 => 2536,
         _ => 0,
     };
-    let log_depth = log2(height * (level_complexity + eps));
-    1 << log_depth
+    #[cfg(feature = "multi_thread_prover")]
+    {
+        1 << log2(scalar_mul_complexity + level_complexity + eps)
+    }
+    #[cfg(not(feature = "multi_thread_prover"))]
+    {
+        1 << log2(leaves * scalar_mul_complexity + height * (level_complexity + eps))
+    }
 }
 
 /// Prove the cross-group relation Rσ for a given basis:
@@ -616,7 +628,7 @@ pub fn art_prove(
         B: ark_to_ristretto255(basis.G_2).unwrap(),
         B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
     };
-    let bp_gens = BulletproofGens::new(estimate_bp_gens(Q_b.len(), 2), 1);
+    let bp_gens = BulletproofGens::new(estimate_bp_gens(Q_b.len(), 1, 2), 1);
     let λ_a: Vec<Scalar> = λ_a.iter().map(|x| x.into_scalar()).collect();
 
     #[cfg(feature = "cross_sigma")]
@@ -695,7 +707,7 @@ pub fn art_verify(
         B: ark_to_ristretto255(basis.G_2).unwrap(),
         B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
     };
-    let bp_gens = BulletproofGens::new(estimate_bp_gens(Q_b.len(), 2), 1);
+    let bp_gens = BulletproofGens::new(estimate_bp_gens(Q_b.len(), 1, 2), 1);
     #[cfg(feature = "cross_sigma")]
     {
         let B: Vec<BigInt<4>> = (0..4)
@@ -787,7 +799,7 @@ mod tests {
         let mut λ_a: cortado::Fr = blinding_rng.r#gen();
         Q_a.push((CortadoAffine::generator() * λ_a).into_affine());
         λ.push(λ_a);
-    
+
         for i in 0..k {
             let r: cortado::Fr = blinding_rng.r#gen();
             let q_b = (CortadoAffine::generator() * r).into_affine();
@@ -932,10 +944,8 @@ mod tests {
             .with_target(false)
             .try_init();
 
-        assert!(art_roundtrip(1).is_ok());
-        assert!(art_roundtrip(4).is_ok());
-        assert!(art_roundtrip(7).is_ok());
-        assert!(art_roundtrip(10).is_ok());
-        assert!(art_roundtrip(15).is_ok());
+        for i in 1..16 {
+            assert!(art_roundtrip(i).is_ok());
+        }
     }
 }

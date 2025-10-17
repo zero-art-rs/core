@@ -1,6 +1,6 @@
 [package]
 name = "zrt-zk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -32,4 +32,4 @@ inherits = "release"
 cross_sigma = []
 multi_thread_prover = []
 multi_thread_verifier = []
-#default = ["multi_thread_prover", "multi_thread_verifier"]
+default = ["multi_thread_prover", "multi_thread_verifier"]
