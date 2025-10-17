@@ -1,24 +1,17 @@
-use crate::traits::{ARTPrivateAPI, ChildContainer};
+use crate::errors::ARTError;
+use crate::helper_tools::iota_function;
+use crate::traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView, ChildContainer};
 use crate::types::{
-    AggregationData, AggregationNodeIterWithPath, ChangeAggregation, VerifierAggregationData,
-};
-use crate::types::{BranchChangesTypeHint, LeafStatus};
-use crate::{
-    errors::ARTError,
-    helper_tools::iota_function,
-    traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView},
-    types::{
-        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
-        NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierArtefacts,
-    },
+    ARTNode, ARTRootKey, AggregationData, AggregationNodeIterWithPath, BranchChanges,
+    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Direction, LeafIterWithPath,
+    LeafStatus, NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierAggregationData,
+    VerifierArtefacts,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
-use tracing::{debug, error};
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -468,6 +461,19 @@ where
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
                         corresponding_item.set_public_key(*pk);
                     }
+                    BranchChangesTypeHint::Leave { pk } => {
+                        self.update_public_art_upper_branch(
+                            &item_path,
+                            &verifier_aggregation,
+                            false,
+                            0,
+                        )?;
+
+                        let corresponding_item =
+                            self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_status(LeafStatus::PendingRemoval)?;
+                        corresponding_item.set_public_key(*pk);
+                    }
                 }
             }
         }
@@ -575,12 +581,12 @@ where
     }
 
     fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
-        for (i, dir) in path.iter().enumerate() {
-            let current_node = self.get_mut_node(&NodeIndex::Direction(path[0..i].to_vec()))?;
+        for i in 0..path.len() {
+            let current_node_weight = self.get_mut_node_with_path(&path[0..i])?.get_mut_weight()?;
             if increment {
-                *current_node.get_mut_weight()? += 1;
+                *current_node_weight += 1;
             } else {
-                *current_node.get_mut_weight()? -= 1;
+                *current_node_weight -= 1;
             }
         }
 
@@ -846,6 +852,7 @@ where
                                 }
                             }
                             BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+                            BranchChangesTypeHint::Leave { pk } => leaf_public_key = *pk,
                         }
                     }
 

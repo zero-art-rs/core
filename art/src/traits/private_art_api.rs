@@ -62,6 +62,12 @@ where
         aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
     ) -> Result<UpdateData<G>, ARTError>;
 
+    fn leave_and_aggregate(
+        &mut self,
+        new_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError>;
+
     /// Updates art by applying changes. Also updates `path_secrets` and `node_index`.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 

@@ -3,15 +3,14 @@
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
 use crate::traits::{
-    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPIHelper,
-    ChildContainer,
+    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPIHelper, ChildContainer,
 };
 use crate::types::{
     ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregation,
     Direction, LeafStatus, NodeIndex, ProverAggregationData, ProverArtefacts, UpdateData,
     VerifierAggregationData,
 };
-use ark_ec::{AffineRepr};
+use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Serialize, de::DeserializeOwned};
@@ -183,6 +182,24 @@ where
             BranchChangesTypeHint::AppendNode {
                 pk: self.public_key_of(secret_key),
                 ext_pk,
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    fn leave_and_aggregate(
+        &mut self,
+        new_secret_key: &G::ScalarField,
+        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
+    ) -> Result<UpdateData<G>, ARTError> {
+        let (tk, changes, artefacts) = self.leave(*new_secret_key)?;
+
+        aggregation.extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::Leave {
+                pk: self.public_key_of(new_secret_key),
             },
         )?;
 

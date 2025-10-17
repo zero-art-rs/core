@@ -35,6 +35,7 @@ where
             BranchChangesTypeHint::MakeBlank { .. } => BranchChangesType::MakeBlank,
             BranchChangesTypeHint::AppendNode { .. } => BranchChangesType::AppendNode,
             BranchChangesTypeHint::UpdateKey { .. } => BranchChangesType::UpdateKey,
+            BranchChangesTypeHint::Leave { .. } => BranchChangesType::Leave,
         }
     }
 }

@@ -38,6 +38,10 @@ where
         /// New public key
         pk: G,
     },
+    Leave {
+        /// New public key
+        pk: G,
+    },
 }
 
 /// Helper data type, which contains information about ART change. Can be used to apply this
