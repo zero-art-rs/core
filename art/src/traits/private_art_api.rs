@@ -1,10 +1,9 @@
-use crate::types::AggregationData;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
     types::{
         ARTRootKey, BranchChanges, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
-        UpdateData, VerifierAggregationData,
+        UpdateData, VerifierAggregationData, ProverArtefacts,
     },
 };
 use ark_ec::AffineRepr;
@@ -40,6 +39,10 @@ where
         secret_key: &G::ScalarField,
     ) -> Result<UpdateData<G>, ARTError>;
 
+    /// Remove yourself from the art.
+    fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError>;
+
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
     fn update_key_and_aggregate(
         &mut self,
         new_secret_key: &G::ScalarField,

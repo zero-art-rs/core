@@ -173,6 +173,7 @@ where
         path: &[Direction],
         update_weights: bool,
     ) -> Result<(), ARTError>;
+    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError>;
 
     /// This method will update all public keys on a path from the root to node. Using provided
     /// secret key, it will recompute all the public keys and change old ones. It is used

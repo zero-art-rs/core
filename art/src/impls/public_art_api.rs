@@ -182,11 +182,11 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let (append_changes, update_weights) =
-            match !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active() {
-                true => (true, false),
-                false => (false, true),
-            };
+        let append_changes = matches!(
+            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+        let update_weights = !append_changes;
 
         self.make_blank_without_changes_with_options(path, update_weights)?;
 
@@ -254,7 +254,10 @@ where
 
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && !self.get_node(&changes.node_index)?.is_active()
+            && matches!(
+                self.get_node(&changes.node_index)?.get_status(),
+                Some(LeafStatus::Blank)
+            )
         {
             self.update_public_art_with_options(changes, true, false)
         } else {
@@ -280,6 +283,13 @@ where
                     &changes.node_index.get_path()?,
                     update_weights,
                 )?;
+            }
+            BranchChangesType::Leave => {
+                self.get_mut_node(&changes.node_index)?
+                    .set_status(LeafStatus::PendingRemoval)?;
+                // let mut update_path = changes.node_index.get_path()?;
+                // // update_path.pop();
+                // self.update_weights(&update_path, false)?;
             }
         }
 
@@ -309,6 +319,9 @@ where
         for change in target_changes {
             match change.change_type {
                 BranchChangesType::UpdateKey => {
+                    key_update_changes.push(change.clone());
+                }
+                BranchChangesType::Leave => {
                     key_update_changes.push(change.clone());
                 }
                 BranchChangesType::MakeBlank => {
@@ -557,6 +570,19 @@ where
         }
 
         target_node.set_status(LeafStatus::Blank)?;
+
+        Ok(())
+    }
+
+    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
+        for (i, dir) in path.iter().enumerate() {
+            let current_node = self.get_mut_node(&NodeIndex::Direction(path[0..i].to_vec()))?;
+            if increment {
+                *current_node.get_mut_weight()? += 1;
+            } else {
+                *current_node.get_mut_weight()? -= 1;
+            }
+        }
 
         Ok(())
     }
