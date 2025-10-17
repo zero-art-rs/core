@@ -163,9 +163,7 @@ where
             let child_data = ProverAggregationData::<G> {
                 // public_key: change.public_keys[i + 1],
                 public_key: prover_artefacts.path[i],
-                co_public_key: Some(
-                    prover_artefacts.co_path[i],
-                ),
+                co_public_key: Some(prover_artefacts.co_path[i]),
                 change_type: vec![],
                 secret_key: prover_artefacts.secrets[i],
                 blinding_factor: Default::default(),

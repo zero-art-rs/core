@@ -20,8 +20,9 @@ mod tests {
     use std::ops::{Add, Mul};
     use tracing::{debug, error, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
-    use zrt_art::types::{AggregationNodeIterWithPath, LeafIter};
+    use zrt_art::helper_tools::iota_function;
     use zrt_art::types::LeafStatus;
+    use zrt_art::types::{AggregationNodeIterWithPath, LeafIter};
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
@@ -34,7 +35,6 @@ mod tests {
     use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
     use zrt_zk::aggregated_art::{art_aggregated_prove, art_aggregated_verify};
     use zrt_zk::art::{art_prove, art_verify};
-    use zrt_art::helper_tools::{iota_function};
 
     pub const TEST_GROUP_SIZE: usize = 100;
 
@@ -2238,13 +2238,19 @@ mod tests {
 
         // Verify structure correctness
         for (node, path) in AggregationNodeIterWithPath::new(&agg) {
-            assert_eq!(user0.public_key_of(&node.data.secret_key), node.data.public_key);
+            assert_eq!(
+                user0.public_key_of(&node.data.secret_key),
+                node.data.public_key
+            );
             if let Some((parent, _)) = path.last()
                 && let Some(co_public_key) = node.data.co_public_key
             {
-                let pk = CortadoAffine::generator().mul(iota_function(
-                    &co_public_key.mul(node.data.secret_key).into_affine()
-                ).unwrap()).into_affine();
+                let pk = CortadoAffine::generator()
+                    .mul(
+                        iota_function(&co_public_key.mul(node.data.secret_key).into_affine())
+                            .unwrap(),
+                    )
+                    .into_affine();
                 assert_eq!(parent.data.public_key, pk);
             }
         }
