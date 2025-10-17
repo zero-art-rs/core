@@ -3,7 +3,7 @@ use crate::{
     traits::ARTPublicAPI,
     types::{
         ARTRootKey, BranchChanges, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
-        UpdateData, VerifierAggregationData, ProverArtefacts,
+        ProverArtefacts, UpdateData, VerifierAggregationData,
     },
 };
 use ark_ec::AffineRepr;

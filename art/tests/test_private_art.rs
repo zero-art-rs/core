@@ -19,10 +19,10 @@ mod tests {
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
     use tracing::{debug, info, warn};
-    use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
-    use zrt_art::types::LeafStatus;
     use utils::aggregations::ProverAggregationTree;
+    use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::types::LeafIter;
+    use zrt_art::types::LeafStatus;
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
@@ -2359,10 +2359,7 @@ mod tests {
             .update_public_art_with_aggregation(&verify_agg)
             .unwrap();
 
-        assert_eq!(
-            pub_art,
-            user0.public_art,
-        )
+        assert_eq!(pub_art, user0.public_art,)
     }
 
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {

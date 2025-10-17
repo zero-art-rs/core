@@ -1,25 +1,20 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::{iota_function, recompute_artefacts};
-use crate::types::{Direction, LeafStatus, NodeIndex, UpdateData};
+use crate::errors::ARTError;
+use crate::helper_tools::recompute_artefacts;
 use crate::traits::{
-    ARTPrivateAPIHelper, ARTPublicAPI, ChildContainer, ARTPrivateAPI,
-    ARTPrivateView, ARTPublicAPIHelper};
+    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPIHelper,
+    ChildContainer,
+};
 use crate::types::{
-    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
-    ChangeAggregation, Direction, LeafStatus, NodeIndex, ProverAggregationData, UpdateData,
+    ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregation,
+    Direction, LeafStatus, NodeIndex, ProverAggregationData, ProverArtefacts, UpdateData,
     VerifierAggregationData,
 };
-use crate::{
-    errors::ARTError,
-    types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
-};
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use tracing::{debug, error, trace};
+use serde::{Serialize, de::DeserializeOwned};
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
