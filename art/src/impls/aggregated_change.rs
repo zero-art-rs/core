@@ -1,19 +1,25 @@
 /// TODO: refactor this file
-
 use crate::errors::ARTError;
 use crate::traits::{ChildContainer, RelatedData};
 use crate::types::{
     AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, NodeIndex,
-    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, EmptyData,
+    NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::UniformRand;
+use ark_std::rand::prelude::ThreadRng;
+use curve25519_dalek::Scalar;
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
+use tracing::debug;
 use tree_ds::prelude::Node;
-use zrt_zk::aggregated_art::{ProverAggregatedNodeData, VerifierAggregatedNodeData, ProverAggregationTree};
+use zrt_zk::aggregated_art::{
+    ProverAggregatedNodeData, ProverAggregationTree, VerifierAggregatedNodeData,
+    VerifierAggregationTree,
+};
 
 impl<D> ChangeAggregation<D>
 where
@@ -71,6 +77,15 @@ where
         }
 
         intersection
+    }
+
+    pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
+        let mut current_node = self;
+        for dir in path {
+            current_node = current_node.children.get_mut_child(*dir).unwrap();
+        }
+
+        Ok(current_node)
     }
 }
 
@@ -135,36 +150,56 @@ where
         }
 
         // Update root.
-        self.data.public_key = *change.public_keys.first().ok_or(ARTError::EmptyART)?;
+        self.data.public_key = *prover_artefacts.path.last().ok_or(ARTError::EmptyART)?;
         self.data.secret_key = *prover_artefacts
             .secrets
-            .first()
+            .last()
             .ok_or(ARTError::InvalidInput)?;
 
         // Update other nodes.
         let mut parent = &mut *self;
-        for (i, direction) in leaf_path.iter().enumerate() {
+        for (i, dir) in leaf_path.iter().rev().enumerate().rev() {
             // compute new child node
             let child_data = ProverAggregationData::<G> {
-                public_key: change.public_keys[i + 1],
+                // public_key: change.public_keys[i + 1],
+                public_key: prover_artefacts.path[i],
                 co_public_key: Some(
-                    prover_artefacts.co_path[prover_artefacts.co_path.len() - i - 1],
+                    prover_artefacts.co_path[i],
                 ),
                 change_type: vec![],
-                secret_key: prover_artefacts.secrets[i + 1],
+                secret_key: prover_artefacts.secrets[i],
+                blinding_factor: Default::default(),
             };
 
             // update other_co_path
-            if let Some(child) = parent.children.get_mut_child(direction.other()) {
+            if let Some(child) = parent.children.get_mut_child(dir.other()) {
                 child.data.co_public_key = Some(change.public_keys[i + 1]);
+            }
+
+            // Update co_node
+            if let Some(co_node) = parent.children.get_mut_child(dir.other()) {
+                co_node.data.co_public_key = Some(child_data.public_key);
             }
 
             // Update parent
             parent = parent
                 .children
-                .get_mut_child_or_create(*direction)
+                .get_mut_child_or_create(*dir)
                 .ok_or(ARTError::InvalidInput)?;
             parent.data.aggregate(child_data);
+        }
+
+        Ok(())
+    }
+
+    pub fn set_random_blinding_factors(&mut self, rng: &mut ThreadRng) -> Result<(), ARTError> {
+        let dataless_agg = ChangeAggregation::<EmptyData>::try_from(&*self)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(&dataless_agg) {
+            let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let target_node = self.get_mut_node_with_path(&path)?;
+
+            target_node.data.blinding_factor = Scalar::random(rng);
         }
 
         Ok(())
@@ -183,7 +218,7 @@ where
                 AggregationDisplayTree::from(self),
                 Style::default()
                     .indentation(4)
-                    .char_set(CharSet::DOUBLE_LINE)
+                    .char_set(CharSet::SINGLE_LINE)
             )
         )
     }
@@ -220,7 +255,7 @@ where
     }
 }
 
-impl<G> From<&ProverAggregationData<G>> for AggregatedNodeData<G>
+impl<G> From<&ProverAggregationData<G>> for ProverAggregatedNodeData<G>
 where
     G: AffineRepr,
 {
@@ -229,6 +264,20 @@ where
             public_key: value.public_key,
             co_public_key: value.co_public_key,
             secret_key: value.secret_key,
+            blinding_factor: value.blinding_factor,
+            marker: false,
+        }
+    }
+}
+
+impl<G> From<&VerifierAggregationData<G>> for VerifierAggregatedNodeData<G>
+where
+    G: AffineRepr,
+{
+    fn from(value: &VerifierAggregationData<G>) -> Self {
+        Self {
+            public_key: value.public_key,
+            co_public_key: value.co_public_key,
             marker: false,
         }
     }
@@ -278,7 +327,7 @@ where
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
             .add_node(
-                Node::new(1, Some(AggregatedNodeData::from(&root.data))),
+                Node::new(1, Some(ProverAggregatedNodeData::from(&root.data))),
                 None,
             )
             .unwrap();
@@ -290,7 +339,51 @@ where
             let parent_id = node_id / 2;
             resulting_tree
                 .add_node(
-                    Node::new(node_id, Some(AggregatedNodeData::from(&agg_node.data))),
+                    Node::new(
+                        node_id,
+                        Some(ProverAggregatedNodeData::from(&agg_node.data)),
+                    ),
+                    Some(&parent_id),
+                )
+                .map_err(|_| ARTError::TreeDS)?;
+        }
+
+        Ok(resulting_tree)
+    }
+}
+
+impl<G> TryFrom<&ChangeAggregation<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
+where
+    G: AffineRepr,
+{
+    type Error = ARTError;
+
+    fn try_from(
+        value: &ChangeAggregation<VerifierAggregationData<G>>,
+    ) -> Result<Self, Self::Error> {
+        let mut resulting_tree: Self = Self::new(None);
+
+        let mut node_iter = AggregationNodeIterWithPath::new(&value);
+
+        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
+        resulting_tree
+            .add_node(
+                Node::new(1, Some(VerifierAggregatedNodeData::from(&root.data))),
+                None,
+            )
+            .unwrap();
+
+        for (agg_node, path) in node_iter {
+            let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+
+            let node_id = NodeIndex::get_index_from_path(&node_path)?;
+            let parent_id = node_id / 2;
+            resulting_tree
+                .add_node(
+                    Node::new(
+                        node_id,
+                        Some(VerifierAggregatedNodeData::from(&agg_node.data)),
+                    ),
                     Some(&parent_id),
                 )
                 .map_err(|_| ARTError::TreeDS)?;
@@ -383,6 +476,15 @@ where
             co_public_key: prover_data.co_public_key,
             change_type: prover_data.change_type,
         }
+    }
+}
+
+impl<G> From<ProverAggregationData<G>> for EmptyData
+where
+    G: AffineRepr,
+{
+    fn from(_: ProverAggregationData<G>) -> Self {
+        Self {}
     }
 }
 

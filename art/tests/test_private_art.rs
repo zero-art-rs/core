@@ -18,10 +18,9 @@ mod tests {
     use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
-    use tracing::{debug, info, warn};
-    use utils::aggregations::ProverAggregationTree;
+    use tracing::{debug, error, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
-    use zrt_art::types::LeafIter;
+    use zrt_art::types::{AggregationNodeIterWithPath, LeafIter};
     use zrt_art::types::LeafStatus;
     use zrt_art::{
         errors::ARTError,
@@ -32,7 +31,10 @@ mod tests {
             VerifierAggregationData, VerifierArtefacts,
         },
     };
+    use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+    use zrt_zk::aggregated_art::{art_aggregated_prove, art_aggregated_verify};
     use zrt_zk::art::{art_prove, art_verify};
+    use zrt_art::helper_tools::{iota_function};
 
     pub const TEST_GROUP_SIZE: usize = 100;
 
@@ -2104,7 +2106,7 @@ mod tests {
         init_tracing_for_test();
 
         // Init test context.
-        let mut rng = StdRng::seed_from_u64(0);
+        let mut rng: StdRng = StdRng::seed_from_u64(0);
         let secrets = create_random_secrets_with_rng(7, &mut rng);
 
         let (user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
@@ -2232,6 +2234,19 @@ mod tests {
                 user1.get_root(),
                 user2_clone.get_root(),
             );
+        }
+
+        // Verify structure correctness
+        for (node, path) in AggregationNodeIterWithPath::new(&agg) {
+            assert_eq!(user0.public_key_of(&node.data.secret_key), node.data.public_key);
+            if let Some((parent, _)) = path.last()
+                && let Some(co_public_key) = node.data.co_public_key
+            {
+                let pk = CortadoAffine::generator().mul(iota_function(
+                    &co_public_key.mul(node.data.secret_key).into_affine()
+                ).unwrap()).into_affine();
+                assert_eq!(parent.data.public_key, pk);
+            }
         }
 
         let verifier_aggregation =
@@ -2371,6 +2386,86 @@ mod tests {
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let extracted_agg = user0.get_aggregation_co_path(&plain_agg).unwrap();
+
+        user1
+            .update_private_art_with_aggregation(&extracted_agg)
+            .unwrap();
+
+        assert_eq!(user0, user1);
+    }
+
+    #[test]
+    fn test_branch_aggregation_proof_verify() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let group_length = 7;
+        let secrets = create_random_secrets_with_rng(group_length, &mut rng);
+
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+        let mut user1 =
+            PrivateART::<CortadoAffine>::from_public_art_and_secret(user0.clone(), secrets[1])
+                .unwrap();
+
+        let target_3 = user0
+            .get_path_to_leaf(&user0.public_key_of(&secrets[3]))
+            .unwrap();
+        // Create aggregation
+        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+
+        for i in 0..4 {
+            user0
+                .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+                .unwrap();
+        }
+
+        let basis = get_pedersen_basis();
+        let associated_data = b"data";
+        let sk = Fr::rand(&mut rng);
+        let pk = user0.public_key_of(&sk);
+
+        agg.set_random_blinding_factors(&mut thread_rng()).unwrap();
+
+        let prover_tree = ProverAggregationTree::try_from(&agg).unwrap();
+
+        let proof = art_aggregated_prove(
+            basis.clone(),
+            associated_data,
+            &prover_tree,
+            vec![pk],
+            vec![sk],
+        )
+        .unwrap();
+
+        let plain_agg =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let fromed_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let extracted_agg = user0.get_aggregation_co_path(&plain_agg).unwrap();
+        assert_eq!(
+            fromed_agg, extracted_agg,
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
+            fromed_agg, extracted_agg,
+        );
+
+        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
+
+        let result = art_aggregated_verify(
+            basis.clone(),
+            associated_data,
+            &verifier_tree,
+            vec![pk],
+            &proof,
+        );
+
+        assert!(result.is_ok());
 
         user1
             .update_private_art_with_aggregation(&extracted_agg)

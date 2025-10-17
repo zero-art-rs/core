@@ -400,7 +400,7 @@ where
                 self.display_analog(),
                 Style::default()
                     .indentation(4)
-                    .char_set(CharSet::DOUBLE_LINE)
+                    .char_set(CharSet::SINGLE_LINE)
             )
         )
     }

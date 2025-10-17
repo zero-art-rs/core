@@ -1,6 +1,7 @@
 use crate::traits::{HasChangeTypeHint, HasPublicKey, RelatedData};
 use crate::types::{
-    AggregationData, BranchChangesTypeHint, ProverAggregationData, VerifierAggregationData,
+    AggregationData, BranchChangesTypeHint, EmptyData, ProverAggregationData,
+    VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 
@@ -14,6 +15,10 @@ where
         self.co_public_key = other.co_public_key;
         self.change_type.extend(other.change_type);
     }
+}
+
+impl RelatedData for EmptyData {
+    fn aggregate(&mut self, other: Self) {}
 }
 
 impl<G> RelatedData for VerifierAggregationData<G>
