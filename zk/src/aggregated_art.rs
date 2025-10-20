@@ -33,7 +33,10 @@ use zkp::toolbox::{
     verifier::Verifier as SigmaVerifier,
 };
 
+/// aggregation tree for the prover
 pub type ProverAggregationTree<G> = Tree<u64, ProverAggregatedNodeData<G>>;
+
+/// aggregation tree for the verifier
 pub type VerifierAggregationTree<G> = Tree<u64, VerifierAggregatedNodeData<G>>;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
@@ -45,7 +48,6 @@ where
     pub co_public_key: Option<G>,
     pub secret_key: G::ScalarField,
     pub blinding_factor: Scalar,
-    pub marker: bool, // not used currently
 }
 
 impl<G> Display for ProverAggregatedNodeData<G>
@@ -76,8 +78,8 @@ where
 
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, marker: {}",
-            pk_marker, co_pk_marker, sk_marker, self.marker
+            "pk: {}, co_pk: {}, sk: {}",
+            pk_marker, co_pk_marker, sk_marker
         )
     }
 }
@@ -89,7 +91,6 @@ where
 {
     pub public_key: G,
     pub co_public_key: Option<G>,
-    pub marker: bool, // not used currently
 }
 
 impl<G> Display for VerifierAggregatedNodeData<G>
@@ -110,11 +111,7 @@ where
             None => "None".to_string(),
         };
 
-        write!(
-            f,
-            "pk: {}, co_pk: {}, marker: {}",
-            pk_marker, co_pk_marker, self.marker
-        )
+        write!(f, "pk: {}, co_pk: {}", pk_marker, co_pk_marker)
     }
 }
 
@@ -136,7 +133,7 @@ impl From<&ProverAggregationTree<CortadoAffine>> for AggregatedTreeProof {
     }
 }
 
-/// Convert aggregated proof tree to verifier aggregation public tree
+/// Convert aggregated proof tree to an empty verifier aggregation public tree (needs to be populated after that)
 impl From<&AggregatedTreeProof> for VerifierAggregationTree<CortadoAffine> {
     fn from(proof: &AggregatedTreeProof) -> Self {
         let mut new_tree = Tree::new(Some("verifier_aggregation_tree"));
@@ -149,32 +146,6 @@ impl From<&AggregatedTreeProof> for VerifierAggregationTree<CortadoAffine> {
         }
         new_tree
     }
-}
-
-fn convert_to_verifier_tree(
-    tree: &ProverAggregationTree<CortadoAffine>,
-) -> VerifierAggregationTree<CortadoAffine> {
-    let mut verifier_tree = VerifierAggregationTree::new(Some("verifier_tree"));
-    for node in tree.get_nodes().iter() {
-        let node_id = node.get_node_id().unwrap();
-        let parent_id = node.get_parent_id().ok().flatten();
-        let node_data = node.get_value().unwrap().unwrap();
-
-        verifier_tree
-            .add_node(
-                Node::new(
-                    node_id,
-                    Some(VerifierAggregatedNodeData {
-                        public_key: node_data.public_key,
-                        co_public_key: node_data.co_public_key,
-                        marker: node_data.marker,
-                    }),
-                ),
-                parent_id.as_ref(),
-            )
-            .unwrap();
-    }
-    verifier_tree
 }
 
 #[derive(Clone, CanonicalDeserialize, CanonicalSerialize)]
@@ -694,23 +665,29 @@ mod tests {
     use tracing_subscriber::field::debug;
     use zkp::ProofError;
 
-    fn get_leaf_nodes<Q, T>(tree: Tree<Q, T>) -> Vec<Q>
-    where
-        Q: PartialEq + Eq + Clone + Send + Sync + Hash + Ord + Display,
-        T: PartialEq + Eq + Clone + Send + Sync,
-    {
-        let mut leaf_nodes = Vec::new();
-
-        // Get all nodes
+    fn convert_to_verifier_tree(
+        tree: &ProverAggregationTree<CortadoAffine>,
+    ) -> VerifierAggregationTree<CortadoAffine> {
+        let mut verifier_tree = VerifierAggregationTree::new(Some("verifier_tree"));
         for node in tree.get_nodes().iter() {
             let node_id = node.get_node_id().unwrap();
-            // A leaf node has no children
-            if node.get_children_ids().unwrap().is_empty() {
-                leaf_nodes.push(node_id);
-            }
-        }
+            let parent_id = node.get_parent_id().ok().flatten();
+            let node_data = node.get_value().unwrap().unwrap();
 
-        leaf_nodes
+            verifier_tree
+                .add_node(
+                    Node::new(
+                        node_id,
+                        Some(VerifierAggregatedNodeData {
+                            public_key: node_data.public_key,
+                            co_public_key: node_data.co_public_key,
+                        }),
+                    ),
+                    parent_id.as_ref(),
+                )
+                .unwrap();
+        }
+        verifier_tree
     }
 
     fn compute_art(tree: &ProverAggregationTree<CortadoAffine>, leaf_id: u64) {
@@ -775,7 +752,6 @@ mod tests {
                 co_public_key: None,
                 secret_key: root_sk,
                 blinding_factor: Scalar::random(&mut rng),
-                marker: false,
             }),
         );
         tree.add_node(root_node, None).unwrap();
@@ -808,7 +784,6 @@ mod tests {
                                     public_key: node_value.public_key,
                                     co_public_key: Some(right_child_pk),
                                     blinding_factor: node_value.blinding_factor,
-                                    marker: false,
                                 }),
                             );
                             tree.add_node(left_child_node, Some(&node_id)).unwrap();
@@ -821,7 +796,6 @@ mod tests {
                                     co_public_key: Some(node_value.public_key),
                                     secret_key: right_child_sk,
                                     blinding_factor: Scalar::random(&mut rng),
-                                    marker: false,
                                 }),
                             );
                             tree.add_node(right_child_node, Some(&node_id)).unwrap();

@@ -113,7 +113,6 @@ where
             co_public_key: value.co_public_key,
             secret_key: value.secret_key,
             blinding_factor: value.blinding_factor,
-            marker: false,
         }
     }
 }
@@ -126,7 +125,6 @@ where
         Self {
             public_key: value.public_key,
             co_public_key: value.co_public_key,
-            marker: false,
         }
     }
 }

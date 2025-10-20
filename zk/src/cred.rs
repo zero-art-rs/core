@@ -2,7 +2,7 @@
 
 use std::time::{self, Instant, SystemTime};
 
-use crate::dh::{bin_equality_gadget, scalar_mul_gadget_v2};
+use crate::dh::{bin_equality_gadget, scalar_mul_gadget};
 use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
 use ark_ec::{AffineRepr, CurveGroup, short_weierstrass::SWCurveConfig};
@@ -192,7 +192,7 @@ impl Credential {
         set_non_membership_gadget(cs, id, revocation_list)?;
 
         // check the possesion of k
-        let Q = scalar_mul_gadget_v2(cs, k, CortadoAffine::generator())?;
+        let Q = scalar_mul_gadget(2, cs, k, CortadoAffine::generator())?;
         cs.constrain(Q_holder.x.variable - Q.x.variable);
         cs.constrain(Q_holder.y.variable - Q.y.variable);
 
@@ -206,8 +206,8 @@ impl Credential {
         )?;
 
         // compute verification equation
-        let P = scalar_mul_gadget_v2(cs, s, CortadoAffine::generator())?;
-        let Q = scalar_mul_gadget_v2(cs, c, Q_issuer)?;
+        let P = scalar_mul_gadget(2, cs, s, CortadoAffine::generator())?;
+        let Q = scalar_mul_gadget(2, cs, c, Q_issuer)?;
 
         // check that R = P - Q
         co_linear_gadget(cs, P, Q, R)

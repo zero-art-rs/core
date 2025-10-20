@@ -24,7 +24,7 @@ use tracing_subscriber::field::debug;
 const MODULUS_BIT_SIZE: u64 = 254;
 static S: OnceCell<Vec<CortadoAffine>> = OnceCell::new();
 
-pub fn acc<
+fn acc<
     U: Clone,
     V: Clone + Mul<Output = V>,
     T: From<U> + Add<Output = T> + Mul<V, Output = T> + Default + Clone,
@@ -93,7 +93,7 @@ pub fn bin_equality_gadget<CS: ConstraintSystem>(
 
 /// gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
 /// based on https://eprint.iacr.org/archive/2024/397/20240622:224417
-pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
+fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
@@ -215,16 +215,16 @@ pub fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Witness {
-    pub P_i: CortadoAffine,
-    pub Δ_i: CortadoAffine,
-    pub P_i_1: CortadoAffine,
-    pub s_i: Scalar,
+struct Witness {
+    P_i: CortadoAffine,
+    Δ_i: CortadoAffine,
+    P_i_1: CortadoAffine,
+    s_i: Scalar,
 }
 
 /// second ver. of gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
 /// based on https://eprint.iacr.org/archive/2024/397/20250504:183956
-pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
+fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     cs: &mut CS,
     λ_a: AllocatedScalar,
     Q_b: CortadoAffine,
@@ -337,7 +337,26 @@ pub fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
     })
 }
 
-/// gadget constraining λ_ab = x(λ_a * Q_b)
+/// gadget computing R <- x * Q, there exists two versions of this gadget: the first check curve equation and points co-linearity
+/// while the second check co-linearity along with the square of the line slope (this one takes ~250 less constraints)
+pub fn scalar_mul_gadget<CS: ConstraintSystem>(
+    ver: u8,
+    cs: &mut CS,
+    x: AllocatedScalar,
+    Q: CortadoAffine,
+) -> Result<AllocatedPoint, R1CSError> {
+    match ver {
+        1 => scalar_mul_gadget_v1(cs, x, Q),
+        2 => scalar_mul_gadget_v2(cs, x, Q),
+        _ => {
+            return Err(R1CSError::GadgetError {
+                description: "invalid scalar mul gadget version".into(),
+            });
+        }
+    }
+}
+
+/// gadget constraining λ_ab = x(λ_a * Q_b), there exists two versions of this gadget as in `scalar_mul_gadget`
 pub fn dh_gadget<CS: ConstraintSystem>(
     ver: u8,
     cs: &mut CS,
@@ -356,77 +375,6 @@ pub fn dh_gadget<CS: ConstraintSystem>(
     };
     cs.constrain(var_R.x.variable - var_ab);
     Ok(())
-}
-
-#[instrument(skip(pc_gens, bp_gens, Q_b, λ_a, λ_ab))]
-pub fn dh_gadget_proof(
-    ver: u8,
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    Q_b: CortadoAffine,
-
-    λ_a: Scalar,
-    λ_ab: Scalar,
-) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
-    let mut blinding_rng = thread_rng();
-
-    let mut transcript = Transcript::new(b"DHGadget");
-
-    // 1. Create a prover
-    let mut prover = Prover::new(pc_gens, &mut transcript);
-    // 2. Commit high-level variables
-    let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
-    let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
-    let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
-    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
-    let mut start = Instant::now();
-
-    dh_gadget(ver, &mut prover, λ_a, λ_ab, Q_b)?;
-
-    debug!(
-        "DHGadget prover synthetize time: {:?}, metrics: {:?}",
-        start.elapsed(),
-        prover.metrics()
-    );
-    start = Instant::now();
-    let proof = prover.prove(bp_gens)?;
-    debug!(
-        "DHGadget proving time: {:?}, proof_size = {:?}",
-        start.elapsed(),
-        proof.to_bytes().len()
-    );
-
-    Ok((proof, (a_commitment, ab_commitment)))
-}
-
-#[instrument(skip(pc_gens, bp_gens, proof, a_commitment, ab_commitment))]
-pub fn dh_gadget_verify(
-    ver: u8,
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    proof: R1CSProof,
-    Q_b: CortadoAffine,
-
-    a_commitment: CompressedRistretto,
-    ab_commitment: CompressedRistretto,
-) -> Result<(), R1CSError> {
-    let mut transcript = Transcript::new(b"DHGadget");
-    let mut verifier = Verifier::new(&mut transcript);
-    let var_a = verifier.commit(a_commitment);
-    let var_ab = verifier.commit(ab_commitment);
-    let λ_a = AllocatedScalar::new(var_a, None);
-    let λ_ab = AllocatedScalar::new(var_ab, None);
-    let mut start = Instant::now();
-
-    dh_gadget(ver, &mut verifier, λ_a, λ_ab, Q_b)?;
-
-    debug!("DHGadget verifier synthetize time: {:?}", start.elapsed());
-    start = Instant::now();
-    let r = verifier
-        .verify(&proof, &pc_gens, &bp_gens)
-        .map_err(|_| R1CSError::VerificationError);
-    debug!("DHGadget verification time: {:?}", start.elapsed());
-    r
 }
 
 /// gadget constraining λ_ab = x(λ_a * Q_b) & Q_ab = [λ_ab]P
@@ -474,94 +422,161 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
     Ok(())
 }
 
-pub fn art_level_prove(
-    ver: u8,
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    level: usize,
-    Q_a: CortadoAffine,
-    Q_b: CortadoAffine,
-    Q_ab: CortadoAffine,
-    λ_a: Scalar,
-    λ_ab: Scalar,
-) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
-    let mut blinding_rng = thread_rng();
-
-    let mut transcript = Transcript::new(b"ARTLevel");
-
-    // 1. Create a prover
-    let mut prover = Prover::new(pc_gens, &mut transcript);
-
-    // 2. Commit high-level variables
-    let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
-    let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
-
-    let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
-    let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
-    let mut start = Instant::now();
-
-    art_level_gadget(ver, &mut prover, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
-
-    debug!(
-        "ARTLevel prover synthetize time: {:?}, metrics: {:?}",
-        start.elapsed(),
-        prover.metrics()
-    );
-    start = Instant::now();
-
-    let proof = prover.prove(bp_gens)?;
-
-    debug!(
-        "ARTLevel proving time: {:?}, proof_size = {:?}",
-        start.elapsed(),
-        proof.to_bytes().len()
-    );
-
-    Ok((proof, (a_commitment, ab_commitment)))
-}
-
-pub fn art_level_verify(
-    ver: u8,
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    proof: R1CSProof,
-    level: usize,
-    Q_a: CortadoAffine,
-    Q_b: CortadoAffine,
-    Q_ab: CortadoAffine,
-    a_commitment: CompressedRistretto,
-    ab_commitment: CompressedRistretto,
-) -> Result<(), R1CSError> {
-    let mut transcript = Transcript::new(b"ARTLevel");
-    let mut verifier = Verifier::new(&mut transcript);
-
-    let var_a = verifier.commit(a_commitment);
-    let var_ab = verifier.commit(ab_commitment);
-
-    let λ_a = AllocatedScalar::new(var_a, None);
-    let λ_ab = AllocatedScalar::new(var_ab, None);
-    let mut start = Instant::now();
-
-    art_level_gadget(ver, &mut verifier, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
-
-    debug!("ARTLevel verifier synthetize time: {:?}", start.elapsed());
-    start = Instant::now();
-
-    let r = verifier
-        .verify(&proof, &pc_gens, &bp_gens)
-        .map_err(|_| R1CSError::VerificationError);
-
-    debug!("ARTLevel verification time: {:?}", start.elapsed());
-
-    r
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::UniformRand;
-    use ark_serialize::CanonicalDeserialize;
     use rand::thread_rng;
+
+    fn dh_gadget_prove(
+        ver: u8,
+        pc_gens: &PedersenGens,
+        bp_gens: &BulletproofGens,
+        Q_b: CortadoAffine,
+
+        λ_a: Scalar,
+        λ_ab: Scalar,
+    ) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
+        let mut blinding_rng = thread_rng();
+
+        let mut transcript = Transcript::new(b"DHGadget");
+
+        // 1. Create a prover
+        let mut prover = Prover::new(pc_gens, &mut transcript);
+        // 2. Commit high-level variables
+        let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
+        let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
+        let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
+        let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
+        let mut start = Instant::now();
+
+        dh_gadget(ver, &mut prover, λ_a, λ_ab, Q_b)?;
+
+        debug!(
+            "DHGadget prover synthetize time: {:?}, metrics: {:?}",
+            start.elapsed(),
+            prover.metrics()
+        );
+        start = Instant::now();
+        let proof = prover.prove(bp_gens)?;
+        debug!(
+            "DHGadget proving time: {:?}, proof_size = {:?}",
+            start.elapsed(),
+            proof.to_bytes().len()
+        );
+
+        Ok((proof, (a_commitment, ab_commitment)))
+    }
+
+    fn dh_gadget_verify(
+        ver: u8,
+        pc_gens: &PedersenGens,
+        bp_gens: &BulletproofGens,
+        proof: R1CSProof,
+        Q_b: CortadoAffine,
+
+        a_commitment: CompressedRistretto,
+        ab_commitment: CompressedRistretto,
+    ) -> Result<(), R1CSError> {
+        let mut transcript = Transcript::new(b"DHGadget");
+        let mut verifier = Verifier::new(&mut transcript);
+        let var_a = verifier.commit(a_commitment);
+        let var_ab = verifier.commit(ab_commitment);
+        let λ_a = AllocatedScalar::new(var_a, None);
+        let λ_ab = AllocatedScalar::new(var_ab, None);
+        let mut start = Instant::now();
+
+        dh_gadget(ver, &mut verifier, λ_a, λ_ab, Q_b)?;
+
+        debug!("DHGadget verifier synthetize time: {:?}", start.elapsed());
+        start = Instant::now();
+        let r = verifier
+            .verify(&proof, &pc_gens, &bp_gens)
+            .map_err(|_| R1CSError::VerificationError);
+        debug!("DHGadget verification time: {:?}", start.elapsed());
+        r
+    }
+
+    fn art_level_prove(
+        ver: u8,
+        pc_gens: &PedersenGens,
+        bp_gens: &BulletproofGens,
+        level: usize,
+        Q_a: CortadoAffine,
+        Q_b: CortadoAffine,
+        Q_ab: CortadoAffine,
+        λ_a: Scalar,
+        λ_ab: Scalar,
+    ) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
+        let mut blinding_rng = thread_rng();
+
+        let mut transcript = Transcript::new(b"ARTLevel");
+
+        // 1. Create a prover
+        let mut prover = Prover::new(pc_gens, &mut transcript);
+
+        // 2. Commit high-level variables
+        let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut blinding_rng));
+        let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut blinding_rng));
+
+        let λ_a = AllocatedScalar::new(var_a, Some(λ_a));
+        let λ_ab = AllocatedScalar::new(var_ab, Some(λ_ab));
+        let mut start = Instant::now();
+
+        art_level_gadget(ver, &mut prover, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
+
+        debug!(
+            "ARTLevel prover synthetize time: {:?}, metrics: {:?}",
+            start.elapsed(),
+            prover.metrics()
+        );
+        start = Instant::now();
+
+        let proof = prover.prove(bp_gens)?;
+
+        debug!(
+            "ARTLevel proving time: {:?}, proof_size = {:?}",
+            start.elapsed(),
+            proof.to_bytes().len()
+        );
+
+        Ok((proof, (a_commitment, ab_commitment)))
+    }
+
+    fn art_level_verify(
+        ver: u8,
+        pc_gens: &PedersenGens,
+        bp_gens: &BulletproofGens,
+        proof: R1CSProof,
+        level: usize,
+        Q_a: CortadoAffine,
+        Q_b: CortadoAffine,
+        Q_ab: CortadoAffine,
+        a_commitment: CompressedRistretto,
+        ab_commitment: CompressedRistretto,
+    ) -> Result<(), R1CSError> {
+        let mut transcript = Transcript::new(b"ARTLevel");
+        let mut verifier = Verifier::new(&mut transcript);
+
+        let var_a = verifier.commit(a_commitment);
+        let var_ab = verifier.commit(ab_commitment);
+
+        let λ_a = AllocatedScalar::new(var_a, None);
+        let λ_ab = AllocatedScalar::new(var_ab, None);
+        let mut start = Instant::now();
+
+        art_level_gadget(ver, &mut verifier, level, λ_a, λ_ab, Q_a, Q_ab, Q_b)?;
+
+        debug!("ARTLevel verifier synthetize time: {:?}", start.elapsed());
+        start = Instant::now();
+
+        let r = verifier
+            .verify(&proof, &pc_gens, &bp_gens)
+            .map_err(|_| R1CSError::VerificationError);
+
+        debug!("ARTLevel verification time: {:?}", start.elapsed());
+
+        r
+    }
 
     fn dh_gadget_roundtrip(ver: u8) -> Result<(), R1CSError> {
         let mut blinding_rng = rand::thread_rng();
@@ -575,7 +590,7 @@ mod tests {
         let R = (Q_b * λ_a).into_affine();
         debug!("R_real={:?}", R);
 
-        let (proof, (var_a, var_b)) = dh_gadget_proof(
+        let (proof, (var_a, var_b)) = dh_gadget_prove(
             ver,
             &pc_gens,
             &bp_gens,
