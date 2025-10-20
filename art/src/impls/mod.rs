@@ -1,4 +1,5 @@
 mod aggregated_change;
+mod aggregated_change_node;
 mod aggregation_data;
 mod art_node;
 mod branch_changes;

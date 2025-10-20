@@ -10,7 +10,7 @@ mod private_art;
 mod public_art;
 
 pub use aggregated_change::{
-    AggregationDisplayTree, AggregationNodeIterWithPath, ChangeAggregation,
+    AggregationDisplayTree, AggregationNodeIterWithPath, ChangeAggregation, ChangeAggregationNode,
 };
 pub use aggregation_data::{
     AggregationData, EmptyData, ProverAggregationData, VerifierAggregationData,

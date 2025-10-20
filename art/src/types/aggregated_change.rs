@@ -1,8 +1,33 @@
 use crate::traits::RelatedData;
-use crate::types::{BranchChangesTypeHint, Children, Direction};
-use ark_ec::AffineRepr;
-use curve25519_dalek::Scalar;
+use crate::types::{Children, Direction};
 use display_tree::DisplayTree;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChangeAggregation<D>
+where
+    D: RelatedData + Clone,
+{
+    pub(crate) root: Option<ChangeAggregationNode<D>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChangeAggregationNode<D>
+where
+    D: RelatedData + Clone,
+{
+    pub children: Children<Self>,
+
+    pub data: D,
+}
+
+#[derive(Debug, Clone)]
+pub struct AggregationNodeIterWithPath<'a, D>
+where
+    D: RelatedData + Clone,
+{
+    pub current_node: Option<&'a ChangeAggregationNode<D>>,
+    pub path: Vec<(&'a ChangeAggregationNode<D>, Direction)>,
+}
 
 #[derive(DisplayTree, Debug, Clone)]
 pub enum AggregationDisplayTree {
@@ -24,23 +49,4 @@ pub enum AggregationDisplayTree {
         #[tree]
         right: Box<Self>,
     },
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ChangeAggregation<D>
-where
-    D: RelatedData + Clone,
-{
-    pub children: Children<Self>,
-
-    pub data: D,
-}
-
-#[derive(Debug, Clone)]
-pub struct AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-{
-    pub current_node: Option<&'a ChangeAggregation<D>>,
-    pub path: Vec<(&'a ChangeAggregation<D>, Direction)>,
 }

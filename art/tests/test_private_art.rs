@@ -21,13 +21,13 @@ mod tests {
     use tracing::{debug, error, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::helper_tools::iota_function;
-    use zrt_art::types::LeafStatus;
     use zrt_art::types::{AggregationNodeIterWithPath, LeafIter};
+    use zrt_art::types::{ChangeAggregation, LeafStatus};
     use zrt_art::{
         errors::ARTError,
         traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
         types::{
-            ARTRootKey, AggregationData, BranchChanges, ChangeAggregation, LeafIterWithPath,
+            ARTRootKey, AggregationData, BranchChanges, ChangeAggregationNode, LeafIterWithPath,
             NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART,
             VerifierAggregationData, VerifierArtefacts,
         },
@@ -2131,6 +2131,7 @@ mod tests {
             PrivateART::deserialize(&public_art_bytes, &secrets[5]).unwrap();
 
         // Create aggregation
+        // let mut agg = ChangeAggregationNode::<ProverAggregationData<CortadoAffine>>::default();
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
         let sk1 = Fr::rand(&mut rng);
@@ -2138,25 +2139,17 @@ mod tests {
         let sk3 = Fr::rand(&mut rng);
         let sk4 = Fr::rand(&mut rng);
 
-        user1
-            .make_blank_and_aggregate(&user3.node_index.get_path().unwrap(), &sk1, &mut agg)
+        agg.make_blank(&user3.node_index.get_path().unwrap(), &sk1, &mut user1)
             .unwrap();
 
-        user1
-            .make_blank_and_aggregate(&user4.node_index.get_path().unwrap(), &sk1, &mut agg)
+        agg.make_blank(&user4.node_index.get_path().unwrap(), &sk1, &mut user1)
             .unwrap();
 
-        user1
-            .append_or_replace_node_and_aggregate(&sk2, &mut agg)
-            .unwrap();
+        agg.append_or_replace_node(&sk2, &mut user1).unwrap();
 
-        user1
-            .append_or_replace_node_and_aggregate(&sk3, &mut agg)
-            .unwrap();
+        agg.append_or_replace_node(&sk3, &mut user1).unwrap();
 
-        user1
-            .append_or_replace_node_and_aggregate(&sk4, &mut agg)
-            .unwrap();
+        agg.append_or_replace_node(&sk4, &mut user1).unwrap();
 
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg);
@@ -2164,17 +2157,15 @@ mod tests {
 
         for _ in 0..100 {
             let sk_i = Fr::rand(&mut rng);
-            user1
-                .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
-                .unwrap();
+            agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
 
             let aggregation =
                 ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
-            user2_clone
-                .update_private_art_with_aggregation(&verifier_aggregation)
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
                 .unwrap();
 
             assert_eq!(
@@ -2190,17 +2181,16 @@ mod tests {
         let leaf_iter = LeafIterWithPath::new(&root_clone).skip(10).take(10);
         for (_, path) in leaf_iter {
             let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            user1
-                .make_blank_and_aggregate(&path, &Fr::rand(&mut rng), &mut agg)
+            agg.make_blank(&path, &Fr::rand(&mut rng), &mut user1)
                 .unwrap();
 
             let aggregation =
                 ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
-            user2_clone
-                .update_private_art_with_aggregation(&verifier_aggregation)
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
                 .unwrap();
 
             assert_eq!(
@@ -2214,17 +2204,15 @@ mod tests {
 
         for i in 0..100 {
             let sk_i = Fr::rand(&mut rng);
-            let (_, change_i, _) = user1
-                .append_or_replace_node_and_aggregate(&sk_i, &mut agg)
-                .unwrap();
+            let (_, change_i, _) = agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
 
             let aggregation =
                 ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-            let verifier_aggregation = user2.get_aggregation_co_path(&aggregation).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
-            user2_clone
-                .update_private_art_with_aggregation(&verifier_aggregation)
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
                 .unwrap();
 
             assert_eq!(
@@ -2237,7 +2225,7 @@ mod tests {
         }
 
         // Verify structure correctness
-        for (node, path) in AggregationNodeIterWithPath::new(&agg) {
+        for (node, path) in AggregationNodeIterWithPath::from(&agg) {
             assert_eq!(
                 user0.public_key_of(&node.data.secret_key),
                 node.data.public_key
@@ -2270,23 +2258,19 @@ mod tests {
             "Aggregations are equal from both sources."
         );
 
-        let extracted_verifier_aggregation = user2
-            .get_aggregation_co_path(&aggregation_from_prover)
-            .unwrap();
+        let extracted_verifier_aggregation = aggregation_from_prover.add_co_path(&user2).unwrap();
 
         assert_eq!(
             verifier_aggregation, extracted_verifier_aggregation,
-            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
             verifier_aggregation, extracted_verifier_aggregation,
         );
 
         let mut user1_clone = user1_2.clone();
-        user1_clone
-            .update_private_art_with_aggregation(&verifier_aggregation)
+        verifier_aggregation
+            .update_private_art(&mut user1_clone)
             .unwrap();
-        user2
-            .update_private_art_with_aggregation(&verifier_aggregation)
-            .unwrap();
+        verifier_aggregation.update_private_art(&mut user2).unwrap();
 
         assert_eq!(
             user1,
@@ -2330,7 +2314,7 @@ mod tests {
 
         let sk1 = Fr::rand(&mut rng);
 
-        let result = user0.make_blank_and_aggregate(&user3_path, &sk1, &mut agg);
+        let result = agg.make_blank(&user3_path, &sk1, &mut user0);
 
         assert!(
             matches!(result, Err(ARTError::InvalidMergeInput)),
@@ -2363,39 +2347,28 @@ mod tests {
         // Create aggregation
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .make_blank_and_aggregate(&target_3, &Fr::rand(&mut rng), &mut agg)
+        agg.make_blank(&target_3, &Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        user0
-            .leave_and_aggregate(&Fr::rand(&mut rng), &mut agg)
-            .unwrap();
+        agg.leave(&Fr::rand(&mut rng), &mut user0).unwrap();
 
         let plain_agg =
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
-        let extracted_agg = user0.get_aggregation_co_path(&plain_agg).unwrap();
+        let extracted_agg = plain_agg.add_co_path(&user0).unwrap();
 
-        user1
-            .update_private_art_with_aggregation(&extracted_agg)
-            .unwrap();
+        extracted_agg.update_private_art(&mut user1).unwrap();
 
         assert_eq!(user0, user1);
     }
@@ -2425,8 +2398,7 @@ mod tests {
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
         for i in 0..4 {
-            user0
-                .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
                 .unwrap();
         }
 
@@ -2454,7 +2426,7 @@ mod tests {
         let fromed_agg =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
-        let extracted_agg = user0.get_aggregation_co_path(&plain_agg).unwrap();
+        let extracted_agg = plain_agg.add_co_path(&user0).unwrap();
         assert_eq!(
             fromed_agg, extracted_agg,
             "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
@@ -2473,9 +2445,7 @@ mod tests {
 
         assert!(result.is_ok());
 
-        user1
-            .update_private_art_with_aggregation(&extracted_agg)
-            .unwrap();
+        extracted_agg.update_private_art(&mut user1).unwrap();
 
         assert_eq!(user0, user1);
     }
@@ -2495,28 +2465,19 @@ mod tests {
         let mut pub_art = user0.public_art.clone();
 
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
 
-        user0
-            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
-            .unwrap();
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
 
-        user0
-            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
-            .unwrap();
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
 
-        user0
-            .update_key_and_aggregate(&Fr::rand(&mut rng), &mut agg)
-            .unwrap();
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
 
         let verify_agg =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
         let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-        let result = pub_art
-            .update_public_art_with_aggregation(&verify_agg)
-            .unwrap();
+        let result = verify_agg.update_public_art(&mut pub_art).unwrap();
 
         assert_eq!(pub_art, user0.public_art,)
     }
@@ -2531,26 +2492,25 @@ mod tests {
             &vec![Fr::rand(&mut rng)],
             &CortadoAffine::generator(),
         )
-            .unwrap();
+        .unwrap();
 
         let mut pub_art = user0.public_art.clone();
 
         let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
-        user0
-            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
 
         let verify_agg =
             ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
         let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-        let result = pub_art
-            .update_public_art_with_aggregation(&verify_agg)
-            .unwrap();
+        verify_agg.update_public_art(&mut pub_art).unwrap();
 
         assert_eq!(
-            pub_art, user0.public_art,
+            pub_art,
+            user0.public_art,
             "They are:\n{}\nand\n{}",
-            pub_art.get_root(), user0.public_art.get_root()
+            pub_art.get_root(),
+            user0.public_art.get_root()
         )
     }
 

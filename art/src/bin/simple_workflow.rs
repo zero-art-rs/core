@@ -213,14 +213,13 @@ fn branch_aggregation_proof_verify() {
     let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
 
     // Perform some changes
-    art0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+    agg.append_or_replace_node(&Fr::rand(&mut rng), &mut art0)
         .unwrap();
-    art0.make_blank_and_aggregate(&target_3, &Fr::rand(&mut rng), &mut agg)
+    agg.make_blank(&target_3, &Fr::rand(&mut rng), &mut art0)
         .unwrap();
-    art0.append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+    agg.append_or_replace_node(&Fr::rand(&mut rng), &mut art0)
         .unwrap();
-    art0.leave_and_aggregate(&Fr::rand(&mut rng), &mut agg)
-        .unwrap();
+    agg.leave(&Fr::rand(&mut rng), &mut art0).unwrap();
 
     // Generate pedersen basis
     let gens = PedersenGens::default();
@@ -260,7 +259,7 @@ fn branch_aggregation_proof_verify() {
 
     // When you receive `plain_agg` aggregation, you need to add public keys back to the tree
     // for verification.
-    let extracted_agg = art0.get_aggregation_co_path(&plain_agg).unwrap();
+    let extracted_agg = plain_agg.add_co_path(&art0).unwrap();
 
     // Then this tree can be converted to the VerifierAggregationTree
     let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
@@ -277,8 +276,7 @@ fn branch_aggregation_proof_verify() {
     assert!(result.is_ok());
 
     // Finally update private art with the `extracted_agg` aggregation.
-    art1.update_private_art_with_aggregation(&extracted_agg)
-        .unwrap();
+    extracted_agg.update_private_art(&mut art1).unwrap();
 
     assert_eq!(art0, art1);
 }

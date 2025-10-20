@@ -1,4 +1,4 @@
-use crate::types::{AggregationData, ChangeAggregation, UpdateData, VerifierAggregationData};
+use crate::types::{AggregationData, ChangeAggregationNode, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     types::{
@@ -124,18 +124,6 @@ where
         applied_changes: &[BranchChanges<G>],
         target_changes: &[BranchChanges<G>],
     ) -> Result<(), ARTError>;
-
-    /// Retrieve aggregation co_path values from the art
-    fn get_aggregation_co_path(
-        &self,
-        aggregation: &ChangeAggregation<AggregationData<G>>,
-    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>;
-
-    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
-    fn update_public_art_with_aggregation(
-        &mut self,
-        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-    ) -> Result<(), ARTError>;
 }
 
 pub(crate) trait ARTPublicAPIHelper<G>
@@ -201,16 +189,6 @@ where
         target_change: &BranchChanges<G>,
     ) -> Result<(), ARTError>;
 
-    /// Allows to update public keys on the given `path` with public keys provided in
-    /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
-    fn update_public_art_upper_branch(
-        &mut self,
-        path: &[Direction],
-        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-        append_changes: bool,
-        skip: usize,
-    ) -> Result<(), ARTError>;
-
     /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
     /// then increment weight by one, else decrement it by one.
     fn update_branch_weight(
@@ -223,7 +201,7 @@ where
     /// `aggregation`.
     fn get_last_public_key_on_path(
         &self,
-        aggregation: &ChangeAggregation<AggregationData<G>>,
+        aggregation: &ChangeAggregationNode<AggregationData<G>>,
         path: &[Direction],
     ) -> Result<G, ARTError>;
 }

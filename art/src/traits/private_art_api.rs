@@ -1,9 +1,11 @@
+use crate::helper_tools::recompute_artefacts;
+use crate::traits::ChildContainer;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
     types::{
-        ARTRootKey, BranchChanges, ChangeAggregation, Direction, NodeIndex, ProverAggregationData,
-        ProverArtefacts, UpdateData, VerifierAggregationData,
+        ARTRootKey, BranchChanges, ChangeAggregationNode, Direction, NodeIndex,
+        ProverAggregationData, ProverArtefacts, UpdateData, VerifierAggregationData,
     },
 };
 use ark_ec::AffineRepr;
@@ -42,41 +44,8 @@ where
     /// Remove yourself from the art.
     fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError>;
 
-    /// Updates art by applying changes. Also updates path_secrets and node_index.
-    fn update_key_and_aggregate(
-        &mut self,
-        new_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError>;
-
-    fn make_blank_and_aggregate(
-        &mut self,
-        path: &[Direction],
-        temporary_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError>;
-
-    fn append_or_replace_node_and_aggregate(
-        &mut self,
-        secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError>;
-
-    fn leave_and_aggregate(
-        &mut self,
-        new_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError>;
-
     /// Updates art by applying changes. Also updates `path_secrets` and `node_index`.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
-
-    /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
-    /// and `node_index`.
-    fn update_private_art_with_aggregation(
-        &mut self,
-        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-    ) -> Result<(), ARTError>;
 
     /// Update ART with `target_changes` for the user, which didnt participated it the
     /// merge conflict.
@@ -110,13 +79,6 @@ where
         other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
         append_changes: bool,
-    ) -> Result<(), ARTError>;
-
-    /// Similar to `update_path_secrets`, but instead of NodeIndex `other` provided by change,
-    /// takes the ChangeAggregation tree.
-    fn update_path_secrets_with_aggregation_tree(
-        &mut self,
-        updated_nodes: &ChangeAggregation<VerifierAggregationData<G>>,
     ) -> Result<(), ARTError>;
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.

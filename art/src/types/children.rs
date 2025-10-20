@@ -1,4 +1,4 @@
-use crate::types::{ChangeAggregation, Direction};
+use crate::types::{ChangeAggregationNode, Direction};
 use ark_ec::AffineRepr;
 
 /// Represents the possible forms of child relationships in a tree.

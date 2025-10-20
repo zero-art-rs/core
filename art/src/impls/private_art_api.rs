@@ -6,7 +6,7 @@ use crate::traits::{
     ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPIHelper, ChildContainer,
 };
 use crate::types::{
-    ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregation,
+    ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregationNode,
     Direction, LeafStatus, NodeIndex, ProverAggregationData, ProverArtefacts, UpdateData,
     VerifierAggregationData,
 };
@@ -106,106 +106,6 @@ where
         Ok((tk, changes, artefacts))
     }
 
-    fn update_key_and_aggregate(
-        &mut self,
-        new_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError> {
-        let (tk, changes, artefacts) = self.update_key(new_secret_key)?;
-
-        aggregation.extend(
-            &changes,
-            &artefacts,
-            BranchChangesTypeHint::UpdateKey {
-                pk: self.public_key_of(new_secret_key),
-            },
-        )?;
-
-        Ok((tk, changes, artefacts))
-    }
-
-    fn make_blank_and_aggregate(
-        &mut self,
-        path: &[Direction],
-        temporary_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError> {
-        let merge = matches!(
-            self.get_node_with_path(&path)?.get_status(),
-            Some(LeafStatus::Blank)
-        );
-        if merge {
-            return Err(ARTError::InvalidMergeInput);
-        }
-
-        let (tk, changes, artefacts) = self.make_blank(path, temporary_secret_key)?;
-
-        aggregation.extend(
-            &changes,
-            &artefacts,
-            BranchChangesTypeHint::MakeBlank {
-                pk: self.public_key_of(temporary_secret_key),
-                merge,
-            },
-        )?;
-
-        Ok((tk, changes, artefacts))
-    }
-
-    fn append_or_replace_node_and_aggregate(
-        &mut self,
-        secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError> {
-        let path = match self.find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => self.find_path_to_lowest_leaf()?,
-        };
-
-        let hint = self
-            .get_node(&NodeIndex::Direction(path.to_vec()))?
-            .is_active();
-
-        let (tk, changes, artefacts) = self.append_or_replace_node(secret_key)?;
-
-        let ext_pk = match hint {
-            true => Some(
-                self.get_node(&NodeIndex::Direction(path.to_vec()))?
-                    .get_public_key(),
-            ),
-            false => None,
-        };
-
-        aggregation.extend(
-            &changes,
-            &artefacts,
-            BranchChangesTypeHint::AppendNode {
-                pk: self.public_key_of(secret_key),
-                ext_pk,
-            },
-        )?;
-
-        Ok((tk, changes, artefacts))
-    }
-
-    fn leave_and_aggregate(
-        &mut self,
-        new_secret_key: &G::ScalarField,
-        aggregation: &mut ChangeAggregation<ProverAggregationData<G>>,
-    ) -> Result<UpdateData<G>, ARTError> {
-        let (tk, changes, artefacts) = self.leave(*new_secret_key)?;
-
-        aggregation.extend(
-            &changes,
-            &artefacts,
-            BranchChangesTypeHint::Leave {
-                pk: self.public_key_of(new_secret_key),
-            },
-        )?;
-
-        Ok((tk, changes, artefacts))
-    }
-
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
             && matches!(
@@ -217,18 +117,6 @@ where
         } else {
             self.update_private_art_with_options(changes, false, true)
         }
-    }
-
-    fn update_private_art_with_aggregation(
-        &mut self,
-        verifier_aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-    ) -> Result<(), ARTError> {
-        self.update_public_art_with_aggregation(verifier_aggregation)?;
-
-        self.update_node_index()?;
-        self.update_path_secrets_with_aggregation_tree(&verifier_aggregation)?;
-
-        Ok(())
     }
 
     fn merge_for_observer(&mut self, target_changes: &[BranchChanges<G>]) -> Result<(), ARTError> {
@@ -337,72 +225,6 @@ where
         // Reverse path_secrets back to normal order, and update change old secrets.
         path_secrets.reverse();
         self.set_path_secrets(path_secrets);
-
-        Ok(())
-    }
-
-    fn update_path_secrets_with_aggregation_tree(
-        &mut self,
-        aggregation: &ChangeAggregation<VerifierAggregationData<G>>,
-    ) -> Result<(), ARTError> {
-        let path_secrets = self.get_path_secrets().clone();
-
-        if path_secrets.is_empty() {
-            return Err(ARTError::EmptyART);
-        }
-
-        if aggregation.contain(&self.get_node_index().get_path()?) {
-            return Err(ARTError::InvalidInput);
-        }
-
-        // It is a partial update of the path.
-        let node_path = self.get_node_index().get_path()?;
-        let mut intersection = aggregation.get_intersection(&node_path);
-
-        let mut partial_co_path = Vec::new();
-        let mut current_art_node = self.get_root();
-        let mut current_agg_node = aggregation;
-        let mut add_member_counter = current_agg_node
-            .data
-            .change_type
-            .iter()
-            .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
-            .count();
-        for dir in &intersection {
-            partial_co_path.push(current_art_node.get_child(&dir.other())?.get_public_key());
-
-            current_art_node = current_art_node.get_child(dir)?;
-            current_agg_node = current_agg_node
-                .children
-                .get_child(*dir)
-                .ok_or(ARTError::PathNotExists)?;
-
-            add_member_counter += current_agg_node
-                .data
-                .change_type
-                .iter()
-                .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
-                .count();
-        }
-
-        intersection.push(node_path[intersection.len()].other());
-        partial_co_path.push(aggregation.get_node(&*intersection)?.data.public_key);
-        partial_co_path.reverse();
-
-        // Compute path_secrets for aggregation.
-        let resulting_path_secrets_len = self.get_path_secrets().len() + add_member_counter;
-        let index = resulting_path_secrets_len - partial_co_path.len() - 1;
-        let level_sk = self.get_path_secrets()[index];
-
-        let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, &partial_co_path)?;
-
-        let mut new_path_secrets = self.get_path_secrets().clone();
-        for (sk, i) in secrets.iter().rev().zip((0..new_path_secrets.len()).rev()) {
-            new_path_secrets[i] = *sk;
-        }
-
-        // Update node `path_secrets`
-        self.set_path_secrets(new_path_secrets);
 
         Ok(())
     }

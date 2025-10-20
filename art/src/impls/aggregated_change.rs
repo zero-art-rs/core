@@ -1,194 +1,477 @@
-/// TODO: refactor this file
 use crate::errors::ARTError;
-use crate::traits::{ChildContainer, RelatedData};
+use crate::helper_tools::recompute_artefacts;
+use crate::traits::{
+    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPI, ARTPublicAPIHelper,
+    ARTPublicView, ChildContainer, RelatedData,
+};
 use crate::types::{
-    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, Children, Direction, EmptyData,
-    NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
+    ChangeAggregation, ChangeAggregationNode, Direction, LeafStatus, NodeIndex, PrivateART,
+    ProverAggregationData, ProverArtefacts, PublicART, UpdateData, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::UniformRand;
 use ark_std::rand::prelude::ThreadRng;
-use curve25519_dalek::Scalar;
-use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
-use tracing::debug;
-use tree_ds::prelude::Node;
-use zrt_zk::aggregated_art::{
-    ProverAggregatedNodeData, ProverAggregationTree, VerifierAggregatedNodeData,
-    VerifierAggregationTree,
-};
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 impl<D> ChangeAggregation<D>
 where
-    D: RelatedData + Clone + Default,
+    D: RelatedData + Clone,
 {
-    pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ARTError> {
-        let mut parent = self;
-        for direction in path {
-            parent = parent
-                .children
-                .get_child(*direction)
-                .ok_or(ARTError::PathNotExists)?;
-        }
-
-        Ok(parent)
-    }
-
-    pub fn get_mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
-        let mut parent = self;
-        for direction in path {
-            parent = parent
-                .children
-                .get_mut_child(*direction)
-                .ok_or(ARTError::InternalOnly)?;
-        }
-
-        Ok(parent)
-    }
-
-    /// Return `true` if the specified path exists in the tree, otherwise `false`.
-    pub fn contain(&self, path: &[Direction]) -> bool {
-        let mut current_node = self;
-        for direction in path {
-            if let Some(child) = current_node.children.get_child(*direction) {
-                current_node = child;
-            } else {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Returns a common path between aggregation `self`, and the given `path`.
-    pub fn get_intersection(&self, path: &[Direction]) -> Vec<Direction> {
-        let mut intersection = Vec::new();
-        let mut current_node = self;
-        for dir in path {
-            if let Some(child) = current_node.children.get_child(*dir) {
-                intersection.push(*dir);
-                current_node = child;
-            } else {
-                return intersection;
-            }
-        }
-
-        intersection
-    }
-
-    pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
-        let mut current_node = self;
-        for dir in path {
-            current_node = current_node.children.get_mut_child(*dir).unwrap();
-        }
-
-        Ok(current_node)
+    pub fn get_root(&self) -> Option<&ChangeAggregationNode<D>> {
+        self.root.as_ref()
     }
 }
 
 impl<G> ChangeAggregation<ProverAggregationData<G>>
 where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::ScalarField: PrimeField,
+    G: AffineRepr,
+    G::BaseField: PrimeField,
 {
-    /// Append `BranchChanges<G>` to the structure by overwriting unnecessary data. utilizes
-    /// `change_type_hint` to perform extension correctly
-    pub fn extend(
-        &mut self,
-        change: &BranchChanges<G>,
-        prover_artefacts: &ProverArtefacts<G>,
-        change_type_hint: BranchChangesTypeHint<G>,
-    ) -> Result<(), ARTError> {
-        let mut leaf_path = change.node_index.get_path()?;
-
-        if leaf_path.is_empty() {
-            return Err(ARTError::EmptyART);
-        }
-
-        if let BranchChangesTypeHint::AppendNode {
-            ext_pk: Some(_), ..
-        } = change_type_hint
-        {
-            leaf_path.pop();
-        }
-
-        self.extend_tree_with(change, prover_artefacts)?;
-
-        let target_leaf = self.get_mut_node(&leaf_path)?;
-        target_leaf.data.change_type.push(change_type_hint);
-
-        Ok(())
+    fn get_root_or_default(&mut self) -> &mut ChangeAggregationNode<ProverAggregationData<G>> {
+        self.root
+            .get_or_insert(ChangeAggregationNode::<ProverAggregationData<G>>::default())
     }
 
-    fn extend_tree_with(
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    pub fn update_key<A>(
         &mut self,
-        change: &BranchChanges<G>,
-        prover_artefacts: &ProverArtefacts<G>,
-    ) -> Result<(), ARTError> {
-        let leaf_path = change.node_index.get_path()?;
+        new_secret_key: &G::ScalarField,
+        art: &mut A,
+    ) -> Result<UpdateData<G>, ARTError>
+    where
+        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
+    {
+        let (tk, changes, artefacts) = art.update_key(new_secret_key)?;
 
-        if change.public_keys.len() != leaf_path.len() + 1
-            || prover_artefacts.secrets.len() != leaf_path.len() + 1
-            || prover_artefacts.co_path.len() != leaf_path.len()
-        {
-            return Err(ARTError::InvalidInput);
+        self.get_root_or_default().extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::UpdateKey {
+                pk: art.public_key_of(new_secret_key),
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    pub fn make_blank<A>(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: &G::ScalarField,
+        art: &mut A,
+    ) -> Result<UpdateData<G>, ARTError>
+    where
+        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G> + ARTPublicAPI<G>,
+    {
+        let merge = matches!(
+            art.get_node_with_path(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+        if merge {
+            return Err(ARTError::InvalidMergeInput);
         }
 
-        // Update root.
-        self.data.public_key = *prover_artefacts.path.last().ok_or(ARTError::EmptyART)?;
-        self.data.secret_key = *prover_artefacts
-            .secrets
-            .last()
-            .ok_or(ARTError::InvalidInput)?;
+        let (tk, changes, artefacts) = art.make_blank(path, temporary_secret_key)?;
 
-        // Update other nodes.
-        let mut parent = &mut *self;
-        for (i, dir) in leaf_path.iter().rev().enumerate().rev() {
-            // compute new child node
-            let child_data = ProverAggregationData::<G> {
-                // public_key: change.public_keys[i + 1],
-                public_key: prover_artefacts.path[i],
-                co_public_key: Some(prover_artefacts.co_path[i]),
-                change_type: vec![],
-                secret_key: prover_artefacts.secrets[i],
-                blinding_factor: Default::default(),
-            };
+        self.get_root_or_default().extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::MakeBlank {
+                pk: art.public_key_of(temporary_secret_key),
+                merge,
+            },
+        )?;
 
-            // update other_co_path
-            if let Some(child) = parent.children.get_mut_child(dir.other()) {
-                child.data.co_public_key = Some(change.public_keys[i + 1]);
-            }
+        Ok((tk, changes, artefacts))
+    }
 
-            // Update co_node
-            if let Some(co_node) = parent.children.get_mut_child(dir.other()) {
-                co_node.data.co_public_key = Some(child_data.public_key);
-            }
+    pub fn append_or_replace_node<A>(
+        &mut self,
+        secret_key: &G::ScalarField,
+        art: &mut A,
+    ) -> Result<UpdateData<G>, ARTError>
+    where
+        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
+    {
+        let path = match art.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => art.find_path_to_lowest_leaf()?,
+        };
 
-            // Update parent
-            parent = parent
-                .children
-                .get_mut_child_or_create(*dir)
-                .ok_or(ARTError::InvalidInput)?;
-            parent.data.aggregate(child_data);
-        }
+        let hint = art
+            .get_node(&NodeIndex::Direction(path.to_vec()))?
+            .is_active();
 
-        Ok(())
+        let (tk, changes, artefacts) = art.append_or_replace_node(secret_key)?;
+
+        let ext_pk = match hint {
+            true => Some(
+                art.get_node(&NodeIndex::Direction(path.to_vec()))?
+                    .get_public_key(),
+            ),
+            false => None,
+        };
+
+        self.get_root_or_default().extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::AppendNode {
+                pk: art.public_key_of(secret_key),
+                ext_pk,
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    pub fn leave<A>(
+        &mut self,
+        new_secret_key: &G::ScalarField,
+        art: &mut A,
+    ) -> Result<UpdateData<G>, ARTError>
+    where
+        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
+    {
+        let (tk, changes, artefacts) = art.leave(*new_secret_key)?;
+
+        self.get_root_or_default().extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::Leave {
+                pk: art.public_key_of(new_secret_key),
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
     }
 
     pub fn set_random_blinding_factors(&mut self, rng: &mut ThreadRng) -> Result<(), ARTError> {
-        let dataless_agg = ChangeAggregation::<EmptyData>::try_from(&*self)?;
+        if let Some(root) = self.root.as_mut() {
+            root.set_random_blinding_factors(rng)
+        } else {
+            Err(ARTError::NoChanges)
+        }
+    }
+}
 
-        for (_, path) in AggregationNodeIterWithPath::new(&dataless_agg) {
-            let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let target_node = self.get_mut_node_with_path(&path)?;
+impl<G> ChangeAggregation<AggregationData<G>>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    pub fn add_co_path<A>(
+        &self,
+        art: &A,
+    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>
+    where
+        A: ARTPublicAPI<G> + ARTPublicAPIHelper<G> + ARTPrivateView<G>,
+    {
+        let agg_root = match self.get_root() {
+            Some(root) => root,
+            None => return Err(ARTError::NoChanges),
+        };
 
-            target_node.data.blinding_factor = Scalar::random(rng);
+        let mut resulting_aggregation_root =
+            ChangeAggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
+
+            let aggregation_parent = path
+                .last()
+                .ok_or(ARTError::NoChanges)
+                .map(|(node, _)| *node)?;
+
+            let resulting_target_node = resulting_aggregation_root
+                .get_mut_node(&parent_path)?
+                .get_mut_node(&[last_direction])?;
+
+            // Update co-path
+            let pk = if let Ok(co_leaf) = aggregation_parent.get_node(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                co_leaf.data.public_key
+            } else if let Ok(parent) = art.get_node(&NodeIndex::Direction(parent_path.clone()))
+                && let Ok(other_child) = parent.get_child(&last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                other_child.get_public_key()
+            } else {
+                // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
+                let mut path = parent_path.clone();
+                path.push(last_direction.other());
+                art.get_last_public_key_on_path(agg_root, &path)?
+            };
+            resulting_target_node.data.co_public_key = Some(pk);
+        }
+
+        Ok(ChangeAggregation {
+            root: Some(resulting_aggregation_root),
+        })
+    }
+}
+
+impl<G> ChangeAggregation<VerifierAggregationData<G>>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    pub fn update_public_art<A>(&self, art: &mut A) -> Result<(), ARTError>
+    where
+        A: ARTPublicView<G> + ARTPublicAPI<G> + ARTPublicAPIHelper<G>,
+    {
+        let agg_root = match self.get_root() {
+            Some(root) => root,
+            None => return Err(ARTError::NoChanges),
+        };
+
+        for (item, path) in AggregationNodeIterWithPath::new(agg_root) {
+            let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+
+            for change_type in &item.data.change_type {
+                match change_type {
+                    BranchChangesTypeHint::MakeBlank {
+                        pk: blank_pk,
+                        merge,
+                    } => {
+                        if !*merge {
+                            art.update_branch_weight(&item_path, false)?;
+                        }
+
+                        self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+
+                        let corresponding_item =
+                            art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_status(LeafStatus::Blank)?;
+                        corresponding_item.set_public_key(*blank_pk);
+                    }
+                    BranchChangesTypeHint::AppendNode { pk, ext_pk } => {
+                        art.update_branch_weight(&item_path, true)?;
+
+                        art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?
+                            .extend_or_replace(ARTNode::new_leaf(*pk))?;
+
+                        let mut parent_path = item_path.clone();
+                        parent_path.pop();
+                        self.update_public_art_upper_branch(&parent_path, art, false, 0)?;
+
+                        let corresponding_item =
+                            art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        if let Some(ext_pk) = ext_pk {
+                            corresponding_item.set_public_key(*ext_pk)
+                        }
+                    }
+                    BranchChangesTypeHint::UpdateKey { pk } => {
+                        self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+
+                        let corresponding_item =
+                            art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_public_key(*pk);
+                    }
+                    BranchChangesTypeHint::Leave { pk } => {
+                        self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+
+                        let corresponding_item =
+                            art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+                        corresponding_item.set_status(LeafStatus::PendingRemoval)?;
+                        corresponding_item.set_public_key(*pk);
+                    }
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
+    /// and `node_index`.
+    pub fn update_private_art(&self, art: &mut PrivateART<G>) -> Result<(), ARTError> {
+        self.update_public_art(art)?;
+
+        art.update_node_index()?;
+        self.update_path_secrets_with_aggregation_tree(art)?;
+
+        Ok(())
+    }
+
+    /// Allows to update public keys on the given `path` with public keys provided in
+    /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
+    fn update_public_art_upper_branch<A>(
+        &self,
+        path: &[Direction],
+        art: &mut A,
+        append_changes: bool,
+        skip: usize,
+    ) -> Result<(), ARTError>
+    where
+        A: ARTPublicAPI<G> + ARTPublicAPIHelper<G> + ARTPublicView<G>,
+    {
+        let mut current_agg_node = match self.get_root() {
+            Some(root) => root,
+            None => return Err(ARTError::NoChanges),
+        };
+
+        // Update root
+        if skip == 0 {
+            match append_changes {
+                true => art
+                    .get_mut_root()
+                    .merge_public_key(current_agg_node.data.public_key),
+                false => art
+                    .get_mut_root()
+                    .set_public_key(current_agg_node.data.public_key),
+            }
+        }
+
+        for i in 1..skip {
+            current_agg_node = current_agg_node
+                .children
+                .get_child(path[i])
+                .ok_or(ARTError::InvalidAggregation)?;
+        }
+
+        for i in skip..path.len() {
+            current_agg_node = current_agg_node
+                .children
+                .get_child(path[i + skip])
+                .ok_or(ARTError::InvalidAggregation)?;
+            let target_node = art.get_mut_node_with_path(&path[0..i + 1])?;
+
+            match append_changes {
+                true => target_node.merge_public_key(current_agg_node.data.public_key),
+                false => target_node.set_public_key(current_agg_node.data.public_key),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Similar to `update_path_secrets`, but instead of NodeIndex `other` provided by change,
+    /// takes the ChangeAggregation tree.
+    fn update_path_secrets_with_aggregation_tree(
+        &self,
+        art: &mut PrivateART<G>,
+    ) -> Result<(), ARTError> {
+        let path_secrets = art.get_path_secrets().clone();
+
+        let agg_root = match self.get_root() {
+            Some(root) => root,
+            None => return Err(ARTError::NoChanges),
+        };
+
+        if path_secrets.is_empty() {
+            return Err(ARTError::EmptyART);
+        }
+
+        if agg_root.contain(&art.get_node_index().get_path()?) {
+            return Err(ARTError::InvalidInput);
+        }
+
+        // It is a partial update of the path.
+        let node_path = art.get_node_index().get_path()?;
+        let mut intersection = agg_root.get_intersection(&node_path);
+
+        let mut partial_co_path = Vec::new();
+        let mut current_art_node = art.get_root();
+        let mut current_agg_node = agg_root;
+        let mut add_member_counter = current_agg_node
+            .data
+            .change_type
+            .iter()
+            .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
+            .count();
+        for dir in &intersection {
+            partial_co_path.push(current_art_node.get_child(&dir.other())?.get_public_key());
+
+            current_art_node = current_art_node.get_child(dir)?;
+            current_agg_node = current_agg_node
+                .children
+                .get_child(*dir)
+                .ok_or(ARTError::PathNotExists)?;
+
+            add_member_counter += current_agg_node
+                .data
+                .change_type
+                .iter()
+                .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
+                .count();
+        }
+
+        intersection.push(node_path[intersection.len()].other());
+        partial_co_path.push(agg_root.get_node(&*intersection)?.data.public_key);
+        partial_co_path.reverse();
+
+        // Compute path_secrets for aggregation.
+        let resulting_path_secrets_len = art.get_path_secrets().len() + add_member_counter;
+        let index = resulting_path_secrets_len - partial_co_path.len() - 1;
+        let level_sk = art.get_path_secrets()[index];
+
+        let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, &partial_co_path)?;
+
+        let mut new_path_secrets = art.get_path_secrets().clone();
+        for (sk, i) in secrets.iter().rev().zip((0..new_path_secrets.len()).rev()) {
+            new_path_secrets[i] = *sk;
+        }
+
+        // Update node `path_secrets`
+        art.set_path_secrets(new_path_secrets);
+
+        Ok(())
+    }
+}
+
+impl<'a, D1, D2> TryFrom<&'a ChangeAggregation<D1>> for ChangeAggregation<D2>
+where
+    D1: RelatedData + Clone + Default,
+    D2: From<D1> + RelatedData + Clone + Default,
+    ChangeAggregationNode<D2>: TryFrom<&'a ChangeAggregationNode<D1>, Error = ARTError>,
+{
+    type Error = ARTError;
+
+    fn try_from(value: &'a ChangeAggregation<D1>) -> Result<Self, Self::Error> {
+        match &value.root {
+            None => Ok(ChangeAggregation::default()),
+            Some(root) => Ok(ChangeAggregation {
+                root: Some(ChangeAggregationNode::<D2>::try_from(root)?),
+            }),
+        }
+    }
+}
+
+impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
+where
+    G: AffineRepr,
+    D: RelatedData + Clone + Default,
+    Self: TryFrom<&'a ChangeAggregationNode<D>, Error = ARTError>,
+{
+    type Error = <Self as TryFrom<&'a ChangeAggregationNode<D>>>::Error;
+
+    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
+        if let Some(root) = &value.root {
+            Self::try_from(root)
+        } else {
+            Err(Self::Error::NoChanges)
+        }
+    }
+}
+
+impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for VerifierAggregationTree<G>
+where
+    G: AffineRepr,
+    D: RelatedData + Clone + Default,
+    Self: TryFrom<&'a ChangeAggregationNode<D>, Error = ARTError>,
+{
+    type Error = <Self as TryFrom<&'a ChangeAggregationNode<D>>>::Error;
+
+    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
+        if let Some(root) = &value.root {
+            Self::try_from(root)
+        } else {
+            Err(Self::Error::NoChanges)
+        }
     }
 }
 
@@ -197,241 +480,9 @@ where
     D: RelatedData + Clone + Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            format_tree!(
-                AggregationDisplayTree::from(self),
-                Style::default()
-                    .indentation(4)
-                    .char_set(CharSet::SINGLE_LINE)
-            )
-        )
-    }
-}
-
-impl<D> From<D> for ChangeAggregation<D>
-where
-    D: RelatedData + Clone + Default,
-{
-    fn from(data: D) -> Self {
-        Self {
-            children: Children::default(),
-            data,
+        match self.get_root() {
+            Some(root) => write!(f, "{}", root),
+            None => write!(f, "Empty aggregation."),
         }
-    }
-}
-
-impl<D> From<&Box<ChangeAggregation<D>>> for AggregationDisplayTree
-where
-    D: RelatedData + Clone + Display,
-{
-    fn from(value: &Box<ChangeAggregation<D>>) -> Self {
-        AggregationDisplayTree::from(value.as_ref())
-    }
-}
-
-impl<D> From<&ChangeAggregation<D>> for AggregationDisplayTree
-where
-    D: RelatedData + Display + Clone,
-{
-    fn from(value: &ChangeAggregation<D>) -> Self {
-        match &value.children {
-            Children::Leaf => AggregationDisplayTree::Leaf {
-                public_key: format!("Leaf: {}", value.data),
-            },
-            Children::Route { c, direction } => AggregationDisplayTree::Route {
-                public_key: format!("Route: {} -> {:?}", value.data, direction),
-                child: Box::new(c.into()),
-            },
-            Children::Node { l, r } => AggregationDisplayTree::Node {
-                public_key: format!("Node {}", value.data),
-                left: Box::new(l.into()),
-                right: Box::new(r.into()),
-            },
-        }
-    }
-}
-
-impl<D1, D2> TryFrom<&ChangeAggregation<D1>> for ChangeAggregation<D2>
-where
-    D1: RelatedData + Clone + Default,
-    D2: RelatedData + From<D1> + Clone + Default,
-{
-    type Error = ARTError;
-
-    fn try_from(prover_aggregation: &ChangeAggregation<D1>) -> Result<Self, Self::Error> {
-        let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
-        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
-
-        let verifier_data = D2::from(node.data.clone());
-        let mut aggregation = ChangeAggregation::from(verifier_data);
-
-        for (node, path) in iter {
-            let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            if let Some(last_dir) = node_path.pop() {
-                let verifier_data = D2::from(node.data.clone());
-                let next_node = ChangeAggregation::from(verifier_data);
-
-                if let Ok(child) = aggregation.get_mut_node(&*node_path) {
-                    child.children.set_child(last_dir, next_node);
-                }
-            }
-        }
-
-        Ok(aggregation)
-    }
-}
-
-impl<G> TryFrom<&ChangeAggregation<ProverAggregationData<G>>> for ProverAggregationTree<G>
-where
-    G: AffineRepr,
-{
-    type Error = ARTError;
-
-    fn try_from(value: &ChangeAggregation<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
-        let mut resulting_tree: Self = Self::new(None);
-
-        let mut node_iter = AggregationNodeIterWithPath::new(&value);
-
-        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
-        resulting_tree
-            .add_node(
-                Node::new(1, Some(ProverAggregatedNodeData::from(&root.data))),
-                None,
-            )
-            .unwrap();
-
-        for (agg_node, path) in node_iter {
-            let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-
-            let node_id = NodeIndex::get_index_from_path(&node_path)?;
-            let parent_id = node_id / 2;
-            resulting_tree
-                .add_node(
-                    Node::new(
-                        node_id,
-                        Some(ProverAggregatedNodeData::from(&agg_node.data)),
-                    ),
-                    Some(&parent_id),
-                )
-                .map_err(|_| ARTError::TreeDS)?;
-        }
-
-        Ok(resulting_tree)
-    }
-}
-
-impl<G> TryFrom<&ChangeAggregation<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
-where
-    G: AffineRepr,
-{
-    type Error = ARTError;
-
-    fn try_from(
-        value: &ChangeAggregation<VerifierAggregationData<G>>,
-    ) -> Result<Self, Self::Error> {
-        let mut resulting_tree: Self = Self::new(None);
-
-        let mut node_iter = AggregationNodeIterWithPath::new(&value);
-
-        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
-        resulting_tree
-            .add_node(
-                Node::new(1, Some(VerifierAggregatedNodeData::from(&root.data))),
-                None,
-            )
-            .unwrap();
-
-        for (agg_node, path) in node_iter {
-            let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-
-            let node_id = NodeIndex::get_index_from_path(&node_path)?;
-            let parent_id = node_id / 2;
-            resulting_tree
-                .add_node(
-                    Node::new(
-                        node_id,
-                        Some(VerifierAggregatedNodeData::from(&agg_node.data)),
-                    ),
-                    Some(&parent_id),
-                )
-                .map_err(|_| ARTError::TreeDS)?;
-        }
-
-        Ok(resulting_tree)
-    }
-}
-
-/// NodeIter iterates over all the nodes, performing a depth-first traversal
-impl<'a, D> AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-{
-    pub fn new(root: &'a ChangeAggregation<D>) -> Self {
-        AggregationNodeIterWithPath {
-            current_node: Some(root),
-            path: vec![],
-        }
-    }
-}
-
-impl<'a, D> Iterator for AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone + Default,
-{
-    type Item = (
-        &'a ChangeAggregation<D>,
-        Vec<(&'a ChangeAggregation<D>, Direction)>,
-    );
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current_node) = self.current_node {
-            let return_item = (current_node, self.path.clone());
-
-            match &current_node.children {
-                Children::Node { l, .. } => {
-                    // Try to go further down, to the left. The right case will be handled by the leaf case.
-                    self.path.push((current_node, Direction::Left));
-                    self.current_node = Some(l.as_ref());
-                }
-                Children::Route { c, direction } => {
-                    // Try to go further down. Pass through.
-                    self.path.push((current_node, *direction));
-                    self.current_node = Some(c.as_ref());
-                }
-                Children::Leaf => {
-                    loop {
-                        if let Some((parent, last_direction)) = self.path.pop() {
-                            if let Children::Node { .. } = &parent.children {
-                                // Try to go right, or else go up
-                                if last_direction == Direction::Right {
-                                    // Go up.
-                                    self.current_node = Some(parent);
-                                } else if last_direction == Direction::Left {
-                                    // go on the right.
-                                    self.path.push((parent, Direction::Right));
-                                    self.current_node = parent
-                                        .children
-                                        .get_child(Direction::Right)
-                                        .map(|item| item);
-                                    break;
-                                }
-                            } else if let Children::Route { .. } = &parent.children {
-                                // Go up
-                                self.current_node = Some(parent);
-                            } // parent node can't be a leaf node
-                        } else {
-                            self.current_node = None;
-                            return Some(return_item);
-                        }
-                    }
-                }
-            }
-
-            return Some(return_item);
-        }
-
-        None
     }
 }
