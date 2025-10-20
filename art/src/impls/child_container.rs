@@ -1,145 +1,49 @@
 use crate::traits::ChildContainer;
-use crate::types::{Children, Direction, FullChildren};
-use std::mem;
+use crate::types::{BinaryChildrenRelation, Direction};
 
-impl<C> ChildContainer<C> for Children<C>
+impl<C> ChildContainer<C> for BinaryChildrenRelation<C>
 where
     C: Clone + Default,
 {
-    fn get_child(&self, child: Direction) -> Option<&C> {
-        match self {
-            Self::Leaf => None,
-            Self::Node { l, r } => match child {
-                Direction::Right => Some(r),
-                Direction::Left => Some(l),
-            },
-            Self::Route { c, direction } => {
-                if child.eq(direction) {
-                    Some(c)
-                } else {
-                    None
-                }
-            }
-        }
+    fn get_child(&self, dir: Direction) -> Option<&C> {
+        let child = match dir {
+            Direction::Right => self.r.as_ref(),
+            Direction::Left => self.l.as_ref(),
+        };
+
+        child.map(|r| r.as_ref())
     }
 
-    fn get_mut_child(&mut self, child: Direction) -> Option<&mut C> {
-        match self {
-            Self::Leaf => None,
-            Self::Node { l, r } => match child {
-                Direction::Right => Some(r),
-                Direction::Left => Some(l),
-            },
-            Self::Route { c, direction } => {
-                if child.eq(direction) {
-                    Some(c)
-                } else {
-                    None
-                }
-            }
-        }
+    fn get_mut_child(&mut self, dir: Direction) -> Option<&mut C> {
+        let child = match dir {
+            Direction::Right => self.r.as_mut(),
+            Direction::Left => self.l.as_mut(),
+        };
+
+        child.map(|r| r.as_mut())
     }
 
-    fn set_child(&mut self, child: Direction, node: C) {
-        match self {
-            Self::Leaf => {
-                *self = Self::Route {
-                    c: Box::new(node),
-                    direction: child,
-                }
-            }
-            Self::Node { l, r } => match child {
-                Direction::Right => *r = Box::new(node),
-                Direction::Left => *l = Box::new(node),
-            },
-            Self::Route { c, direction } => {
-                if child.eq(direction) {
-                    *c = Box::new(node);
-                } else {
-                    let taken_c = mem::replace(c, Box::new(C::default()));
-
-                    match direction {
-                        Direction::Right => {
-                            *self = Self::Node {
-                                l: Box::new(node),
-                                r: taken_c,
-                            }
-                        }
-                        Direction::Left => {
-                            *self = Self::Node {
-                                r: Box::new(node),
-                                l: taken_c,
-                            }
-                        }
-                    }
-                }
-            }
+    fn set_child(&mut self, dir: Direction, node: C) {
+        match dir {
+            Direction::Left => self.l = Some(Box::new(node)),
+            Direction::Right => self.r = Some(Box::new(node)),
         }
     }
 
     fn is_leaf(&self) -> bool {
-        if let Self::Leaf = &self { true } else { false }
+        self.r.is_none() && self.l.is_none()
     }
-}
 
-impl<C> ChildContainer<C> for FullChildren<C>
-where
-    C: Clone + Default,
-{
-    fn get_child(&self, child: Direction) -> Option<&C> {
-        match self {
-            Self::Leaf => None,
-            Self::Node { l, r } => match child {
-                Direction::Right => Some(r),
-                Direction::Left => Some(l),
-            },
+    fn degree(&self) -> usize {
+        let mut ctr = 0;
+
+        if self.l.is_some() {
+            ctr += 1;
         }
-    }
-
-    fn get_mut_child(&mut self, child: Direction) -> Option<&mut C> {
-        match self {
-            Self::Leaf => None,
-            Self::Node { l, r } => match child {
-                Direction::Right => Some(r),
-                Direction::Left => Some(l),
-            },
+        if self.r.is_some() {
+            ctr += 1;
         }
-    }
 
-    fn set_child(&mut self, child: Direction, node: C) {
-        match self {
-            Self::Leaf => {
-                *self = Self::Node {
-                    l: Box::new(node),
-                    r: Box::new(C::default()),
-                }
-            }
-            Self::Node { l, r } => match child {
-                Direction::Right => *r = Box::new(node),
-                Direction::Left => *l = Box::new(node),
-            },
-        }
-    }
-
-    fn is_leaf(&self) -> bool {
-        if let Self::Leaf = &self { true } else { false }
-    }
-}
-
-impl<C> Default for Children<C>
-where
-    C: Clone,
-{
-    fn default() -> Self {
-        Self::Leaf
-    }
-}
-
-impl<C> Default for FullChildren<C>
-where
-    C: Clone,
-{
-    fn default() -> Self {
-        Self::Leaf
+        ctr
     }
 }

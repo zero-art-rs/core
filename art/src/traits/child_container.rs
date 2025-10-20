@@ -55,4 +55,5 @@ where
 
         self.get_mut_child(dir)
     }
+    fn degree(&self) -> usize;
 }

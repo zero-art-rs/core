@@ -1,25 +1,18 @@
 /// TODO: refactor this file
 use crate::errors::ARTError;
-use crate::traits::{
-    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPublicAPI, ARTPublicAPIHelper, ChildContainer,
-    RelatedData,
-};
+use crate::traits::{ARTPublicAPI, ChildContainer, RelatedData};
 use crate::types::{
-    AggregationData, AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesType, BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, Children,
-    Direction, EmptyData, LeafStatus, NodeIndex, ProverAggregationData, ProverArtefacts,
-    UpdateData, VerifierAggregationData,
+    AggregationDisplayTree, AggregationNodeIterWithPath, BinaryChildrenRelation, BranchChanges,
+    BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, Direction, EmptyData,
+    NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::UniformRand;
 use ark_std::rand::prelude::ThreadRng;
-use cortado::CortadoAffine;
 use curve25519_dalek::Scalar;
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
-use tracing::debug;
 use tree_ds::prelude::Node;
 use zrt_zk::aggregated_art::{
     ProverAggregatedNodeData, ProverAggregationTree, VerifierAggregatedNodeData,
@@ -221,7 +214,7 @@ where
 {
     fn from(data: D) -> Self {
         Self {
-            children: Children::default(),
+            children: BinaryChildrenRelation::default(),
             data,
         }
     }
@@ -241,18 +234,22 @@ where
     D: RelatedData + Display + Clone,
 {
     fn from(value: &ChangeAggregationNode<D>) -> Self {
-        match &value.children {
-            Children::Leaf => AggregationDisplayTree::Leaf {
-                public_key: format!("Leaf: {}", value.data),
-            },
-            Children::Route { c, direction } => AggregationDisplayTree::Route {
-                public_key: format!("Route: {} -> {:?}", value.data, direction),
-                child: Box::new(c.into()),
-            },
-            Children::Node { l, r } => AggregationDisplayTree::Node {
+        match (value.children.l.as_ref(), value.children.r.as_ref()) {
+            (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
                 public_key: format!("Node {}", value.data),
                 left: Box::new(l.into()),
                 right: Box::new(r.into()),
+            },
+            (Some(c), None) => AggregationDisplayTree::UnaryNode {
+                public_key: format!("{:?}: {}", Direction::Left, value.data),
+                child: Box::new(c.into()),
+            },
+            (None, Some(c)) => AggregationDisplayTree::UnaryNode {
+                public_key: format!("{:?}: {}", Direction::Right, value.data),
+                child: Box::new(c.into()),
+            },
+            (None, None) => AggregationDisplayTree::Leaf {
+                public_key: format!("Leaf: {}", value.data),
             },
         }
     }
@@ -411,21 +408,26 @@ where
         if let Some(current_node) = self.current_node {
             let return_item = (current_node, self.path.clone());
 
-            match &current_node.children {
-                Children::Node { l, .. } => {
+            match (&current_node.children.l, &current_node.children.r) {
+                (Some(l), Some(_)) => {
                     // Try to go further down, to the left. The right case will be handled by the leaf case.
                     self.path.push((current_node, Direction::Left));
                     self.current_node = Some(l.as_ref());
                 }
-                Children::Route { c, direction } => {
+                (Some(l), None) => {
                     // Try to go further down. Pass through.
-                    self.path.push((current_node, *direction));
-                    self.current_node = Some(c.as_ref());
+                    self.path.push((current_node, Direction::Left));
+                    self.current_node = Some(l.as_ref());
                 }
-                Children::Leaf => {
+                (None, Some(r)) => {
+                    // Try to go further down. Pass through.
+                    self.path.push((current_node, Direction::Right));
+                    self.current_node = Some(r.as_ref());
+                }
+                (None, None) => {
                     loop {
                         if let Some((parent, last_direction)) = self.path.pop() {
-                            if let Children::Node { .. } = &parent.children {
+                            if let (Some(_), Some(_)) = (&parent.children.l, &parent.children.r) {
                                 // Try to go right, or else go up
                                 if last_direction == Direction::Right {
                                     // Go up.
@@ -439,7 +441,9 @@ where
                                         .map(|item| item);
                                     break;
                                 }
-                            } else if let Children::Route { .. } = &parent.children {
+                            } else if let (Some(_), None) | (None, Some(_)) =
+                                (&parent.children.l, &parent.children.r)
+                            {
                                 // Go up
                                 self.current_node = Some(parent);
                             } // parent node can't be a leaf node

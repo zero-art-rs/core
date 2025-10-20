@@ -1,5 +1,5 @@
 use crate::traits::RelatedData;
-use crate::types::{Children, Direction};
+use crate::types::{BinaryChildrenRelation, Direction};
 use display_tree::DisplayTree;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -15,7 +15,7 @@ pub struct ChangeAggregationNode<D>
 where
     D: RelatedData + Clone,
 {
-    pub children: Children<Self>,
+    pub children: BinaryChildrenRelation<Self>,
 
     pub data: D,
 }
@@ -35,13 +35,13 @@ pub enum AggregationDisplayTree {
         #[node_label]
         public_key: String,
     },
-    Route {
+    UnaryNode {
         #[node_label]
         public_key: String,
         #[tree]
         child: Box<Self>,
     },
-    Node {
+    BinaryNode {
         #[node_label]
         public_key: String,
         #[tree]

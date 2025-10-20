@@ -7,7 +7,7 @@ use crate::traits::{
 use crate::types::{
     ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
     ChangeAggregation, ChangeAggregationNode, Direction, LeafStatus, NodeIndex, PrivateART,
-    ProverAggregationData, ProverArtefacts, PublicART, UpdateData, VerifierAggregationData,
+    ProverAggregationData, ProverArtefacts, UpdateData, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;

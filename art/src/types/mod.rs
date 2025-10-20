@@ -21,7 +21,7 @@ pub use art_node::{
 pub use art_root_key::ARTRootKey;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use branch_changes::{BranchChanges, BranchChangesType, BranchChangesTypeHint};
-pub use children::{Children, FullChildren};
+pub use children::BinaryChildrenRelation;
 pub use node_index::{Direction, NodeIndex};
 pub use private_art::PrivateART;
 pub use public_art::PublicART;
