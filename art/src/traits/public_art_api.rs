@@ -173,7 +173,6 @@ where
         path: &[Direction],
         update_weights: bool,
     ) -> Result<(), ARTError>;
-    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError>;
 
     /// This method will update all public keys on a path from the root to node. Using provided
     /// secret key, it will recompute all the public keys and change old ones. It is used
@@ -202,8 +201,8 @@ where
         target_change: &BranchChanges<G>,
     ) -> Result<(), ARTError>;
 
-    /// allowes to update public keys on the given `path` with values provided in
-    /// `verifier_aggregation`. Also it allows to skip and not update first `skip` nodes on path.
+    /// Allows to update public keys on the given `path` with public keys provided in
+    /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
     fn update_public_art_upper_branch(
         &mut self,
         path: &[Direction],

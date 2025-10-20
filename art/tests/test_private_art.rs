@@ -597,7 +597,7 @@ mod tests {
 
         // Save old secret key to roll back
         let main_old_key = secrets[main_user_id];
-        let main_new_key = get_random_scalar_with_rng(&mut rng);
+        let main_new_key = Fr::rand(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
         assert_ne!(new_key.key, main_old_key);
 
@@ -2521,6 +2521,39 @@ mod tests {
         assert_eq!(pub_art, user0.public_art,)
     }
 
+    #[test]
+    fn test_branch_aggregation_for_one_update() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![Fr::rand(&mut rng)],
+            &CortadoAffine::generator(),
+        )
+            .unwrap();
+
+        let mut pub_art = user0.public_art.clone();
+
+        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        user0
+            .append_or_replace_node_and_aggregate(&Fr::rand(&mut rng), &mut agg)
+            .unwrap();
+
+        let verify_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let result = pub_art
+            .update_public_art_with_aggregation(&verify_agg)
+            .unwrap();
+
+        assert_eq!(
+            pub_art, user0.public_art,
+            "They are:\n{}\nand\n{}",
+            pub_art.get_root(), user0.public_art.get_root()
+        )
+    }
+
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {
         (0..size).map(|_| F::rand(rng)).collect()
     }
@@ -2548,15 +2581,6 @@ mod tests {
         let (min_height, max_height) = min_max_leaf_height(&art)?;
 
         Ok(max_height - min_height)
-    }
-
-    fn get_random_scalar_with_rng(rng: &mut StdRng) -> Fr {
-        let mut k = Fr::zero();
-        while k.is_one() || k.is_zero() {
-            k = Fr::rand(rng);
-        }
-
-        k
     }
 
     #[inline]

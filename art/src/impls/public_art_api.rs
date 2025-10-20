@@ -12,6 +12,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
+use tracing::debug;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -432,6 +433,8 @@ where
                     BranchChangesTypeHint::AppendNode { pk, ext_pk } => {
                         self.update_branch_weight(&item_path, true)?;
 
+                        self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?.extend_or_replace(ARTNode::new_leaf(*pk))?;
+
                         let mut parent_path = item_path.clone();
                         parent_path.pop();
                         self.update_public_art_upper_branch(
@@ -443,8 +446,6 @@ where
 
                         let corresponding_item =
                             self.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-                        corresponding_item.extend_or_replace(ARTNode::new_leaf(*pk))?;
-
                         if let Some(ext_pk) = ext_pk {
                             corresponding_item.set_public_key(*ext_pk)
                         }
@@ -576,19 +577,6 @@ where
         }
 
         target_node.set_status(LeafStatus::Blank)?;
-
-        Ok(())
-    }
-
-    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
-        for i in 0..path.len() {
-            let current_node_weight = self.get_mut_node_with_path(&path[0..i])?.get_mut_weight()?;
-            if increment {
-                *current_node_weight += 1;
-            } else {
-                *current_node_weight -= 1;
-            }
-        }
 
         Ok(())
     }
@@ -794,9 +782,8 @@ where
         increment_weight: bool,
     ) -> Result<(), ARTError> {
         for i in 0..path.len() {
-            let partial_path = path[0..i].to_vec();
             let weight = self
-                .get_mut_node(&NodeIndex::Direction(partial_path))?
+                .get_mut_node_with_path(&path[0..i])?
                 .get_mut_weight()?;
 
             if increment_weight {
