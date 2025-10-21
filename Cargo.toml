@@ -40,3 +40,4 @@ sha3 = {  version = "0.10.8" }
 strum = {  version = "0.27" }
 strum_macros = {  version = "0.27" }
 itertools = { version = "0.14.0"}
+tree-ds = {  version = "0.2.0", features = ["auto_id"] }

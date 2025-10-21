@@ -1,11 +1,11 @@
 use crate::errors::ARTError;
 use crate::types::ProverArtefacts;
-use ark_ec::AffineRepr;
-use ark_ec::CurveGroup;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
+use tracing::debug;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -27,7 +27,7 @@ where
     a.map_err(serde::de::Error::custom)
 }
 
-/// Iota function is a function which converts computed public secret to scalar field. It can
+/// Iota function is a function which converts a point to scalar field element. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
 pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>
@@ -55,6 +55,10 @@ where
     Ok(Scalar::from_bytes_mod_order(
         (&point.into_bigint().to_bytes_le()[..]).try_into()?,
     ))
+}
+
+pub fn common_prefix_size<T: Eq>(a: &[T], b: &[T]) -> usize {
+    a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
 /// Recompute artefacts using given `secret_key` as leaf secret key, and provided `co_path`

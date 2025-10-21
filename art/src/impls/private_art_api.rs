@@ -1,18 +1,19 @@
 // Asynchronous Ratchet Tree implementation
 
-use crate::helper_tools::{iota_function, recompute_artefacts};
-use crate::traits::ARTPrivateAPIHelper;
-use crate::types::{Direction, LeafStatus, NodeIndex, UpdateData};
-use crate::{
-    errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPIHelper},
-    types::{ARTRootKey, BranchChanges, BranchChangesType, ProverArtefacts},
+use crate::errors::ARTError;
+use crate::helper_tools::recompute_artefacts;
+use crate::traits::{
+    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPIHelper, ChildContainer,
 };
-use ark_ec::{AffineRepr, CurveGroup};
+use crate::types::{
+    ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, ChangeAggregationNode,
+    Direction, LeafStatus, NodeIndex, ProverAggregationData, ProverArtefacts, UpdateData,
+    VerifierAggregationData,
+};
+use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 impl<G, A> ARTPrivateAPI<G> for A
 where
@@ -51,9 +52,8 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        // let append_changes = !self.get_node(&NodeIndex::from(path.to_vec()))?.is_active(); //.is_blank;
         let append_changes = matches!(
-            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
+            self.get_node_with_path(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         let (mut tk, changes, artefacts) =
@@ -124,7 +124,7 @@ where
         for change in target_changes {
             if let BranchChangesType::AppendNode = change.change_type {
                 if append_member_count > 1 {
-                    return Err(ARTError::MergeInput);
+                    return Err(ARTError::InvalidMergeInput);
                 }
 
                 append_member_count += 1;
@@ -145,14 +145,14 @@ where
     ) -> Result<(), ARTError> {
         // Currently, it will fail if the first applied change is append_member.
         if let BranchChangesType::AppendNode = applied_change.change_type {
-            return Err(ARTError::MergeInput);
+            return Err(ARTError::InvalidMergeInput);
         }
 
         let mut append_member_count = 0;
         for change in unapplied_changes {
             if let BranchChangesType::AppendNode = change.change_type {
                 if append_member_count > 1 {
-                    return Err(ARTError::MergeInput);
+                    return Err(ARTError::InvalidMergeInput);
                 }
 
                 append_member_count += 1;
@@ -343,10 +343,10 @@ where
         &self,
         partial_co_path: &[G],
     ) -> Result<Vec<G::ScalarField>, ARTError> {
+        let path_length = self.get_path_secrets().len();
         let updated_path_len = partial_co_path.len();
 
-        let level_sk =
-            self.get_path_secrets()[self.get_path_secrets().len() - updated_path_len - 1];
+        let level_sk = self.get_path_secrets()[path_length - updated_path_len - 1];
 
         let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, partial_co_path)?;
 

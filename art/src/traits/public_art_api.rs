@@ -1,4 +1,4 @@
-use crate::types::UpdateData;
+use crate::types::{AggregationData, ChangeAggregationNode, UpdateData, VerifierAggregationData};
 use crate::{
     errors::ARTError,
     types::{
@@ -86,11 +86,17 @@ where
         append_changes: bool,
     ) -> Result<(), ARTError>;
 
-    /// Returns node by the given NodeIndex
+    /// Returns node by the given `index`.
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError>;
 
-    /// Returns mutable node by the given NodeIndex
+    /// Returns node on the end of the given `path`.
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError>;
+
+    /// Returns mutable node by the given `index`.
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError>;
+
+    /// Returns mutable node on the end of the given `path`.
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError>;
 
     /// Updates art with given changes.
     fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
@@ -155,7 +161,6 @@ where
         path: &[Direction],
         update_weights: bool,
     ) -> Result<(), ARTError>;
-    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError>;
 
     /// This method will update all public keys on a path from the root to node. Using provided
     /// secret key, it will recompute all the public keys and change old ones. It is used
@@ -183,4 +188,20 @@ where
         merged_changes: &[BranchChanges<G>],
         target_change: &BranchChanges<G>,
     ) -> Result<(), ARTError>;
+
+    /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
+    /// then increment weight by one, else decrement it by one.
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
+    ) -> Result<(), ARTError>;
+
+    /// Retrieve the last public key on given `path`, by applying required changes from the
+    /// `aggregation`.
+    fn get_last_public_key_on_path(
+        &self,
+        aggregation: &ChangeAggregationNode<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError>;
 }

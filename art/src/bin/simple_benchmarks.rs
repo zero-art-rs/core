@@ -13,6 +13,7 @@ use std::ops::{AddAssign, Mul};
 use std::time::{Duration, Instant};
 use tracing::info;
 use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
+use zkp::rand::thread_rng;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::traits::{ARTPrivateAPI, ARTPublicAPI};
@@ -155,21 +156,17 @@ fn bench_separate_operations_creation() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..update_key_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
                 let proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &update_key_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    update_key_artefacts.path.clone(),
-                    update_key_artefacts.co_path.clone(),
-                    update_key_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
                 update_table(&mut time_table, PROVE_UPDATE_KEY, i, start.elapsed());
@@ -187,9 +184,8 @@ fn bench_separate_operations_creation() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     proof,
                 )
                 .unwrap();
@@ -224,21 +220,17 @@ fn bench_separate_operations_creation() {
                 // Prepare aux keys, blinding vector, associated date
                 let aux_keys = vec![add_member_tk.key];
                 let public_aux_keys = public_of(&aux_keys);
-                let blinding_vector: Vec<Scalar> = (0..add_member_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
                 let add_member_proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &add_member_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    add_member_artefacts.path.clone(),
-                    add_member_artefacts.co_path.clone(),
-                    add_member_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
                 update_table(&mut time_table, PROVE_ADD_MEMBER, i, start.elapsed());
@@ -256,9 +248,8 @@ fn bench_separate_operations_creation() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     add_member_proof,
                 )
                 .unwrap();
@@ -300,21 +291,17 @@ fn bench_separate_operations_creation() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..make_blank_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let start = Instant::now();
                 let proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &make_blank_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    make_blank_artefacts.path.clone(),
-                    make_blank_artefacts.co_path.clone(),
-                    make_blank_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
                 update_table(&mut time_table, PROVE_MAKE_BLANK, i, start.elapsed());
@@ -332,9 +319,8 @@ fn bench_separate_operations_creation() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     proof,
                 )
                 .unwrap();
@@ -448,20 +434,16 @@ fn bench_operations_in_combination() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..update_key_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &update_key_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    update_key_artefacts.path.clone(),
-                    update_key_artefacts.co_path.clone(),
-                    update_key_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
 
@@ -479,9 +461,8 @@ fn bench_operations_in_combination() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     proof,
                 )
                 .unwrap();
@@ -514,20 +495,16 @@ fn bench_operations_in_combination() {
                 // Prepare aux keys, blinding vector, associated date
                 let aux_keys = vec![add_member_tk.key];
                 let public_aux_keys = public_of(&aux_keys);
-                let blinding_vector: Vec<Scalar> = (0..add_member_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let add_member_proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &add_member_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    add_member_artefacts.path.clone(),
-                    add_member_artefacts.co_path.clone(),
-                    add_member_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
 
@@ -545,9 +522,8 @@ fn bench_operations_in_combination() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     add_member_proof,
                 )
                 .unwrap();
@@ -587,20 +563,16 @@ fn bench_operations_in_combination() {
                     .iter()
                     .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
                     .collect::<Vec<_>>();
-                let blinding_vector: Vec<Scalar> = (0..make_blank_artefacts.co_path.len() + 1)
-                    .map(|_| Scalar::random(&mut rng))
-                    .collect();
                 let associated_data = b"associated data".to_vec();
 
                 let proof = art_prove(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &make_blank_artefacts
+                        .to_prover_branch(&mut thread_rng())
+                        .unwrap(),
                     public_aux_keys.clone(),
-                    make_blank_artefacts.path.clone(),
-                    make_blank_artefacts.co_path.clone(),
-                    make_blank_artefacts.secrets.clone(),
                     aux_keys.clone(),
-                    blinding_vector,
                 )
                 .unwrap();
 
@@ -618,9 +590,8 @@ fn bench_operations_in_combination() {
                 art_verify(
                     pedersen_basis.clone(),
                     &associated_data,
+                    &verifier_artefacts.to_verifier_branch().unwrap(),
                     public_aux_keys.clone(),
-                    verifier_artefacts.path.clone(),
-                    verifier_artefacts.co_path.clone(),
                     proof,
                 )
                 .unwrap();

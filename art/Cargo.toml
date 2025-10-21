@@ -43,6 +43,7 @@ postcard = { workspace = true, features = ["alloc"] }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+tree-ds = {  version = "0.2.0" }
 
 [dev-dependencies]
 strum ={ workspace = true }

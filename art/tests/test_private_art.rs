@@ -17,21 +17,25 @@ mod tests {
     use rand::seq::IteratorRandom;
     use rand::{Rng, rng};
     use std::cmp::{max, min};
-    use std::io::ErrorKind::ConnectionRefused;
     use std::ops::{Add, Mul};
-    use tracing::{debug, warn};
-    use zkp::toolbox::cross_dleq::PedersenBasis;
-    use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-    use zrt_art::traits::ARTPrivateView;
-    use zrt_art::types::LeafStatus;
+    use tracing::{debug, error, info, warn};
+    use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
+    use zrt_art::helper_tools::iota_function;
+    use zrt_art::types::{
+        AggregationNodeIterWithPath, LeafIter, PlainChangeAggregation, ProverChangeAggregation,
+    };
+    use zrt_art::types::{ChangeAggregation, LeafStatus};
     use zrt_art::{
         errors::ARTError,
-        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
+        traits::{ARTPrivateAPI, ARTPrivateView, ARTPublicAPI, ARTPublicView},
         types::{
-            ARTRootKey, BranchChanges, LeafIterWithPath, NodeIndex, PrivateART, ProverArtefacts,
-            PublicART, VerifierArtefacts,
+            ARTRootKey, AggregationData, BranchChanges, ChangeAggregationNode, LeafIterWithPath,
+            NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART,
+            VerifierAggregationData, VerifierArtefacts,
         },
     };
+    use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+    use zrt_zk::aggregated_art::{art_aggregated_prove, art_aggregated_verify};
     use zrt_zk::art::{art_prove, art_verify};
 
     pub const TEST_GROUP_SIZE: usize = 100;
@@ -595,7 +599,7 @@ mod tests {
 
         // Save old secret key to roll back
         let main_old_key = secrets[main_user_id];
-        let main_new_key = get_random_scalar_with_rng(&mut rng);
+        let main_new_key = Fr::rand(&mut rng);
         let (new_key, changes, _) = main_user_art.update_key(&main_new_key).unwrap();
         assert_ne!(new_key.key, main_old_key);
 
@@ -897,12 +901,7 @@ mod tests {
 
                 assert_eq!(user_root_key.key, root_key.key);
                 assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE - 1);
-
-                assert!(users_arts[i].get_root() == users_arts[0].get_root());
-                assert!(users_arts[i].get_generator() == users_arts[0].get_generator());
-                assert!(users_arts[i].get_root_key().ok() == users_arts[0].get_root_key().ok());
-
-                assert_eq!(users_arts[i], users_arts[0])
+                assert_eq!(users_arts[i], main_user_art)
             }
         }
 
@@ -1125,7 +1124,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            key_update_changes.clone(),
             test_art
                 .compute_artefacts_for_verification(&key_update_changes)
                 .unwrap(),
@@ -1172,7 +1170,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            make_blank_changes,
             verification_artefacts,
         );
 
@@ -1228,7 +1225,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            append_node_changes,
             verification_artefacts,
         );
 
@@ -1273,7 +1269,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            append_node_changes,
             verification_artefacts,
         );
 
@@ -2102,6 +2097,422 @@ mod tests {
         Ok(())
     }
 
+    /// Test if non-mergable changes (without blank for the second time) can be aggregated and
+    /// applied correctly.
+    #[test]
+    fn test_branch_aggregation() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng: StdRng = StdRng::seed_from_u64(0);
+        let secrets = create_random_secrets_with_rng(7, &mut rng);
+
+        let (user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = user0.serialize().unwrap();
+        let mut user1: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[2]).unwrap();
+
+        let mut user2: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[3]).unwrap();
+
+        let user1_2 = user1.clone();
+
+        let user3: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[4]).unwrap();
+        let user4: PrivateART<CortadoAffine> =
+            PrivateART::deserialize(&public_art_bytes, &secrets[5]).unwrap();
+
+        // Create aggregation
+        // let mut agg = ChangeAggregationNode::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+
+        let sk1 = Fr::rand(&mut rng);
+        let sk2 = Fr::rand(&mut rng);
+        let sk3 = Fr::rand(&mut rng);
+        let sk4 = Fr::rand(&mut rng);
+
+        agg.make_blank(&user3.node_index.get_path().unwrap(), &sk1, &mut user1)
+            .unwrap();
+
+        agg.make_blank(&user4.node_index.get_path().unwrap(), &sk1, &mut user1)
+            .unwrap();
+
+        agg.append_or_replace_node(&sk2, &mut user1).unwrap();
+
+        agg.append_or_replace_node(&sk3, &mut user1).unwrap();
+
+        agg.append_or_replace_node(&sk4, &mut user1).unwrap();
+
+        // Check successful ProverAggregationTree conversion to tree_ds tree
+        let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg);
+        assert!(tree_ds_tree.is_ok());
+
+        for _ in 0..100 {
+            let sk_i = Fr::rand(&mut rng);
+            agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
+
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
+
+            let mut user2_clone = user2.clone();
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
+                .unwrap();
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        let root_clone = user1.get_root().clone();
+        let leaf_iter = LeafIterWithPath::new(&root_clone).skip(10).take(10);
+        for (_, path) in leaf_iter {
+            let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            agg.make_blank(&path, &Fr::rand(&mut rng), &mut user1)
+                .unwrap();
+
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
+
+            let mut user2_clone = user2.clone();
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
+                .unwrap();
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        for i in 0..100 {
+            let sk_i = Fr::rand(&mut rng);
+            let (_, change_i, _) = agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
+
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
+
+            let mut user2_clone = user2.clone();
+            verifier_aggregation
+                .update_private_art(&mut user2_clone)
+                .unwrap();
+
+            assert_eq!(
+                user1,
+                user2_clone,
+                "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
+                user1.get_root(),
+                user2_clone.get_root(),
+            );
+        }
+
+        // Verify structure correctness
+        for (node, path) in AggregationNodeIterWithPath::from(&agg) {
+            assert_eq!(
+                user0.public_key_of(&node.data.secret_key),
+                node.data.public_key
+            );
+            if let Some((parent, _)) = path.last()
+                && let Some(co_public_key) = node.data.co_public_key
+            {
+                let pk = CortadoAffine::generator()
+                    .mul(
+                        iota_function(&co_public_key.mul(node.data.secret_key).into_affine())
+                            .unwrap(),
+                    )
+                    .into_affine();
+                assert_eq!(parent.data.public_key, pk);
+            }
+        }
+
+        let verifier_aggregation =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let aggregation_from_prover =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let aggregation_from_verifier =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation)
+                .unwrap();
+
+        assert_eq!(
+            aggregation_from_prover, aggregation_from_verifier,
+            "Aggregations are equal from both sources."
+        );
+
+        let extracted_verifier_aggregation = aggregation_from_prover.add_co_path(&user2).unwrap();
+
+        assert_eq!(
+            verifier_aggregation, extracted_verifier_aggregation,
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
+            verifier_aggregation, extracted_verifier_aggregation,
+        );
+
+        let mut user1_clone = user1_2.clone();
+        verifier_aggregation
+            .update_private_art(&mut user1_clone)
+            .unwrap();
+        verifier_aggregation.update_private_art(&mut user2).unwrap();
+
+        assert_eq!(
+            user1,
+            user1_clone,
+            "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_clone\n{}",
+            user1.get_root(),
+            user1_clone.get_root(),
+        );
+
+        assert_eq!(
+            user1,
+            user2,
+            "Both users have the same view on the state of the art.\nUser1\n{}\nUser2\n{}",
+            user1.get_root(),
+            user2.get_root(),
+        );
+    }
+
+    #[test]
+    fn test_branch_aggregation_with_blanking() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let group_length = 7;
+        let secrets = create_random_secrets_with_rng(group_length, &mut rng);
+
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+
+        let user3_path = user0
+            .get_path_to_leaf(&user0.public_key_of(&secrets[4]))
+            .unwrap();
+        user0.make_blank(&user3_path, &Fr::rand(&mut rng)).unwrap();
+
+        // Create aggregation
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+
+        let sk1 = Fr::rand(&mut rng);
+
+        let result = agg.make_blank(&user3_path, &sk1, &mut user0);
+
+        assert!(
+            matches!(result, Err(ARTError::InvalidMergeInput)),
+            "Fail to get Error ARTError::InvalidMergeInput. Instead got {:?}.",
+            result
+        );
+    }
+
+    #[test]
+    fn test_branch_aggregation_with_leave() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let group_length = 7;
+        let secrets = create_random_secrets_with_rng(group_length, &mut rng);
+
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+        let mut user1 =
+            PrivateART::<CortadoAffine>::from_public_art_and_secret(user0.clone(), secrets[1])
+                .unwrap();
+
+        let target_3 = user0
+            .get_path_to_leaf(&user0.public_key_of(&secrets[3]))
+            .unwrap();
+        // Create aggregation
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.make_blank(&target_3, &Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+        agg.leave(&Fr::rand(&mut rng), &mut user0).unwrap();
+
+        let plain_agg =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let extracted_agg = plain_agg.add_co_path(&user0).unwrap();
+
+        extracted_agg.update_private_art(&mut user1).unwrap();
+
+        assert_eq!(user0, user1);
+    }
+
+    #[test]
+    fn test_branch_aggregation_proof_verify() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let group_length = 7;
+        let secrets = create_random_secrets_with_rng(group_length, &mut rng);
+
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &secrets,
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+        let mut user1 =
+            PrivateART::<CortadoAffine>::from_public_art_and_secret(user0.clone(), secrets[1])
+                .unwrap();
+
+        let target_3 = user0
+            .get_path_to_leaf(&user0.public_key_of(&secrets[3]))
+            .unwrap();
+        // Create aggregation
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+
+        for i in 0..4 {
+            agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+                .unwrap();
+        }
+
+        let basis = get_pedersen_basis();
+        let associated_data = b"data";
+        let sk = Fr::rand(&mut rng);
+        let pk = user0.public_key_of(&sk);
+
+        let prover_tree = ProverAggregationTree::try_from(&agg).unwrap();
+
+        let proof = art_aggregated_prove(
+            basis.clone(),
+            associated_data,
+            &prover_tree,
+            vec![pk],
+            vec![sk],
+        )
+        .unwrap();
+
+        let plain_agg =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let fromed_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let extracted_agg = plain_agg.add_co_path(&user0).unwrap();
+        assert_eq!(
+            fromed_agg, extracted_agg,
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nseccond:\n{}",
+            fromed_agg, extracted_agg,
+        );
+
+        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
+
+        let result = art_aggregated_verify(
+            basis.clone(),
+            associated_data,
+            &verifier_tree,
+            vec![pk],
+            &proof,
+        );
+
+        assert!(result.is_ok());
+
+        extracted_agg.update_private_art(&mut user1).unwrap();
+
+        assert_eq!(user0, user1);
+    }
+
+    #[test]
+    fn test_branch_aggregation_from_one_node() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![Fr::rand(&mut rng)],
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+
+        let mut pub_art = user0.public_art.clone();
+
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
+
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
+
+        agg.update_key(&Fr::rand(&mut rng), &mut user0).unwrap();
+
+        let verify_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let result = verify_agg.update_public_art(&mut pub_art).unwrap();
+
+        assert_eq!(pub_art, user0.public_art,)
+    }
+
+    #[test]
+    fn test_branch_aggregation_for_one_update() {
+        init_tracing_for_test();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+            &vec![Fr::rand(&mut rng)],
+            &CortadoAffine::generator(),
+        )
+        .unwrap();
+
+        let mut pub_art = user0.public_art.clone();
+
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
+        agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
+            .unwrap();
+
+        let verify_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let _ = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        verify_agg.update_public_art(&mut pub_art).unwrap();
+
+        assert_eq!(
+            pub_art,
+            user0.public_art,
+            "They are:\n{}\nand\n{}",
+            pub_art.get_root(),
+            user0.public_art.get_root()
+        )
+    }
+
     fn create_random_secrets_with_rng<F: Field>(size: usize, rng: &mut StdRng) -> Vec<F> {
         (0..size).map(|_| F::rand(rng)).collect()
     }
@@ -2131,22 +2542,6 @@ mod tests {
         Ok(max_height - min_height)
     }
 
-    fn get_random_scalar_with_rng(rng: &mut StdRng) -> Fr {
-        let mut k = Fr::zero();
-        while k.is_one() || k.is_zero() {
-            k = Fr::rand(rng);
-        }
-
-        k
-    }
-
-    #[inline]
-    fn new_blindings(size: usize) -> Vec<Scalar> {
-        (0..size)
-            .map(|_| Scalar::random(&mut thread_rng()))
-            .collect()
-    }
-
     fn get_pedersen_basis() -> PedersenBasis<CortadoAffine, Ed25519Affine> {
         let g_1 = CortadoAffine::generator();
         let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
@@ -2165,7 +2560,6 @@ mod tests {
         aux_sk: Vec<Fr>,
         aux_pk: Vec<CortadoAffine>,
         artefacts: ProverArtefacts<CortadoAffine>,
-        update_changes: BranchChanges<CortadoAffine>,
         verification_artefacts: VerifierArtefacts<CortadoAffine>,
     ) -> Result<(), R1CSError> {
         let basis = get_pedersen_basis();
@@ -2173,20 +2567,16 @@ mod tests {
         let proof = art_prove(
             basis.clone(),
             associated_data,
+            &artefacts.to_prover_branch(&mut thread_rng()).unwrap(),
             aux_pk.clone(),
-            artefacts.path.clone(),
-            artefacts.co_path.clone(),
-            artefacts.secrets.clone(),
             aux_sk,
-            new_blindings(artefacts.co_path.len() + 1),
         )?;
 
         art_verify(
             basis.clone(),
             associated_data,
+            &verification_artefacts.to_verifier_branch().unwrap(),
             aux_pk,
-            verification_artefacts.path,
-            verification_artefacts.co_path,
             proof.clone(),
         )
     }

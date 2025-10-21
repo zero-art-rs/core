@@ -1,20 +1,18 @@
-use crate::types::LeafStatus;
-use crate::{
-    errors::ARTError,
-    helper_tools::iota_function,
-    traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView},
-    types::{
-        ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafIterWithPath,
-        NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierArtefacts,
-    },
+use crate::errors::ARTError;
+use crate::helper_tools::iota_function;
+use crate::traits::{ARTPublicAPI, ARTPublicAPIHelper, ARTPublicView, ChildContainer};
+use crate::types::{
+    ARTNode, ARTRootKey, AggregationData, AggregationNodeIterWithPath, BranchChanges,
+    BranchChangesType, BranchChangesTypeHint, ChangeAggregationNode, Direction, LeafIterWithPath,
+    LeafStatus, NodeIndex, NodeIterWithPath, ProverArtefacts, VerifierAggregationData,
+    VerifierArtefacts,
 };
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
-use tracing::error;
+use tracing::debug;
 
 impl<G, A> ARTPublicAPI<G> for A
 where
@@ -223,8 +221,12 @@ where
     }
 
     fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        self.get_node_with_path(&index.get_path()?)
+    }
+
+    fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError> {
         let mut node = self.get_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_child(direction)?;
         }
 
@@ -232,8 +234,12 @@ where
     }
 
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        self.get_mut_node_with_path(&index.get_path()?)
+    }
+
+    fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError> {
         let mut node = self.get_mut_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             node = node.get_mut_child(direction)?;
         }
 
@@ -453,19 +459,6 @@ where
         Ok(())
     }
 
-    fn update_weights(&mut self, path: &[Direction], increment: bool) -> Result<(), ARTError> {
-        for (i, dir) in path.iter().enumerate() {
-            let current_node = self.get_mut_node(&NodeIndex::Direction(path[0..i].to_vec()))?;
-            if increment {
-                *current_node.get_mut_weight()? += 1;
-            } else {
-                *current_node.get_mut_weight()? -= 1;
-            }
-        }
-
-        Ok(())
-    }
-
     fn update_art_branch_with_leaf_secret_key(
         &mut self,
         secret_key: &G::ScalarField,
@@ -616,5 +609,82 @@ where
         }
 
         Ok(())
+    }
+
+    fn update_branch_weight(
+        &mut self,
+        path: &[Direction],
+        increment_weight: bool,
+    ) -> Result<(), ARTError> {
+        for i in 0..path.len() {
+            let weight = self.get_mut_node_with_path(&path[0..i])?.get_mut_weight()?;
+
+            if increment_weight {
+                *weight += 1;
+            } else {
+                *weight -= 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_last_public_key_on_path(
+        &self,
+        aggregation: &ChangeAggregationNode<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError> {
+        let mut leaf_public_key = self.get_root().get_public_key();
+
+        let mut current_art_node = Some(self.get_root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            // Retrieve leaf public key from art
+            if let Some(art_node) = current_art_node {
+                if let Ok(node) = art_node.get_child(dir) {
+                    if let ARTNode::Leaf { public_key, .. } = node {
+                        leaf_public_key = *public_key;
+                    }
+
+                    current_art_node = Some(node);
+                } else {
+                    current_art_node = None;
+                }
+            }
+
+            // Retrieve leaf public key updates form aggregation
+            if let Some(agg_node) = current_agg_node {
+                if let Some(node) = agg_node.children.get_child(*dir) {
+                    for change_type in &node.data.change_type {
+                        match change_type {
+                            BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {
+                                leaf_public_key = *blank_pk
+                            }
+                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
+                                if let Some(replacement_pk) = ext_pk {
+                                    match path.get(i + 1) {
+                                        Some(Direction::Right) => leaf_public_key = *pk,
+                                        Some(Direction::Left) => {}
+                                        None => leaf_public_key = *replacement_pk,
+                                    }
+                                } else {
+                                    leaf_public_key = *pk;
+                                }
+                            }
+                            BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+                            BranchChangesTypeHint::Leave { pk } => leaf_public_key = *pk,
+                        }
+                    }
+
+                    current_agg_node = Some(node);
+                } else {
+                    current_agg_node = None;
+                }
+            }
+
+            // current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::NoChanges)?;
+        }
+
+        Ok(leaf_public_key)
     }
 }

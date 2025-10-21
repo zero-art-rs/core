@@ -1,8 +1,12 @@
-use crate::types::{Direction, NodeIndex, ProverArtefacts, UpdateData};
+use crate::helper_tools::recompute_artefacts;
+use crate::traits::ChildContainer;
 use crate::{
     errors::ARTError,
     traits::ARTPublicAPI,
-    types::{ARTRootKey, BranchChanges},
+    types::{
+        ARTRootKey, BranchChanges, ChangeAggregationNode, Direction, NodeIndex,
+        ProverAggregationData, ProverArtefacts, UpdateData, VerifierAggregationData,
+    },
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -40,7 +44,7 @@ where
     /// Remove yourself from the art.
     fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError>;
 
-    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    /// Updates art by applying changes. Also updates `path_secrets` and `node_index`.
     fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError>;
 
     /// Update ART with `target_changes` for the user, which didnt participated it the
@@ -67,9 +71,9 @@ where
     /// Updates users node index by researching it in a tree.
     fn update_node_index(&mut self) -> Result<(), ARTError>;
 
-    /// If `append_changes` is false, works as set_path_secrets. In the other case, it will
+    /// If `append_changes` is false, works as `set_path_secrets`. In the other case, it will
     /// append secrets to available ones. Works correctly if `self.node_index` isn't a subpath
-    /// of the `other`.
+    /// of the `other`. The `other` is used to properly decide, which secrets did change.
     fn update_path_secrets(
         &mut self,
         other_path_secrets: Vec<G::ScalarField>,
@@ -96,7 +100,7 @@ where
 
     /// Recomputes path_secrets for conflict changes, which where merged. Applicable if user
     /// had made change for merge. The state of the ART without that change is the base_fork,
-    /// which is required to properly merge changes. Note, that `target_changes` doesnt contain
+    /// which is required to properly merge changes. Note, that `target_changes` doesn't contain
     /// users update, because it merges all path_secrets to the self path_secrets.
     fn recompute_path_secrets_for_participant(
         &mut self,
@@ -104,16 +108,16 @@ where
         base_fork: Self,
     ) -> Result<(), ARTError>;
 
-    /// Returns secrets from changes (ordering from leaf to the root). It works by applying
-    /// 'changes' to the 'fork' and recomputing changes in usual way.
+    /// Returns secrets from changes (ordering from leaf to the root).
     fn get_artefact_secrets_from_change(
         &self,
         changes: &BranchChanges<G>,
     ) -> Result<Vec<G::ScalarField>, ARTError>;
 
-    /// instead of recomputing path secretes from the leaf to root, this method takes some secret
-    /// leaf on the path, and recompute the remaining path_secrets. `partial_co_path` is a co-path
-    /// from some inner node to the root.
+    /// Instead of recomputing path secretes from the leaf to root, this method takes some secret
+    /// key in `path_secrets`, considering previous are unchanged, and recomputes the remaining
+    /// `path_secrets`, which have changed. `partial_co_path` is a co-path from some inner node to
+    /// the root, required to compute secrets.
     fn get_partial_path_secrets(
         &self,
         partial_co_path: &[G],
