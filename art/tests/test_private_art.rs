@@ -2576,20 +2576,16 @@ mod tests {
         let proof = art_prove(
             basis.clone(),
             associated_data,
+            &artefacts.to_prover_branch(&mut thread_rng()).unwrap(),
             aux_pk.clone(),
-            artefacts.path.clone(),
-            artefacts.co_path.clone(),
-            artefacts.secrets.clone(),
             aux_sk,
-            new_blindings(artefacts.co_path.len() + 1),
         )?;
 
         art_verify(
             basis.clone(),
             associated_data,
+            &verification_artefacts.to_verifier_branch().unwrap(),
             aux_pk,
-            verification_artefacts.path,
-            verification_artefacts.co_path,
             proof.clone(),
         )
     }

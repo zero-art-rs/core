@@ -106,20 +106,17 @@ fn general_example() {
         .iter()
         .map(|sk| CortadoAffine::generator().mul(sk).into_affine())
         .collect::<Vec<_>>();
-    // Generate blinding vector
-    let blinding_vector: Vec<Scalar> = (0..k + 1).map(|_| Scalar::random(&mut rng)).collect();
     // Pass some associated data
     let associated_data = b"associated data".to_vec();
 
     let proof = art_prove(
         basis.clone(),
         &associated_data,
+        &prover_artefacts
+            .to_prover_branch(&mut thread_rng())
+            .unwrap(),
         public_aux_keys.clone(),
-        prover_artefacts.path.clone(),
-        prover_artefacts.co_path.clone(),
-        prover_artefacts.secrets.clone(),
         aux_keys.clone(),
-        blinding_vector,
     )
     .unwrap();
 
@@ -131,9 +128,8 @@ fn general_example() {
     let verification_result = art_verify(
         basis,
         &associated_data,
+        &verifier_artefacts.to_verifier_branch().unwrap(),
         public_aux_keys.clone(),
-        verifier_artefacts.path.clone(),
-        verifier_artefacts.co_path.clone(),
         proof,
     );
 
