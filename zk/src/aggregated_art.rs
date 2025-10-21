@@ -47,7 +47,7 @@ where
     pub public_key: G,
     pub co_public_key: Option<G>,
     pub secret_key: G::ScalarField,
-    pub blinding_factor: Scalar,
+    pub blinding_factor: G::ScalarField,
 }
 
 impl<G> Display for ProverAggregatedNodeData<G>
@@ -237,9 +237,9 @@ fn Rδ_prove(
                 let bp_gens = bp_gens.clone();
 
                 let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor;
+                let b_i = node_data.blinding_factor.into_scalar();
                 let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor;
+                let b_next = parent_data.blinding_factor.into_scalar();
                 let Q_a_i = node_data.public_key.clone();
                 let Q_ab_i = parent_data.public_key.clone();
                 let Q_b_i = node_data.co_public_key.unwrap().clone();
@@ -321,9 +321,9 @@ fn Rδ_prove(
                     .unwrap();
 
                 let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor;
+                let b_i = node_data.blinding_factor.into_scalar();
                 let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor;
+                let b_next = parent_data.blinding_factor.into_scalar();
                 let Q_a_i = node_data.public_key.clone();
                 let Q_ab_i = parent_data.public_key.clone();
                 let Q_b_i = node_data.co_public_key.unwrap().clone();
@@ -751,7 +751,7 @@ mod tests {
                 public_key: root_pk,
                 co_public_key: None,
                 secret_key: root_sk,
-                blinding_factor: Scalar::random(&mut rng),
+                blinding_factor: cortado::Fr::rand(&mut rng),
             }),
         );
         tree.add_node(root_node, None).unwrap();
@@ -795,7 +795,7 @@ mod tests {
                                     public_key: right_child_pk,
                                     co_public_key: Some(node_value.public_key),
                                     secret_key: right_child_sk,
-                                    blinding_factor: Scalar::random(&mut rng),
+                                    blinding_factor: cortado::Fr::rand(&mut rng),
                                 }),
                             );
                             tree.add_node(right_child_node, Some(&node_id)).unwrap();

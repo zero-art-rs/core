@@ -21,7 +21,9 @@ mod tests {
     use tracing::{debug, error, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
     use zrt_art::helper_tools::iota_function;
-    use zrt_art::types::{AggregationNodeIterWithPath, LeafIter};
+    use zrt_art::types::{
+        AggregationNodeIterWithPath, LeafIter, PlainChangeAggregation, ProverChangeAggregation,
+    };
     use zrt_art::types::{ChangeAggregation, LeafStatus};
     use zrt_art::{
         errors::ARTError,
@@ -2132,7 +2134,8 @@ mod tests {
 
         // Create aggregation
         // let mut agg = ChangeAggregationNode::<ProverAggregationData<CortadoAffine>>::default();
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
 
         let sk1 = Fr::rand(&mut rng);
         let sk2 = Fr::rand(&mut rng);
@@ -2159,8 +2162,7 @@ mod tests {
             let sk_i = Fr::rand(&mut rng);
             agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
 
-            let aggregation =
-                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
             let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
@@ -2184,8 +2186,7 @@ mod tests {
             agg.make_blank(&path, &Fr::rand(&mut rng), &mut user1)
                 .unwrap();
 
-            let aggregation =
-                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
             let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
@@ -2206,8 +2207,7 @@ mod tests {
             let sk_i = Fr::rand(&mut rng);
             let (_, change_i, _) = agg.append_or_replace_node(&sk_i, &mut user1).unwrap();
 
-            let aggregation =
-                ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
             let verifier_aggregation = aggregation.add_co_path(&mut user2).unwrap();
 
             let mut user2_clone = user2.clone();
@@ -2310,7 +2310,8 @@ mod tests {
         user0.make_blank(&user3_path, &Fr::rand(&mut rng)).unwrap();
 
         // Create aggregation
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
 
         let sk1 = Fr::rand(&mut rng);
 
@@ -2345,7 +2346,8 @@ mod tests {
             .get_path_to_leaf(&user0.public_key_of(&secrets[3]))
             .unwrap();
         // Create aggregation
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
 
         agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
@@ -2395,7 +2397,8 @@ mod tests {
             .get_path_to_leaf(&user0.public_key_of(&secrets[3]))
             .unwrap();
         // Create aggregation
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
 
         for i in 0..4 {
             agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
@@ -2406,8 +2409,6 @@ mod tests {
         let associated_data = b"data";
         let sk = Fr::rand(&mut rng);
         let pk = user0.public_key_of(&sk);
-
-        agg.set_random_blinding_factors(&mut thread_rng()).unwrap();
 
         let prover_tree = ProverAggregationTree::try_from(&agg).unwrap();
 
@@ -2464,7 +2465,8 @@ mod tests {
 
         let mut pub_art = user0.public_art.clone();
 
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
         agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
 
@@ -2496,7 +2498,8 @@ mod tests {
 
         let mut pub_art = user0.public_art.clone();
 
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut prover_rng = thread_rng();
+        let mut agg = ProverChangeAggregation::new(&mut prover_rng);
         agg.append_or_replace_node(&Fr::rand(&mut rng), &mut user0)
             .unwrap();
 

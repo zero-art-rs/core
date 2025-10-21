@@ -18,7 +18,7 @@ where
     pub secret_key: G::ScalarField,
 
     /// Blinding value for proof creation.
-    pub blinding_factor: Scalar,
+    pub blinding_factor: G::ScalarField,
 
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,

@@ -14,6 +14,7 @@ where
         self.secret_key = other.secret_key;
         self.co_public_key = other.co_public_key;
         self.change_type.extend(other.change_type);
+        self.blinding_factor = other.blinding_factor;
     }
 }
 

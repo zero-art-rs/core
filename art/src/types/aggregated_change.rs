@@ -1,6 +1,25 @@
 use crate::traits::RelatedData;
-use crate::types::{BinaryChildrenRelation, Direction};
+use crate::types::{
+    AggregationData, BinaryChildrenRelation, Direction, ProverAggregationData,
+    VerifierAggregationData,
+};
+use ark_std::rand::Rng;
 use display_tree::DisplayTree;
+
+pub type ProverChangeAggregation<'a, G, R> =
+    ChangeAggregationWithRng<'a, ProverAggregationData<G>, R>;
+pub type PlainChangeAggregation<G> = ChangeAggregation<AggregationData<G>>;
+pub type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ChangeAggregationWithRng<'a, D, R>
+where
+    D: RelatedData + Clone,
+    R: Rng + ?Sized,
+{
+    pub(crate) root: Option<ChangeAggregationNode<D>>,
+    pub(crate) rng: &'a mut R,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeAggregation<D>

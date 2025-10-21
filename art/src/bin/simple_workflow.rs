@@ -5,12 +5,11 @@ use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use bulletproofs::PedersenGens;
 use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
-use curve25519_dalek::scalar::Scalar;
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::traits::{ARTPrivateAPI, ARTPublicAPI};
-use zrt_art::types::{AggregationData, ChangeAggregation, PrivateART, ProverAggregationData};
+use zrt_art::types::{PlainChangeAggregation, PrivateART, ProverChangeAggregation};
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
 };
@@ -82,11 +81,9 @@ fn general_example() {
     assert_eq!(art_0, art_1);
 
     // For proof generation, use `ProverArtefacts` structure. They are returned with every art update.
-    // Lets prove key update:
+    // Let's prove key update:
     let some_secret_key4 = Fr::rand(&mut rng);
     let (_, changes_4, prover_artefacts) = art_1.update_key(&some_secret_key4).unwrap();
-
-    let k = prover_artefacts.co_path.len();
 
     // Generate pedersen basis
     let g_1 = CortadoAffine::generator();
@@ -206,7 +203,8 @@ fn branch_aggregation_proof_verify() {
         .unwrap();
 
     // Create default aggregation
-    let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+    let mut agg_rng = thread_rng();
+    let mut agg = ProverChangeAggregation::new(&mut agg_rng);
 
     // Perform some changes
     agg.append_or_replace_node(&Fr::rand(&mut rng), &mut art0)
@@ -233,9 +231,6 @@ fn branch_aggregation_proof_verify() {
     let secret_keys = vec![Fr::rand(&mut rng)];
     let public_keys = vec![art0.public_key_of(&secret_keys[0])];
 
-    // Add random blinding to every node of the tree.
-    agg.set_random_blinding_factors(&mut thread_rng()).unwrap();
-
     // Get ProverAggregationTree for proof.
     let prover_tree = ProverAggregationTree::try_from(&agg).unwrap();
 
@@ -251,7 +246,7 @@ fn branch_aggregation_proof_verify() {
 
     // To send aggregation tree to other users, remove helper dala like secret path
     // keys, and co_path public keys.
-    let plain_agg = ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+    let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
 
     // When you receive `plain_agg` aggregation, you need to add public keys back to the tree
     // for verification.

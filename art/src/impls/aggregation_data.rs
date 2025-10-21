@@ -34,12 +34,21 @@ where
             .collect::<String>()
             + "...";
 
+        let bl_marker = self
+            .blinding_factor
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>()
+            + "...";
+
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, type: {:?}",
+            "pk: {}, co_pk: {}, sk: {}, bl: {}, type: {:?}",
             pk_marker,
             co_pk_marker,
             sk_marker,
+            bl_marker,
             self.change_type
                 .iter()
                 .map(|change_type| BranchChangesType::from(change_type))

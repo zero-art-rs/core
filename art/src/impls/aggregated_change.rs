@@ -5,13 +5,14 @@ use crate::traits::{
     ARTPublicView, ChildContainer, RelatedData,
 };
 use crate::types::{
-    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChangesTypeHint,
-    ChangeAggregation, ChangeAggregationNode, Direction, LeafStatus, NodeIndex, PrivateART,
-    ProverAggregationData, ProverArtefacts, UpdateData, VerifierAggregationData,
+    ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChanges, BranchChangesTypeHint,
+    ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng, Direction, LeafStatus,
+    NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, UpdateData,
+    VerifierAggregationData, VerifierChangeAggregation,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
-use ark_std::rand::prelude::ThreadRng;
+use ark_std::rand::Rng;
 use std::fmt::{Display, Formatter};
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
@@ -24,14 +25,37 @@ where
     }
 }
 
-impl<G> ChangeAggregation<ProverAggregationData<G>>
+impl<'a, D, R> ChangeAggregationWithRng<'a, D, R>
 where
+    D: RelatedData + Clone,
+    R: Rng + ?Sized,
+{
+    pub fn new(rng: &'a mut R) -> Self {
+        Self { root: None, rng }
+    }
+
+    pub fn get_root(&self) -> Option<&ChangeAggregationNode<D>> {
+        self.root.as_ref()
+    }
+}
+
+impl<'a, G, R> ChangeAggregationWithRng<'a, ProverAggregationData<G>, R>
+where
+    R: Rng + ?Sized,
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    fn get_root_or_default(&mut self) -> &mut ChangeAggregationNode<ProverAggregationData<G>> {
-        self.root
-            .get_or_insert(ChangeAggregationNode::<ProverAggregationData<G>>::default())
+    pub fn extend(
+        &mut self,
+        changes: &BranchChanges<G>,
+        artefacts: &ProverArtefacts<G>,
+        change_hint: BranchChangesTypeHint<G>,
+    ) -> Result<(), ARTError> {
+        let Self { root, rng } = self;
+        let root = root
+            .get_or_insert_with(|| ChangeAggregationNode::<ProverAggregationData<G>>::default());
+
+        root.extend(rng, changes, &artefacts, change_hint)
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
@@ -45,7 +69,7 @@ where
     {
         let (tk, changes, artefacts) = art.update_key(new_secret_key)?;
 
-        self.get_root_or_default().extend(
+        self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::UpdateKey {
@@ -75,7 +99,7 @@ where
 
         let (tk, changes, artefacts) = art.make_blank(path, temporary_secret_key)?;
 
-        self.get_root_or_default().extend(
+        self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::MakeBlank {
@@ -114,7 +138,7 @@ where
             false => None,
         };
 
-        self.get_root_or_default().extend(
+        self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::AppendNode {
@@ -136,7 +160,7 @@ where
     {
         let (tk, changes, artefacts) = art.leave(*new_secret_key)?;
 
-        self.get_root_or_default().extend(
+        self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::Leave {
@@ -146,14 +170,6 @@ where
 
         Ok((tk, changes, artefacts))
     }
-
-    pub fn set_random_blinding_factors(&mut self, rng: &mut ThreadRng) -> Result<(), ARTError> {
-        if let Some(root) = self.root.as_mut() {
-            root.set_random_blinding_factors(rng)
-        } else {
-            Err(ARTError::NoChanges)
-        }
-    }
 }
 
 impl<G> ChangeAggregation<AggregationData<G>>
@@ -162,10 +178,7 @@ where
     G::BaseField: PrimeField,
 {
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
-    pub fn add_co_path<A>(
-        &self,
-        art: &A,
-    ) -> Result<ChangeAggregation<VerifierAggregationData<G>>, ARTError>
+    pub fn add_co_path<A>(&self, art: &A) -> Result<VerifierChangeAggregation<G>, ARTError>
     where
         A: ARTPublicAPI<G> + ARTPublicAPIHelper<G> + ARTPrivateView<G>,
     {
@@ -423,6 +436,25 @@ where
     }
 }
 
+impl<'a, D1, D2, R> TryFrom<&'a ChangeAggregationWithRng<'a, D1, R>> for ChangeAggregation<D2>
+where
+    D1: RelatedData + Clone + Default,
+    D2: From<D1> + RelatedData + Clone + Default,
+    ChangeAggregationNode<D2>: TryFrom<&'a ChangeAggregationNode<D1>, Error = ARTError>,
+    R: Rng + ?Sized,
+{
+    type Error = ARTError;
+
+    fn try_from(value: &'a ChangeAggregationWithRng<'a, D1, R>) -> Result<Self, Self::Error> {
+        match &value.root {
+            None => Ok(ChangeAggregation::default()),
+            Some(root) => Ok(ChangeAggregation {
+                root: Some(ChangeAggregationNode::<D2>::try_from(root)?),
+            }),
+        }
+    }
+}
+
 impl<'a, D1, D2> TryFrom<&'a ChangeAggregation<D1>> for ChangeAggregation<D2>
 where
     D1: RelatedData + Clone + Default,
@@ -441,15 +473,16 @@ where
     }
 }
 
-impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
+impl<'a, D, G, R> TryFrom<&'a ChangeAggregationWithRng<'a, D, R>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
     Self: TryFrom<&'a ChangeAggregationNode<D>, Error = ARTError>,
+    R: Rng + ?Sized,
 {
     type Error = <Self as TryFrom<&'a ChangeAggregationNode<D>>>::Error;
 
-    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a ChangeAggregationWithRng<'a, D, R>) -> Result<Self, Self::Error> {
         if let Some(root) = &value.root {
             Self::try_from(root)
         } else {

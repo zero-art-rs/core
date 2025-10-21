@@ -3,12 +3,15 @@ use crate::errors::ARTError;
 use crate::traits::{ARTPublicAPI, ChildContainer, RelatedData};
 use crate::types::{
     AggregationDisplayTree, AggregationNodeIterWithPath, BinaryChildrenRelation, BranchChanges,
-    BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, Direction, EmptyData,
-    NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+    BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng,
+    Direction, EmptyData, NodeIndex, ProverAggregationData, ProverArtefacts,
+    ProverChangeAggregation, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::UniformRand;
+use ark_std::rand::Rng;
 use ark_std::rand::prelude::ThreadRng;
 use curve25519_dalek::Scalar;
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
@@ -94,8 +97,9 @@ where
 {
     /// Append `BranchChanges<G>` to the structure by overwriting unnecessary data. utilizes
     /// `change_type_hint` to perform extension correctly
-    pub fn extend(
+    pub fn extend<R: Rng + ?Sized>(
         &mut self,
+        rng: &mut R,
         change: &BranchChanges<G>,
         prover_artefacts: &ProverArtefacts<G>,
         change_type_hint: BranchChangesTypeHint<G>,
@@ -113,7 +117,7 @@ where
             leaf_path.pop();
         }
 
-        self.extend_tree_with(change, prover_artefacts)?;
+        self.extend_tree_with(rng, change, prover_artefacts)?;
 
         let target_leaf = self.get_mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
@@ -121,8 +125,9 @@ where
         Ok(())
     }
 
-    fn extend_tree_with(
+    fn extend_tree_with<R: Rng + ?Sized>(
         &mut self,
+        rng: &mut R,
         change: &BranchChanges<G>,
         prover_artefacts: &ProverArtefacts<G>,
     ) -> Result<(), ARTError> {
@@ -152,7 +157,7 @@ where
                 co_public_key: Some(prover_artefacts.co_path[i]),
                 change_type: vec![],
                 secret_key: prover_artefacts.secrets[i],
-                blinding_factor: Default::default(),
+                blinding_factor: G::ScalarField::rand(rng),
             };
 
             // update other_co_path
@@ -171,19 +176,6 @@ where
                 .get_mut_child_or_create(*dir)
                 .ok_or(ARTError::InvalidInput)?;
             parent.data.aggregate(child_data);
-        }
-
-        Ok(())
-    }
-
-    pub fn set_random_blinding_factors(&mut self, rng: &mut ThreadRng) -> Result<(), ARTError> {
-        let dataless_agg = ChangeAggregationNode::<EmptyData>::try_from(&*self)?;
-
-        for (_, path) in AggregationNodeIterWithPath::new(&dataless_agg) {
-            let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let target_node = self.get_mut_node_with_path(&path)?;
-
-            target_node.data.blinding_factor = Scalar::random(rng);
         }
 
         Ok(())
@@ -385,6 +377,22 @@ where
     D: RelatedData + Clone,
 {
     fn from(value: &'a ChangeAggregation<D>) -> Self {
+        match &value.root {
+            None => AggregationNodeIterWithPath {
+                current_node: None,
+                path: vec![],
+            },
+            Some(root) => Self::new(root),
+        }
+    }
+}
+
+impl<'a, D, R> From<&'a ChangeAggregationWithRng<'a, D, R>> for AggregationNodeIterWithPath<'a, D>
+where
+    D: RelatedData + Clone,
+    R: Rng + ?Sized,
+{
+    fn from(value: &'a ChangeAggregationWithRng<'a, D, R>) -> Self {
         match &value.root {
             None => AggregationNodeIterWithPath {
                 current_node: None,
