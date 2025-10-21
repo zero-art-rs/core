@@ -1124,7 +1124,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            key_update_changes.clone(),
             test_art
                 .compute_artefacts_for_verification(&key_update_changes)
                 .unwrap(),
@@ -1171,7 +1170,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            make_blank_changes,
             verification_artefacts,
         );
 
@@ -1227,7 +1225,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            append_node_changes,
             verification_artefacts,
         );
 
@@ -1272,7 +1269,6 @@ mod tests {
             vec![secret_key],
             vec![public_key],
             artefacts,
-            append_node_changes,
             verification_artefacts,
         );
 
@@ -2546,13 +2542,6 @@ mod tests {
         Ok(max_height - min_height)
     }
 
-    #[inline]
-    fn new_blindings(size: usize) -> Vec<Scalar> {
-        (0..size)
-            .map(|_| Scalar::random(&mut thread_rng()))
-            .collect()
-    }
-
     fn get_pedersen_basis() -> PedersenBasis<CortadoAffine, Ed25519Affine> {
         let g_1 = CortadoAffine::generator();
         let h_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
@@ -2571,7 +2560,6 @@ mod tests {
         aux_sk: Vec<Fr>,
         aux_pk: Vec<CortadoAffine>,
         artefacts: ProverArtefacts<CortadoAffine>,
-        update_changes: BranchChanges<CortadoAffine>,
         verification_artefacts: VerifierArtefacts<CortadoAffine>,
     ) -> Result<(), R1CSError> {
         let basis = get_pedersen_basis();

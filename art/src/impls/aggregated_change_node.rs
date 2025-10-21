@@ -4,16 +4,13 @@ use crate::traits::{ARTPublicAPI, ChildContainer, RelatedData};
 use crate::types::{
     AggregationDisplayTree, AggregationNodeIterWithPath, BinaryChildrenRelation, BranchChanges,
     BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng,
-    Direction, EmptyData, NodeIndex, ProverAggregationData, ProverArtefacts,
-    ProverChangeAggregation, VerifierAggregationData,
+    Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
-use ark_std::rand::prelude::ThreadRng;
-use curve25519_dalek::Scalar;
 use display_tree::{CharSet, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
 use tree_ds::prelude::Node;

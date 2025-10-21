@@ -19,7 +19,7 @@ where
 }
 
 impl RelatedData for EmptyData {
-    fn aggregate(&mut self, other: Self) {}
+    fn aggregate(&mut self, _: Self) {}
 }
 
 impl<G> RelatedData for VerifierAggregationData<G>

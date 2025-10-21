@@ -1,6 +1,5 @@
 use crate::types::BranchChangesTypeHint;
 use ark_ec::AffineRepr;
-use curve25519_dalek::Scalar;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProverAggregationData<G>
