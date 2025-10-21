@@ -3,17 +3,16 @@ use crate::types::{ProverArtefacts, VerifierArtefacts};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
-use ark_std::rand::prelude::ThreadRng;
-use curve25519_dalek::Scalar;
+use ark_std::rand::Rng;
 use zrt_zk::art::{ProverBranchNode, VerifierBranchNode};
 
 impl<G> ProverArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
-    pub fn to_prover_branch(
+    pub fn to_prover_branch<R: Rng + ?Sized>(
         &self,
-        rng: &mut ThreadRng,
+        rng: &mut R,
     ) -> Result<Vec<ProverBranchNode<G>>, ARTError> {
         if self.path.len() != self.secrets.len() || self.path.len() != self.co_path.len() + 1 {
             return Err(ARTError::InvalidInput);
@@ -23,7 +22,6 @@ where
         for i in 0..self.path.len() {
             prover_nodes.push(ProverBranchNode::<G> {
                 secret: *self.secrets.get(i).ok_or(ARTError::InvalidInput)?,
-                // blinding_factor: Scalar::random(rng),
                 blinding_factor: G::ScalarField::rand(rng),
                 public_key: *self.path.get(i).ok_or(ARTError::InvalidInput)?,
                 co_public_key: self.co_path.get(i).map(|g| *g),
