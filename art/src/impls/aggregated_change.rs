@@ -1,13 +1,10 @@
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
-use crate::traits::{
-    ARTPrivateAPI, ARTPrivateAPIHelper, ARTPrivateView, ARTPublicAPI, ARTPublicAPIHelper,
-    ARTPublicView, ChildContainer, RelatedData,
-};
+use crate::traits::{ChildContainer, RelatedData};
 use crate::types::{
     ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChanges, BranchChangesTypeHint,
     ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng, Direction, LeafStatus,
-    NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, UpdateData,
+    NodeIndex, PrivateART, ProverAggregationData, ProverArtefacts, PublicART, UpdateData,
     VerifierAggregationData, VerifierChangeAggregation,
 };
 use ark_ec::AffineRepr;
@@ -59,38 +56,32 @@ where
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
-    pub fn update_key<A>(
+    pub fn update_key(
         &mut self,
         new_secret_key: &G::ScalarField,
-        art: &mut A,
-    ) -> Result<UpdateData<G>, ARTError>
-    where
-        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
-    {
+        art: &mut PrivateART<G>,
+    ) -> Result<UpdateData<G>, ARTError> {
         let (tk, changes, artefacts) = art.update_key(new_secret_key)?;
 
         self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::UpdateKey {
-                pk: art.public_key_of(new_secret_key),
+                pk: art.public_art.public_key_of(new_secret_key),
             },
         )?;
 
         Ok((tk, changes, artefacts))
     }
 
-    pub fn make_blank<A>(
+    pub fn make_blank(
         &mut self,
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
-        art: &mut A,
-    ) -> Result<UpdateData<G>, ARTError>
-    where
-        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G> + ARTPublicAPI<G>,
-    {
+        art: &mut PrivateART<G>,
+    ) -> Result<UpdateData<G>, ARTError> {
         let merge = matches!(
-            art.get_node_with_path(&path)?.get_status(),
+            art.public_art.get_node_with_path(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         if merge {
@@ -103,7 +94,7 @@ where
             &changes,
             &artefacts,
             BranchChangesTypeHint::MakeBlank {
-                pk: art.public_key_of(temporary_secret_key),
+                pk: art.public_art.public_key_of(temporary_secret_key),
                 merge,
             },
         )?;
@@ -111,20 +102,18 @@ where
         Ok((tk, changes, artefacts))
     }
 
-    pub fn append_or_replace_node<A>(
+    pub fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
-        art: &mut A,
-    ) -> Result<UpdateData<G>, ARTError>
-    where
-        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
-    {
-        let path = match art.find_path_to_left_most_blank_node() {
+        art: &mut PrivateART<G>,
+    ) -> Result<UpdateData<G>, ARTError> {
+        let path = match art.public_art.find_path_to_left_most_blank_node() {
             Some(path) => path,
-            None => art.find_path_to_lowest_leaf()?,
+            None => art.public_art.find_path_to_lowest_leaf()?,
         };
 
         let hint = art
+            .public_art
             .get_node(&NodeIndex::Direction(path.to_vec()))?
             .is_active();
 
@@ -132,7 +121,8 @@ where
 
         let ext_pk = match hint {
             true => Some(
-                art.get_node(&NodeIndex::Direction(path.to_vec()))?
+                art.public_art
+                    .get_node(&NodeIndex::Direction(path.to_vec()))?
                     .get_public_key(),
             ),
             false => None,
@@ -142,7 +132,7 @@ where
             &changes,
             &artefacts,
             BranchChangesTypeHint::AppendNode {
-                pk: art.public_key_of(secret_key),
+                pk: art.public_art.public_key_of(secret_key),
                 ext_pk,
             },
         )?;
@@ -150,21 +140,18 @@ where
         Ok((tk, changes, artefacts))
     }
 
-    pub fn leave<A>(
+    pub fn leave(
         &mut self,
         new_secret_key: &G::ScalarField,
-        art: &mut A,
-    ) -> Result<UpdateData<G>, ARTError>
-    where
-        A: ARTPrivateAPI<G> + ARTPrivateAPIHelper<G> + ARTPublicAPIHelper<G>,
-    {
+        art: &mut PrivateART<G>,
+    ) -> Result<UpdateData<G>, ARTError> {
         let (tk, changes, artefacts) = art.leave(*new_secret_key)?;
 
         self.extend(
             &changes,
             &artefacts,
             BranchChangesTypeHint::Leave {
-                pk: art.public_key_of(new_secret_key),
+                pk: art.public_art.public_key_of(new_secret_key),
             },
         )?;
 
@@ -178,10 +165,10 @@ where
     G::BaseField: PrimeField,
 {
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
-    pub fn add_co_path<A>(&self, art: &A) -> Result<VerifierChangeAggregation<G>, ARTError>
-    where
-        A: ARTPublicAPI<G> + ARTPublicAPIHelper<G> + ARTPrivateView<G>,
-    {
+    pub fn add_co_path(
+        &self,
+        art: &PrivateART<G>,
+    ) -> Result<VerifierChangeAggregation<G>, ARTError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
             None => return Err(ARTError::NoChanges),
@@ -207,7 +194,9 @@ where
             let pk = if let Ok(co_leaf) = aggregation_parent.get_node(&[last_direction.other()]) {
                 // Retrieve co-path from the aggregation
                 co_leaf.data.public_key
-            } else if let Ok(parent) = art.get_node(&NodeIndex::Direction(parent_path.clone()))
+            } else if let Ok(parent) = art
+                .public_art
+                .get_node(&NodeIndex::Direction(parent_path.clone()))
                 && let Ok(other_child) = parent.get_child(&last_direction.other())
             {
                 // Try to retrieve Co-path from the original ART
@@ -216,7 +205,8 @@ where
                 // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
                 let mut path = parent_path.clone();
                 path.push(last_direction.other());
-                art.get_last_public_key_on_path(agg_root, &path)?
+                art.public_art
+                    .get_last_public_key_on_path(agg_root, &path)?
             };
             resulting_target_node.data.co_public_key = Some(pk);
         }
@@ -232,10 +222,7 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub fn update_public_art<A>(&self, art: &mut A) -> Result<(), ARTError>
-    where
-        A: ARTPublicView<G> + ARTPublicAPI<G> + ARTPublicAPIHelper<G>,
-    {
+    pub fn update_public_art(&self, art: &mut PublicART<G>) -> Result<(), ARTError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
             None => return Err(ARTError::NoChanges),
@@ -302,7 +289,7 @@ where
     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
     /// and `node_index`.
     pub fn update_private_art(&self, art: &mut PrivateART<G>) -> Result<(), ARTError> {
-        self.update_public_art(art)?;
+        self.update_public_art(&mut art.public_art)?;
 
         art.update_node_index()?;
         self.update_path_secrets_with_aggregation_tree(art)?;
@@ -312,16 +299,13 @@ where
 
     /// Allows to update public keys on the given `path` with public keys provided in
     /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
-    fn update_public_art_upper_branch<A>(
+    fn update_public_art_upper_branch(
         &self,
         path: &[Direction],
-        art: &mut A,
+        art: &mut PublicART<G>,
         append_changes: bool,
         skip: usize,
-    ) -> Result<(), ARTError>
-    where
-        A: ARTPublicAPI<G> + ARTPublicAPIHelper<G> + ARTPublicView<G>,
-    {
+    ) -> Result<(), ARTError> {
         let mut current_agg_node = match self.get_root() {
             Some(root) => root,
             None => return Err(ARTError::NoChanges),

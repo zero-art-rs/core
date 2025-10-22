@@ -8,7 +8,6 @@ use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_art::traits::{ARTPrivateAPI, ARTPublicAPI};
 use zrt_art::types::{PlainChangeAggregation, PrivateART, ProverChangeAggregation};
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
@@ -73,7 +72,10 @@ fn general_example() {
     let some_secret_key1 = Fr::rand(&mut rng);
     let (tk_3, changes_3, _) = art_1
         .make_blank(
-            &art_1.get_path_to_leaf(&new_node1_public_key).unwrap(),
+            &art_1
+                .public_art
+                .get_path_to_leaf(&new_node1_public_key)
+                .unwrap(),
             &some_secret_key1,
         )
         .unwrap();
@@ -119,6 +121,7 @@ fn general_example() {
 
     // To verify the proof one need to have only part of artefacts stored in VerifierArtefacts plus changes
     let verifier_artefacts = art_1
+        .public_art
         .compute_artefacts_for_verification(&changes_4)
         .unwrap();
 
@@ -195,10 +198,14 @@ fn branch_aggregation_proof_verify() {
     let (mut art0, _) =
         PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
-    let mut art1 =
-        PrivateART::<CortadoAffine>::from_public_art_and_secret(art0.clone(), secrets[1]).unwrap();
+    let mut art1 = PrivateART::<CortadoAffine>::from_public_art_and_secret(
+        art0.public_art.clone(),
+        secrets[1],
+    )
+    .unwrap();
 
     let target_3 = art0
+        .public_art
         .get_path_to_leaf(&art0.public_key_of(&secrets[3]))
         .unwrap();
 

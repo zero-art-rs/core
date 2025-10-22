@@ -1,6 +1,6 @@
 /// TODO: refactor this file
 use crate::errors::ARTError;
-use crate::traits::{ARTPublicAPI, ChildContainer, RelatedData};
+use crate::traits::{ChildContainer, RelatedData};
 use crate::types::{
     AggregationDisplayTree, AggregationNodeIterWithPath, BinaryChildrenRelation, BranchChanges,
     BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng,

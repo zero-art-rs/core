@@ -1,8 +1,5 @@
-use crate::types::PublicART;
-use crate::{
-    helper_tools::{ark_de, ark_se},
-    types::NodeIndex,
-};
+use crate::helper_tools::{ark_de, ark_se};
+use crate::types::{NodeIndex, PublicART};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};

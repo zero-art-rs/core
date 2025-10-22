@@ -7,7 +7,5 @@ mod branch_changes;
 mod child_container;
 mod node_index;
 mod private_art;
-mod private_art_api;
 mod public_art;
-mod public_art_api;
 mod related_data;

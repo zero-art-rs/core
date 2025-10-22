@@ -13,12 +13,8 @@ mod tests {
     use std::cmp::{max, min};
     use tracing::{debug, info, warn};
     use zrt_art::errors::ARTError;
-    use zrt_art::traits::ARTPrivateView;
     use zrt_art::types::LeafIterWithPath;
-    use zrt_art::{
-        traits::{ARTPrivateAPI, ARTPublicAPI, ARTPublicView},
-        types::PrivateART,
-    };
+    use zrt_art::types::PrivateART;
 
     pub const SEED: u64 = 23;
     pub const GROUP_SIZE: usize = 10;
@@ -125,6 +121,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
+                .public_art
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -177,6 +174,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
+                .public_art
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -262,6 +260,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
+                .public_art
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
