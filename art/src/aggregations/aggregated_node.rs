@@ -47,7 +47,7 @@ where
         for direction in path {
             parent = parent
                 .get_mut_child(*direction)
-                .ok_or(ARTError::InternalOnly)?;
+                .ok_or(ARTError::InternalNodeOnly)?;
         }
 
         Ok(parent)

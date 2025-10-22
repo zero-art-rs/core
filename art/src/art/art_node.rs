@@ -1,4 +1,4 @@
-use crate::errors::ARTNodeError;
+use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_node::TreeNode;
@@ -65,9 +65,9 @@ impl<G: AffineRepr> TreeNode<ARTNode<G>> for ARTNode<G> {
         }
     }
 
-    // fn set_child(&mut self, dir: Direction, other: Self) -> Result<(), ARTNodeError> {
+    // fn set_child(&mut self, dir: Direction, other: Self) -> Result<(), ARTError> {
     //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
     //         ARTNode::Internal { l, r, .. } => {
     //             match dir {
     //                 Direction::Left => *l.as_mut() = other,
@@ -118,9 +118,9 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
-    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ARTNodeError> {
+    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ARTError> {
         match self {
-            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
             ARTNode::Internal { weight, .. } => Ok(weight),
         }
     }
@@ -142,54 +142,50 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// If the node is a leaf node, converts the node to blank, else return error
-    pub fn make_blank(
-        &mut self,
-        temporary_public_key: &G,
-        append: bool,
-    ) -> Result<(), ARTNodeError> {
+    pub fn make_blank(&mut self, temporary_public_key: &G, append: bool) -> Result<(), ARTError> {
         match self {
             ARTNode::Leaf { .. } => {
                 self.set_status(LeafStatus::Blank)?;
                 self.set_public_key_with_options(*temporary_public_key, append);
                 Ok(())
             }
-            ARTNode::Internal { .. } => Err(ARTNodeError::LeafOnly),
+            ARTNode::Internal { .. } => Err(ARTError::LeafOnly),
         }
     }
 
-    pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ARTNodeError> {
+    pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ARTError> {
         match self {
             ARTNode::Leaf { status, .. } => {
                 *status = new_status;
                 Ok(())
             }
-            ARTNode::Internal { .. } => Err(ARTNodeError::LeafOnly),
+            ARTNode::Internal { .. } => Err(ARTError::LeafOnly),
         }
     }
 
     // /// Returns a reference to the left child node.
-    // pub fn get_left(&self) -> Result<&Self, ARTNodeError> {
+    // pub fn get_left(&self) -> Result<&Self, ARTError> {
     //     self.get_child(&Direction::Left)
     // }
     //
     // /// Returns a mutable reference to the left child node.
-    // pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
+    // pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTError> {
     //     self.get_mut_child(&Direction::Left)
     // }
     //
     // /// Returns a reference to the right child node.
-    // pub fn get_right(&self) -> Result<&Self, ARTNodeError> {
+    // pub fn get_right(&self) -> Result<&Self, ARTError> {
     //     self.get_child(&Direction::Right)
     // }
     //
     // /// Returns a mutable reference to the right child node.
-    // pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTNodeError> {
+    // pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTError> {
     //     self.get_mut_child(&Direction::Right)
     // }
 
-    pub fn set_child(&mut self, other: Self, dir: &Direction) -> Result<(), ARTNodeError> {
+    pub fn set_child(&mut self, other: Self, dir: &Direction) -> Result<(), ARTError> {
         match self {
-            ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+            ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
             ARTNode::Internal { l, r, .. } => {
                 match dir {
                     Direction::Left => *l.as_mut() = other,
@@ -202,12 +198,12 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     /// Changes left child of inner node with a given one
-    pub fn set_left(&mut self, other: Self) -> Result<(), ARTNodeError> {
+    pub fn set_left(&mut self, other: Self) -> Result<(), ARTError> {
         self.set_child(other, &Direction::Left)
     }
 
     /// Changes right child of inner node with a given one
-    pub fn set_right(&mut self, other: Self) -> Result<(), ARTNodeError> {
+    pub fn set_right(&mut self, other: Self) -> Result<(), ARTError> {
         self.set_child(other, &Direction::Right)
     }
 
@@ -244,9 +240,9 @@ impl<G: AffineRepr> ARTNode<G> {
     }
 
     // /// Returns a reference on a child of a given inner node by a given direction to the child.
-    // pub fn get_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
+    // pub fn get_child(&self, child: &Direction) -> Result<&Self, ARTError> {
     //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
     //         ARTNode::Internal { l, r, .. } => match child {
     //             Direction::Left => Ok(l.as_ref()),
     //             Direction::Right => Ok(r.as_ref()),
@@ -256,9 +252,9 @@ impl<G: AffineRepr> ARTNode<G> {
 
     // /// Returns a mutable reference on a child of a given inner node by a given direction to
     // /// the child.
-    // pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTNodeError> {
+    // pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTError> {
     //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTNodeError::InternalNodeOnly),
+    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
     //         ARTNode::Internal { l, r, .. } => match child {
     //             Direction::Left => Ok(l),
     //             Direction::Right => Ok(r),
@@ -268,7 +264,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     // /// Returns a reference on a child of a given inner node, which is located on the opposite
     // /// side to the given direction.
-    // pub fn get_other_child(&self, child: &Direction) -> Result<&Self, ARTNodeError> {
+    // pub fn get_other_child(&self, child: &Direction) -> Result<&Self, ARTError> {
     //     self.get_child(&child.other())
     // }
 
@@ -277,7 +273,7 @@ impl<G: AffineRepr> ARTNode<G> {
     // pub fn get_mut_other_child(
     //     &mut self,
     //     child: &Direction,
-    // ) -> Result<&mut Box<Self>, ARTNodeError> {
+    // ) -> Result<&mut Box<Self>, ARTError> {
     //     self.get_mut_child(&child.other())
     // }
 
@@ -307,7 +303,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     /// If the node is temporary, replace the node, else moves current node down to left,
     /// and append other node to the right.
-    pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTNodeError> {
+    pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTError> {
         match self {
             ARTNode::Leaf { status, .. } => {
                 match status {
@@ -315,7 +311,7 @@ impl<G: AffineRepr> ARTNode<G> {
                     _ => _ = self.replace_with(other),
                 };
             }
-            ARTNode::Internal { .. } => return Err(ARTNodeError::LeafOnly),
+            ARTNode::Internal { .. } => return Err(ARTError::LeafOnly),
         }
 
         Ok(())
@@ -323,9 +319,9 @@ impl<G: AffineRepr> ARTNode<G> {
 
     pub(crate) fn new_default_tree_with_public_keys(
         public_keys: &Vec<G>,
-    ) -> Result<Self, ARTNodeError> {
+    ) -> Result<Self, ARTError> {
         if public_keys.is_empty() {
-            return Err(ARTNodeError::InvalidParameters);
+            return Err(ARTError::InvalidInput);
         }
 
         let mut level_nodes = Vec::new();
@@ -352,7 +348,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     fn fit_leaves_in_one_level(
         mut level_nodes: Vec<ARTNode<G>>,
-    ) -> Result<Vec<ARTNode<G>>, ARTNodeError> {
+    ) -> Result<Vec<ARTNode<G>>, ARTError> {
         let mut level_size = 2;
         while level_size < level_nodes.len() {
             level_size <<= 1;
@@ -388,7 +384,7 @@ impl<G: AffineRepr> ARTNode<G> {
 
     fn compute_next_layer_of_tree(
         level_nodes: &mut Vec<ARTNode<G>>,
-    ) -> Result<Vec<ARTNode<G>>, ARTNodeError> {
+    ) -> Result<Vec<ARTNode<G>>, ARTError> {
         let mut upper_level_nodes = Vec::new();
 
         // iterate until level_nodes is empty, then swap it with the next layer
