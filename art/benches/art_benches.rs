@@ -4,14 +4,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{UniformRand, rand::SeedableRng, rand::prelude::StdRng};
 use cortado::{CortadoAffine, Fr};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rand::Rng;
 use std::{
     hint::black_box,
     time::{Duration, Instant},
 };
 use zrt_art::{
     errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView},
     types::{PrivateART, PublicART},
 };
 

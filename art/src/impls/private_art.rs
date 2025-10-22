@@ -2,7 +2,7 @@
 
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
-use crate::traits::ChildContainer;
+use crate::traits::ParentRepr;
 use crate::types::{
     ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafStatus, NodeIndex,
     PrivateART, ProverArtefacts, PublicART, UpdateData,

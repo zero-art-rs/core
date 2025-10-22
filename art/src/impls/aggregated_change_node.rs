@@ -1,8 +1,8 @@
 /// TODO: refactor this file
 use crate::errors::ARTError;
-use crate::traits::{ChildContainer, RelatedData};
+use crate::traits::{ParentRepr, RelatedData};
 use crate::types::{
-    AggregationDisplayTree, AggregationNodeIterWithPath, BinaryChildrenRelation, BranchChanges,
+    AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
     BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng,
     Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
@@ -27,7 +27,6 @@ where
         let mut parent = self;
         for direction in path {
             parent = parent
-                .children
                 .get_child(*direction)
                 .ok_or(ARTError::PathNotExists)?;
         }
@@ -39,7 +38,6 @@ where
         let mut parent = self;
         for direction in path {
             parent = parent
-                .children
                 .get_mut_child(*direction)
                 .ok_or(ARTError::InternalOnly)?;
         }
@@ -51,7 +49,7 @@ where
     pub fn contain(&self, path: &[Direction]) -> bool {
         let mut current_node = self;
         for direction in path {
-            if let Some(child) = current_node.children.get_child(*direction) {
+            if let Some(child) = current_node.get_child(*direction) {
                 current_node = child;
             } else {
                 return false;
@@ -66,7 +64,7 @@ where
         let mut intersection = Vec::new();
         let mut current_node = self;
         for dir in path {
-            if let Some(child) = current_node.children.get_child(*dir) {
+            if let Some(child) = current_node.get_child(*dir) {
                 intersection.push(*dir);
                 current_node = child;
             } else {
@@ -80,10 +78,19 @@ where
     pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
         let mut current_node = self;
         for dir in path {
-            current_node = current_node.children.get_mut_child(*dir).unwrap();
+            current_node = current_node.get_mut_child(*dir).unwrap();
         }
 
         Ok(current_node)
+    }
+
+    /// Returns a mutable reference on a child at the given direction `dir`. If it is None, then
+    /// Create a new one, and return a mutable reference on a new child.
+    fn get_or_insert_default(&mut self, dir: Direction) -> &mut Self {
+        match dir {
+            Direction::Left => self.l.get_or_insert_default(),
+            Direction::Right => self.r.get_or_insert_default(),
+        }
     }
 }
 
@@ -158,24 +165,59 @@ where
             };
 
             // update other_co_path
-            if let Some(child) = parent.children.get_mut_child(dir.other()) {
+            if let Some(child) = parent.get_mut_child(dir.other()) {
                 child.data.co_public_key = Some(change.public_keys[i + 1]);
             }
 
             // Update co_node
-            if let Some(co_node) = parent.children.get_mut_child(dir.other()) {
+            if let Some(co_node) = parent.get_mut_child(dir.other()) {
                 co_node.data.co_public_key = Some(child_data.public_key);
             }
 
             // Update parent
             parent = parent
-                .children
-                .get_mut_child_or_create(*dir)
-                .ok_or(ARTError::InvalidInput)?;
+                .get_or_insert_default(*dir);
             parent.data.aggregate(child_data);
         }
 
         Ok(())
+    }
+}
+
+impl<D> ParentRepr<ChangeAggregationNode<D>> for ChangeAggregationNode<D>
+where
+    D: RelatedData + Clone + Default,
+{
+    fn get_child(&self, dir: Direction) -> Option<&Self> {
+        let child = match dir {
+            Direction::Right => self.r.as_ref(),
+            Direction::Left => self.l.as_ref(),
+        };
+
+        child.map(|r| r.as_ref())
+    }
+
+    fn get_mut_child(&mut self, dir: Direction) -> Option<&mut Self> {
+        let child = match dir {
+            Direction::Right => self.r.as_mut(),
+            Direction::Left => self.l.as_mut(),
+        };
+
+        child.map(|r| r.as_mut())
+    }
+
+    fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
+        let child = match dir {
+            Direction::Left => self.l.get_or_insert_default(),
+            Direction::Right => self.r.get_or_insert_default(),
+        };
+
+        *child = Box::new(node);
+        child.as_mut()
+    }
+
+    fn is_leaf(&self) -> bool {
+        self.r.is_none() && self.l.is_none()
     }
 }
 
@@ -203,7 +245,8 @@ where
 {
     fn from(data: D) -> Self {
         Self {
-            children: BinaryChildrenRelation::default(),
+            l: None,
+            r: None,
             data,
         }
     }
@@ -223,7 +266,7 @@ where
     D: RelatedData + Display + Clone,
 {
     fn from(value: &ChangeAggregationNode<D>) -> Self {
-        match (value.children.l.as_ref(), value.children.r.as_ref()) {
+        match (value.l.as_ref(), value.r.as_ref()) {
             (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
                 public_key: format!("Node {}", value.data),
                 left: Box::new(l.into()),
@@ -265,7 +308,7 @@ where
                 let next_node = ChangeAggregationNode::from(verifier_data);
 
                 if let Ok(child) = aggregation.get_mut_node(&*node_path) {
-                    child.children.set_child(last_dir, next_node);
+                    child.set_child(last_dir, next_node);
                 }
             }
         }
@@ -413,7 +456,7 @@ where
         if let Some(current_node) = self.current_node {
             let return_item = (current_node, self.path.clone());
 
-            match (&current_node.children.l, &current_node.children.r) {
+            match (&current_node.l, &current_node.r) {
                 (Some(l), Some(_)) => {
                     // Try to go further down, to the left. The right case will be handled by the leaf case.
                     self.path.push((current_node, Direction::Left));
@@ -432,7 +475,7 @@ where
                 (None, None) => {
                     loop {
                         if let Some((parent, last_direction)) = self.path.pop() {
-                            if let (Some(_), Some(_)) = (&parent.children.l, &parent.children.r) {
+                            if let (Some(_), Some(_)) = (&parent.l, &parent.r) {
                                 // Try to go right, or else go up
                                 if last_direction == Direction::Right {
                                     // Go up.
@@ -441,13 +484,12 @@ where
                                     // go on the right.
                                     self.path.push((parent, Direction::Right));
                                     self.current_node = parent
-                                        .children
                                         .get_child(Direction::Right)
                                         .map(|item| item);
                                     break;
                                 }
                             } else if let (Some(_), None) | (None, Some(_)) =
-                                (&parent.children.l, &parent.children.r)
+                                (&parent.l, &parent.r)
                             {
                                 // Go up
                                 self.current_node = Some(parent);

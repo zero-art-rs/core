@@ -1542,8 +1542,6 @@ mod tests {
             first.get_root().get_weight(),
             second.get_root().get_weight()
         );
-        // debug!("first:\n{}", first.root);
-        // debug!("second:\n{}", second.root);
         assert_eq!(first.get_root(), second.get_root());
 
         // check leaf update correctness
@@ -1582,7 +1580,6 @@ mod tests {
         );
 
         let all_changes = vec![first_changes.clone(), second_changes.clone()];
-        let mut rng_choice = rand::rng();
         for i in 0..TEST_GROUP_SIZE - 2 {
             user_arts[i].public_art.merge_all(&all_changes).unwrap();
             assert_eq!(user_arts[i].get_root(), first.get_root());
@@ -1606,7 +1603,7 @@ mod tests {
         }
 
         let post_sk = Fr::rand(&mut rng);
-        let (post_tk_1, post_secrets_1, post_artefacts1) = first.update_key(&post_sk).unwrap();
+        let (_, post_secrets_1, _) = first.update_key(&post_sk).unwrap();
 
         second.update_private_art(&post_secrets_1).unwrap();
 
@@ -2032,14 +2029,10 @@ mod tests {
         let new_node2_sk = Fr::rand(&mut rng);
         let new_node3_sk = Fr::rand(&mut rng);
 
-        let target_node_pk = CortadoAffine::generator()
-            .mul(&target_user.secret_key)
-            .into_affine();
-
-        let (tk0, changes0, _) = art0.make_blank(&target, &new_node0_sk).unwrap();
-        let (tk1, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
-        let (tk2, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
-        let (tk3, changes3, _) = art3.make_blank(&target, &new_node3_sk).unwrap();
+        let (_, changes0, _) = art0.make_blank(&target, &new_node0_sk).unwrap();
+        let (_, changes1, _) = art1.update_key(&new_node1_sk).unwrap();
+        let (_, changes2, _) = art2.update_key(&new_node2_sk).unwrap();
+        let (_, changes3, _) = art3.make_blank(&target, &new_node3_sk).unwrap();
 
         let all_changes = vec![
             changes0.clone(),
@@ -2118,7 +2111,7 @@ mod tests {
         let mut user0 = user_arts.remove(0);
         let mut user1 = user_arts.remove(0);
         let mut user2 = user_arts.remove(0);
-        let mut user3 = user_arts.remove(0);
+        let user3 = user_arts.remove(0);
 
         // sanity check
         assert_eq!(user2.get_root(), user0.get_root());

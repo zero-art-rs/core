@@ -1,6 +1,6 @@
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
-use crate::traits::{ChildContainer, RelatedData};
+use crate::traits::{ParentRepr, RelatedData};
 use crate::types::{
     ARTNode, AggregationData, AggregationNodeIterWithPath, BranchChanges, BranchChangesTypeHint,
     ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng, Direction, LeafStatus,
@@ -325,14 +325,12 @@ where
 
         for i in 1..skip {
             current_agg_node = current_agg_node
-                .children
                 .get_child(path[i])
                 .ok_or(ARTError::InvalidAggregation)?;
         }
 
         for i in skip..path.len() {
             current_agg_node = current_agg_node
-                .children
                 .get_child(path[i + skip])
                 .ok_or(ARTError::InvalidAggregation)?;
             let target_node = art.get_mut_node_with_path(&path[0..i + 1])?;
@@ -385,7 +383,6 @@ where
 
             current_art_node = current_art_node.get_child(dir)?;
             current_agg_node = current_agg_node
-                .children
                 .get_child(*dir)
                 .ok_or(ARTError::PathNotExists)?;
 

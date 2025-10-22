@@ -1,5 +1,5 @@
-mod child_container;
+mod parent_repr;
 mod related_data;
 
-pub use child_container::ChildContainer;
+pub use parent_repr::ParentRepr;
 pub use related_data::{HasChangeTypeHint, HasPublicKey, RelatedData};

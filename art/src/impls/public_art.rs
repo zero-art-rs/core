@@ -1,6 +1,6 @@
 use crate::errors::ARTError;
 use crate::helper_tools::iota_function;
-use crate::traits::ChildContainer;
+use crate::traits::ParentRepr;
 use crate::types::{
     ARTNode, ARTRootKey, AggregationData, BranchChanges, BranchChangesType, BranchChangesTypeHint,
     ChangeAggregationNode, Direction, LeafIterWithPath, LeafStatus, NodeIndex, NodeIterWithPath,
@@ -813,7 +813,7 @@ where
 
             // Retrieve leaf public key updates form aggregation
             if let Some(agg_node) = current_agg_node {
-                if let Some(node) = agg_node.children.get_child(*dir) {
+                if let Some(node) = agg_node.get_child(*dir) {
                     for change_type in &node.data.change_type {
                         match change_type {
                             BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {

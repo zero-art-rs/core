@@ -34,8 +34,8 @@ pub struct ChangeAggregationNode<D>
 where
     D: RelatedData + Clone,
 {
-    pub children: BinaryChildrenRelation<Self>,
-
+    pub l: Option<Box<Self>>,
+    pub r: Option<Box<Self>>,
     pub data: D,
 }
 

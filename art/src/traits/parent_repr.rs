@@ -4,19 +4,21 @@ use crate::types::Direction;
 ///
 /// The idea is for node to have the field children which implements this trait, and so shift
 /// children management from the node implementation.
-pub trait ChildContainer<C>
+pub trait ParentRepr<C>
 where
     C: Clone + Default,
 {
-    /// Return a reference on a child on the given direction. Return None, if there is no child there.
+    /// Return a reference on a child on the given direction. Return None, if there is no
+    /// child there.
     fn get_child(&self, dir: Direction) -> Option<&C>;
 
     /// Return a mutable reference on a child on the given direction. Return None,
     /// if there is no child there.
     fn get_mut_child(&mut self, dir: Direction) -> Option<&mut C>;
 
-    /// Set the child on the direction `dir` with the given one.
-    fn set_child(&mut self, child: Direction, node: C);
+    /// Set the child on the direction `dir` with the given one. Return mutable reference to
+    /// new child.
+    fn set_child(&mut self, child: Direction, node: C) -> &mut C;
 
     /// Return true, if the node has no children.
     fn is_leaf(&self) -> bool;
@@ -45,15 +47,4 @@ where
     fn has_child(&self, dir: Direction) -> bool {
         self.get_child(dir).is_some()
     }
-
-    /// Returns a mutable reference on a child at the given direction `dir`. If it is None, then
-    /// Create a new one, and return a mutable reference on a new child.
-    fn get_mut_child_or_create(&mut self, dir: Direction) -> Option<&mut C> {
-        if !self.has_child(dir) {
-            self.set_child(dir, C::default());
-        }
-
-        self.get_mut_child(dir)
-    }
-    fn degree(&self) -> usize;
 }
