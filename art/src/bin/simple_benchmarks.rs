@@ -124,9 +124,11 @@ fn bench_separate_operations_creation() {
 
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
-        let def_other_private_art =
-            PrivateART::from_public_art_and_secret(def_private_art.public_art.clone(), secrets[1])
-                .unwrap();
+        let def_other_private_art = PrivateART::from_public_art_and_secret(
+            def_private_art.get_public_art().clone(),
+            secrets[1],
+        )
+        .unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -177,7 +179,7 @@ fn bench_separate_operations_creation() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&update_key_change)
                     .unwrap();
 
@@ -242,7 +244,7 @@ fn bench_separate_operations_creation() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = other_private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&add_member_change)
                     .unwrap();
 
@@ -275,7 +277,7 @@ fn bench_separate_operations_creation() {
 
                 let sk = Fr::rand(&mut rng);
                 let target_node = private_art
-                    .public_art
+                    .get_public_art()
                     .get_path_to_leaf(&private_art.public_key_of(&secrets[2]))
                     .unwrap();
 
@@ -315,7 +317,7 @@ fn bench_separate_operations_creation() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&make_blank_change)
                     .unwrap();
 
@@ -409,9 +411,11 @@ fn bench_operations_in_combination() {
 
         let start = Instant::now();
         // update_table(&mut time_table, CREATION, i, start.elapsed());
-        let def_other_private_art =
-            PrivateART::from_public_art_and_secret(def_private_art.public_art.clone(), secrets[1])
-                .unwrap();
+        let def_other_private_art = PrivateART::from_public_art_and_secret(
+            def_private_art.get_public_art().clone(),
+            secrets[1],
+        )
+        .unwrap();
         info!("\t> Spend {:?} on art clone.", start.elapsed());
 
         let group_test_start = Instant::now();
@@ -460,7 +464,7 @@ fn bench_operations_in_combination() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&update_key_change)
                     .unwrap();
 
@@ -522,7 +526,7 @@ fn bench_operations_in_combination() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = other_private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&add_member_change)
                     .unwrap();
 
@@ -554,7 +558,7 @@ fn bench_operations_in_combination() {
 
                 let sk = Fr::rand(&mut rng);
                 let target_node = private_art
-                    .public_art
+                    .get_public_art()
                     .get_path_to_leaf(&private_art.public_key_of(&secrets[2]))
                     .unwrap();
 
@@ -592,7 +596,7 @@ fn bench_operations_in_combination() {
 
                 // Prepare verifier_artefacts
                 let verifier_artefacts = private_art
-                    .public_art
+                    .get_public_art()
                     .compute_artefacts_for_verification(&make_blank_change)
                     .unwrap();
 

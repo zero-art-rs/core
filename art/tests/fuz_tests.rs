@@ -83,7 +83,7 @@ mod tests {
             );
             assert_eq!(
                 art.get_node_index().get_path().unwrap().len() + 1,
-                art.path_secrets.len(),
+                art.get_path_secrets().len(),
             );
         }
 
@@ -121,7 +121,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
-                .public_art
+                .get_public_art()
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -135,20 +135,21 @@ mod tests {
         );
 
         for i in 0..group_arts.len() {
-            let path_secrets_len_before = group_arts[i].path_secrets.len();
-            let old_sk = group_arts[i].path_secrets[0];
+            let path_secrets_len_before = group_arts[i].get_path_secrets().len();
+            let old_sk = group_arts[i].get_path_secrets()[0];
 
             if i != target_user {
                 group_arts[i].update_private_art(&change).unwrap()
             }
 
             assert_eq!(
-                old_sk, group_arts[i].path_secrets[0],
+                old_sk,
+                group_arts[i].get_path_secrets()[0],
                 "Sanity check: User secret key didn't changed."
             );
             assert_eq!(
                 group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].path_secrets.len(),
+                group_arts[i].get_path_secrets().len(),
             );
             assert_eq!(
                 group_arts[target_user], group_arts[i],
@@ -174,7 +175,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
-                .public_art
+                .get_public_art()
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -196,23 +197,24 @@ mod tests {
 
         // Sync arts for other users other users
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].path_secrets[0];
+            let old_sk = group_arts[i].get_path_secrets()[0];
 
             if i != target_user {
                 group_arts[i].update_private_art(&change).unwrap()
             }
 
             assert_eq!(
-                old_sk, group_arts[i].path_secrets[0],
+                old_sk,
+                group_arts[i].get_path_secrets()[0],
                 "Sanity check: secret key didn't changed for user {:?}.",
-                group_arts[i].node_index,
+                group_arts[i].get_node_index(),
             );
             assert_eq!(
                 group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].path_secrets.len(),
+                group_arts[i].get_path_secrets().len(),
                 "Length of `path_secrets` = direction_path + 1 for user {}: {:?}.",
                 i,
-                group_arts[i].node_index,
+                group_arts[i].get_node_index(),
             );
             assert_eq!(
                 group_arts[target_user].get_root_key().unwrap(),
@@ -252,7 +254,10 @@ mod tests {
             group_arts[target_user].get_node_index(),
         );
 
-        let blank_target_node_index = group_arts[blank_target_user].node_index.get_path().unwrap();
+        let blank_target_node_index = group_arts[blank_target_user]
+            .get_node_index()
+            .get_path()
+            .unwrap();
         let new_sk = Fr::rand(&mut *rng);
         let (new_tk, change, artefacts) = group_arts[target_user]
             .make_blank(&blank_target_node_index, &new_sk)
@@ -260,7 +265,7 @@ mod tests {
 
         assert_eq!(
             group_arts[target_user]
-                .public_art
+                .get_public_art()
                 .get_node(&change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -275,7 +280,7 @@ mod tests {
 
         // Sync arts for other users other users
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].path_secrets[0];
+            let old_sk = group_arts[i].get_path_secrets()[0];
 
             // bug fix for blank member
             if i == blank_target_user {
@@ -287,15 +292,16 @@ mod tests {
             }
 
             assert_eq!(
-                old_sk, group_arts[i].path_secrets[0],
+                old_sk,
+                group_arts[i].get_path_secrets()[0],
                 "Sanity check: secret key didn't changed for user {:?}.",
-                group_arts[i].node_index,
+                group_arts[i].get_node_index(),
             );
             assert_eq!(
                 group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].path_secrets.len(),
+                group_arts[i].get_path_secrets().len(),
                 "Length of path secrets is length of direction path to node + 1 for user_{i}: {:?}.",
-                group_arts[i].node_index,
+                group_arts[i].get_node_index(),
             );
             assert_eq!(
                 group_arts[target_user], group_arts[i],

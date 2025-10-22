@@ -73,7 +73,7 @@ fn general_example() {
     let (tk_3, changes_3, _) = art_1
         .make_blank(
             &art_1
-                .public_art
+                .get_public_art()
                 .get_path_to_leaf(&new_node1_public_key)
                 .unwrap(),
             &some_secret_key1,
@@ -121,7 +121,7 @@ fn general_example() {
 
     // To verify the proof one need to have only part of artefacts stored in VerifierArtefacts plus changes
     let verifier_artefacts = art_1
-        .public_art
+        .get_public_art()
         .compute_artefacts_for_verification(&changes_4)
         .unwrap();
 
@@ -199,13 +199,13 @@ fn branch_aggregation_proof_verify() {
         PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
     let mut art1 = PrivateART::<CortadoAffine>::from_public_art_and_secret(
-        art0.public_art.clone(),
+        art0.get_public_art().clone(),
         secrets[1],
     )
     .unwrap();
 
     let target_3 = art0
-        .public_art
+        .get_public_art()
         .get_path_to_leaf(&art0.public_key_of(&secrets[3]))
         .unwrap();
 

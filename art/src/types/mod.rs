@@ -1,4 +1,5 @@
 mod aggregated_change;
+mod aggregated_node;
 mod aggregation_data;
 mod art_node;
 mod art_root_key;
@@ -9,10 +10,10 @@ mod private_art;
 mod public_art;
 
 pub use aggregated_change::{
-    AggregationDisplayTree, AggregationNodeIterWithPath, ChangeAggregation, ChangeAggregationNode,
-    ChangeAggregationWithRng, PlainChangeAggregation, ProverChangeAggregation,
-    VerifierChangeAggregation,
+    AggregationDisplayTree, ChangeAggregation, ChangeAggregationWithRng, PlainChangeAggregation,
+    ProverChangeAggregation, VerifierChangeAggregation,
 };
+pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};
 pub use aggregation_data::{
     AggregationData, EmptyData, ProverAggregationData, VerifierAggregationData,
 };

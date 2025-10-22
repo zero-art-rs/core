@@ -1,10 +1,9 @@
-/// TODO: refactor this file
 use crate::errors::ARTError;
 use crate::traits::{ParentRepr, RelatedData};
 use crate::types::{
-    AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesTypeHint,
-    ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng, Direction, NodeIndex,
-    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+    AggregationDisplayTree, BranchChanges, BranchChangesTypeHint, ChangeAggregation,
+    ChangeAggregationWithRng, Direction, NodeIndex, ProverAggregationData, ProverArtefacts,
+    VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -19,7 +18,17 @@ use zrt_zk::aggregated_art::{
     VerifierAggregationTree,
 };
 
-impl<D> ChangeAggregationNode<D>
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AggregationNode<D>
+where
+    D: RelatedData + Clone,
+{
+    pub l: Option<Box<Self>>,
+    pub r: Option<Box<Self>>,
+    pub data: D,
+}
+
+impl<D> AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
@@ -94,7 +103,7 @@ where
     }
 }
 
-impl<G> ChangeAggregationNode<ProverAggregationData<G>>
+impl<G> AggregationNode<ProverAggregationData<G>>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
@@ -183,7 +192,7 @@ where
     }
 }
 
-impl<D> ParentRepr<ChangeAggregationNode<D>> for ChangeAggregationNode<D>
+impl<D> ParentRepr<AggregationNode<D>> for AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
@@ -220,7 +229,7 @@ where
     }
 }
 
-impl<D> Display for ChangeAggregationNode<D>
+impl<D> Display for AggregationNode<D>
 where
     D: RelatedData + Clone + Display,
 {
@@ -238,7 +247,7 @@ where
     }
 }
 
-impl<D> From<D> for ChangeAggregationNode<D>
+impl<D> From<D> for AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
@@ -251,20 +260,20 @@ where
     }
 }
 
-impl<D> From<&Box<ChangeAggregationNode<D>>> for AggregationDisplayTree
+impl<D> From<&Box<AggregationNode<D>>> for AggregationDisplayTree
 where
     D: RelatedData + Clone + Display,
 {
-    fn from(value: &Box<ChangeAggregationNode<D>>) -> Self {
+    fn from(value: &Box<AggregationNode<D>>) -> Self {
         AggregationDisplayTree::from(value.as_ref())
     }
 }
 
-impl<D> From<&ChangeAggregationNode<D>> for AggregationDisplayTree
+impl<D> From<&AggregationNode<D>> for AggregationDisplayTree
 where
     D: RelatedData + Display + Clone,
 {
-    fn from(value: &ChangeAggregationNode<D>) -> Self {
+    fn from(value: &AggregationNode<D>) -> Self {
         match (value.l.as_ref(), value.r.as_ref()) {
             (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
                 public_key: format!("Node {}", value.data),
@@ -286,25 +295,25 @@ where
     }
 }
 
-impl<D1, D2> TryFrom<&ChangeAggregationNode<D1>> for ChangeAggregationNode<D2>
+impl<D1, D2> TryFrom<&AggregationNode<D1>> for AggregationNode<D2>
 where
     D1: RelatedData + Clone + Default,
     D2: RelatedData + From<D1> + Clone + Default,
 {
     type Error = ARTError;
 
-    fn try_from(prover_aggregation: &ChangeAggregationNode<D1>) -> Result<Self, Self::Error> {
+    fn try_from(prover_aggregation: &AggregationNode<D1>) -> Result<Self, Self::Error> {
         let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
         let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
 
         let verifier_data = D2::from(node.data.clone());
-        let mut aggregation = ChangeAggregationNode::from(verifier_data);
+        let mut aggregation = AggregationNode::from(verifier_data);
 
         for (node, path) in iter {
             let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             if let Some(last_dir) = node_path.pop() {
                 let verifier_data = D2::from(node.data.clone());
-                let next_node = ChangeAggregationNode::from(verifier_data);
+                let next_node = AggregationNode::from(verifier_data);
 
                 if let Ok(child) = aggregation.get_mut_node(&*node_path) {
                     child.set_child(last_dir, next_node);
@@ -316,15 +325,13 @@ where
     }
 }
 
-impl<G> TryFrom<&ChangeAggregationNode<ProverAggregationData<G>>> for ProverAggregationTree<G>
+impl<G> TryFrom<&AggregationNode<ProverAggregationData<G>>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
 {
     type Error = ARTError;
 
-    fn try_from(
-        value: &ChangeAggregationNode<ProverAggregationData<G>>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: &AggregationNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(&value);
@@ -357,15 +364,13 @@ where
     }
 }
 
-impl<G> TryFrom<&ChangeAggregationNode<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
+impl<G> TryFrom<&AggregationNode<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
 {
     type Error = ARTError;
 
-    fn try_from(
-        value: &ChangeAggregationNode<VerifierAggregationData<G>>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: &AggregationNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(&value);
@@ -398,12 +403,21 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AggregationNodeIterWithPath<'a, D>
+where
+    D: RelatedData + Clone,
+{
+    pub current_node: Option<&'a AggregationNode<D>>,
+    pub path: Vec<(&'a AggregationNode<D>, Direction)>,
+}
+
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, D> AggregationNodeIterWithPath<'a, D>
 where
     D: RelatedData + Clone,
 {
-    pub fn new(root: &'a ChangeAggregationNode<D>) -> Self {
+    pub fn new(root: &'a AggregationNode<D>) -> Self {
         AggregationNodeIterWithPath {
             current_node: Some(root),
             path: vec![],
@@ -447,8 +461,8 @@ where
     D: RelatedData + Clone + Default,
 {
     type Item = (
-        &'a ChangeAggregationNode<D>,
-        Vec<(&'a ChangeAggregationNode<D>, Direction)>,
+        &'a AggregationNode<D>,
+        Vec<(&'a AggregationNode<D>, Direction)>,
     );
 
     fn next(&mut self) -> Option<Self::Item> {
