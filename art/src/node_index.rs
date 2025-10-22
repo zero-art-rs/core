@@ -249,7 +249,7 @@ impl From<(u64, u64)> for NodeIndex {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{Direction, NodeIndex};
+    use super::{Direction, NodeIndex};
 
     #[test]
     fn test_path_to_index_conversion() {

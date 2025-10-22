@@ -1,5 +1,5 @@
+use crate::art::{BranchChangesType, BranchChangesTypeHint};
 use crate::helper_tools::prepare_short_marker;
-use crate::types::{BranchChangesType, BranchChangesTypeHint};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

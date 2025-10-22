@@ -8,7 +8,8 @@ use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_art::types::{PlainChangeAggregation, PrivateART, ProverChangeAggregation};
+use zrt_art::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
+use zrt_art::art::PrivateART;
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
 };

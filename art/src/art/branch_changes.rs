@@ -1,8 +1,6 @@
 use crate::errors::ARTError;
-use crate::{
-    helper_tools::{ark_de, ark_se},
-    types::NodeIndex,
-};
+use crate::helper_tools::{ark_de, ark_se};
+use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};

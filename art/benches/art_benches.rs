@@ -290,7 +290,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                         .unwrap();
 
                 let lambda = Fr::rand(&mut StdRng::seed_from_u64(rand::random()));
-                let public_key = private_arts[0].node_index.get_path().unwrap();
+                let public_key = private_arts[0].xnode_index.get_path().unwrap();
 
                 let (_, append_changes, _) =
                     private_arts[0].append_or_replace_node(&lambda).unwrap();

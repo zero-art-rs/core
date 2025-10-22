@@ -6,32 +6,31 @@ mod tests {
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed25519::EdwardsAffine as Ed25519Affine;
     use ark_ff::Field;
+    use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
-    use ark_std::{One, UniformRand, Zero};
     use bulletproofs::PedersenGens;
     use bulletproofs::r1cs::R1CSError;
     use cortado::{CortadoAffine, Fr};
     use itertools::Itertools;
+    use rand::rng;
     use rand::seq::IteratorRandom;
-    use rand::{Rng, rng};
     use std::cmp::{max, min};
     use std::ops::{Add, Mul};
     use tracing::{debug, error, info, warn};
     use zkp::toolbox::{cross_dleq::PedersenBasis, dalek_ark::ristretto255_to_ark};
+    use zrt_art::aggregations::{
+        AggregationData, AggregationNodeIterWithPath, ChangeAggregation, PlainChangeAggregation,
+        ProverAggregationData, ProverChangeAggregation, VerifierAggregationData,
+    };
+    use zrt_art::art::{
+        ARTRootKey, LeafIterWithPath, LeafStatus, PrivateART, ProverArtefacts, PublicART,
+        VerifierArtefacts,
+    };
+    use zrt_art::errors::ARTError;
     use zrt_art::helper_tools::iota_function;
-    use zrt_art::types::{
-        AggregationNodeIterWithPath, PlainChangeAggregation, ProverChangeAggregation,
-    };
-    use zrt_art::types::{ChangeAggregation, LeafStatus};
-    use zrt_art::{
-        errors::ARTError,
-        types::{
-            ARTRootKey, AggregationData, AggregationNode, LeafIterWithPath, NodeIndex, PrivateART,
-            ProverAggregationData, ProverArtefacts, PublicART, VerifierAggregationData,
-            VerifierArtefacts,
-        },
-    };
+    use zrt_art::node_index::NodeIndex;
+    use zrt_art::tree_node::TreeNode;
     use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
     use zrt_zk::aggregated_art::{art_aggregated_prove, art_aggregated_verify};
     use zrt_zk::art::{art_prove, art_verify};
@@ -605,7 +604,7 @@ mod tests {
         let secret_key_2 = Fr::rand(&mut rng);
         let secret_key_3 = Fr::rand(&mut rng);
 
-        let (mut user0, def_tk) = PrivateART::<CortadoAffine>::new_art_from_secrets(
+        let (mut user0, _) = PrivateART::<CortadoAffine>::new_art_from_secrets(
             &vec![secret_key_0, secret_key_1, secret_key_2, secret_key_3],
             &CortadoAffine::generator(),
         )
@@ -661,8 +660,8 @@ mod tests {
         let mut pub_keys = Vec::new();
         let mut parent = main_user_art.get_root();
         for direction in &main_user_art.get_node_index().get_path().unwrap() {
-            pub_keys.push(parent.get_child(direction).unwrap().get_public_key());
-            parent = parent.get_child(direction).unwrap();
+            pub_keys.push(parent.get_child(*direction).unwrap().get_public_key());
+            parent = parent.get_child(*direction).unwrap();
         }
         pub_keys.reverse();
 

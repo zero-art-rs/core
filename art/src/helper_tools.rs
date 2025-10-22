@@ -1,11 +1,10 @@
+use crate::art::ProverArtefacts;
 use crate::errors::ARTError;
-use crate::types::ProverArtefacts;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
-use tracing::debug;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -39,26 +38,6 @@ where
     let secret = Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?);
 
     Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
-}
-
-pub fn to_ark_scalar<G>(point: Scalar) -> G::ScalarField
-where
-    G: AffineRepr,
-{
-    G::ScalarField::from_le_bytes_mod_order(&point.to_bytes())
-}
-
-pub fn to_dalek_scalar<G>(point: G::ScalarField) -> Result<Scalar, ARTError>
-where
-    G: AffineRepr,
-{
-    Ok(Scalar::from_bytes_mod_order(
-        (&point.into_bigint().to_bytes_le()[..]).try_into()?,
-    ))
-}
-
-pub fn common_prefix_size<T: Eq>(a: &[T], b: &[T]) -> usize {
-    a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
 /// Recompute artefacts using given `secret_key` as leaf secret key, and provided `co_path`

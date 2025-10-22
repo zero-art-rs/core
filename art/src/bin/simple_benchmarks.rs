@@ -16,7 +16,7 @@ use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use zkp::rand::thread_rng;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_art::types::PrivateART;
+use zrt_art::art::PrivateART;
 use zrt_zk::art::{art_prove, art_verify};
 use zrt_zk::cred::Credential;
 

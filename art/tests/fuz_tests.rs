@@ -12,9 +12,8 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use std::cmp::{max, min};
     use tracing::{debug, info, warn};
+    use zrt_art::art::{LeafIterWithPath, PrivateART};
     use zrt_art::errors::ARTError;
-    use zrt_art::types::LeafIterWithPath;
-    use zrt_art::types::PrivateART;
 
     pub const SEED: u64 = 23;
     pub const GROUP_SIZE: usize = 10;

@@ -1,15 +1,15 @@
+use crate::art::{
+    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, LeafStatus, ProverArtefacts, PublicART,
+    UpdateData,
+};
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se, recompute_artefacts};
-use crate::types::{
-    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, Direction, LeafStatus, NodeIndex,
-    ProverArtefacts, PublicART, UpdateData,
-};
+use crate::node_index::{Direction, NodeIndex};
+use crate::tree_node::TreeNode;
 use ark_ec::AffineRepr;
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::mem;
 
@@ -104,21 +104,14 @@ where
     pub fn get_public_art(&self) -> &PublicART<G> {
         &self.public_art
     }
+
     pub fn get_mut_public_art(&mut self) -> &mut PublicART<G> {
         &mut self.public_art
     }
-}
 
-impl<G> PrivateART<G>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-{
+    /// Shorthand for computing public key to given secret.
     pub fn public_key_of(&self, secret: &G::ScalarField) -> G {
-        self.get_public_art()
-            .get_generator()
-            .mul(secret)
-            .into_affine()
+        self.get_public_art().public_key_of(secret)
     }
 
     /// Creates new PrivateART from provided `secrets`. The order of secrets is preserved:
@@ -173,14 +166,17 @@ where
         ))
     }
 
+    /// Returns serde json string representation
     pub fn to_string(&self) -> Result<String, ARTError> {
         serde_json::to_string(&self.get_public_art()).map_err(ARTError::SerdeJson)
     }
 
+    /// Serialize with postcard
     pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
         to_allocvec(&self.get_public_art()).map_err(ARTError::Postcard)
     }
 
+    /// Deserialize with postcard
     pub fn deserialize(bytes: &[u8], secret_key: &G::ScalarField) -> Result<Self, ARTError> {
         Self::from_public_art_and_secret(
             from_bytes::<PublicART<G>>(bytes).map_err(ARTError::Postcard)?,
@@ -188,6 +184,7 @@ where
         )
     }
 
+    /// Deserialize from serde json string representation
     pub fn from_string(
         canonical_json: &str,
         secret_key: &G::ScalarField,
@@ -197,14 +194,7 @@ where
             *secret_key,
         )
     }
-}
 
-impl<G> PrivateART<G>
-where
-    Self: Sized + Serialize + DeserializeOwned,
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-{
     /// Returns actual root key, stored at the end of path_secrets.
     pub fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
         Ok(ARTRootKey {
@@ -370,14 +360,7 @@ where
 
         Ok(())
     }
-}
 
-impl<G> PrivateART<G>
-where
-    Self: Sized + Serialize + DeserializeOwned,
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::BaseField: PrimeField,
-{
     /// Updates users node index by researching it in a tree.
     pub(crate) fn update_node_index(&mut self) -> Result<(), ARTError> {
         let path = self
@@ -549,8 +532,13 @@ where
         let mut co_path = Vec::new();
         let mut current_node = self.get_root();
         for dir in &intersection {
-            co_path.push(current_node.get_child(&dir.other())?.get_public_key());
-            current_node = current_node.get_child(dir)?;
+            co_path.push(
+                current_node
+                    .get_child(dir.other())
+                    .ok_or(ARTError::InvalidInput)?
+                    .get_public_key(),
+            );
+            current_node = current_node.get_child(*dir).ok_or(ARTError::InvalidInput)?;
         }
 
         if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {

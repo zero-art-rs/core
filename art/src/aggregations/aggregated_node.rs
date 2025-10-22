@@ -1,17 +1,16 @@
-use crate::errors::ARTError;
-use crate::traits::{ParentRepr, RelatedData};
-use crate::types::{
-    AggregationDisplayTree, BranchChanges, BranchChangesTypeHint, ChangeAggregation,
-    ChangeAggregationWithRng, Direction, NodeIndex, ProverAggregationData, ProverArtefacts,
+use crate::aggregations::{
+    ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData, RelatedData,
     VerifierAggregationData,
 };
+use crate::art::{BranchChanges, BranchChangesTypeHint, ProverArtefacts};
+use crate::errors::ARTError;
+use crate::node_index::{Direction, NodeIndex};
+use crate::tree_node::TreeNode;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
-use display_tree::{CharSet, Style, StyleBuilder, format_tree};
-use std::fmt::{Display, Formatter};
 use tree_ds::prelude::Node;
 use zrt_zk::aggregated_art::{
     ProverAggregatedNodeData, ProverAggregationTree, VerifierAggregatedNodeData,
@@ -100,6 +99,16 @@ where
             Direction::Left => self.l.get_or_insert_default(),
             Direction::Right => self.r.get_or_insert_default(),
         }
+    }
+
+    fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
+        let child = match dir {
+            Direction::Left => self.l.get_or_insert_default(),
+            Direction::Right => self.r.get_or_insert_default(),
+        };
+
+        *child = Box::new(node);
+        child.as_mut()
     }
 }
 
@@ -192,7 +201,7 @@ where
     }
 }
 
-impl<D> ParentRepr<AggregationNode<D>> for AggregationNode<D>
+impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
@@ -214,36 +223,18 @@ where
         child.map(|r| r.as_mut())
     }
 
-    fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
-        let child = match dir {
-            Direction::Left => self.l.get_or_insert_default(),
-            Direction::Right => self.r.get_or_insert_default(),
-        };
-
-        *child = Box::new(node);
-        child.as_mut()
-    }
+    // fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
+    //     let child = match dir {
+    //         Direction::Left => self.l.get_or_insert_default(),
+    //         Direction::Right => self.r.get_or_insert_default(),
+    //     };
+    //
+    //     *child = Box::new(node);
+    //     child.as_mut()
+    // }
 
     fn is_leaf(&self) -> bool {
         self.r.is_none() && self.l.is_none()
-    }
-}
-
-impl<D> Display for AggregationNode<D>
-where
-    D: RelatedData + Clone + Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            format_tree!(
-                AggregationDisplayTree::from(self),
-                Style::default()
-                    .indentation(4)
-                    .char_set(CharSet::SINGLE_LINE)
-            )
-        )
     }
 }
 
@@ -256,41 +247,6 @@ where
             l: None,
             r: None,
             data,
-        }
-    }
-}
-
-impl<D> From<&Box<AggregationNode<D>>> for AggregationDisplayTree
-where
-    D: RelatedData + Clone + Display,
-{
-    fn from(value: &Box<AggregationNode<D>>) -> Self {
-        AggregationDisplayTree::from(value.as_ref())
-    }
-}
-
-impl<D> From<&AggregationNode<D>> for AggregationDisplayTree
-where
-    D: RelatedData + Display + Clone,
-{
-    fn from(value: &AggregationNode<D>) -> Self {
-        match (value.l.as_ref(), value.r.as_ref()) {
-            (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
-                public_key: format!("Node {}", value.data),
-                left: Box::new(l.into()),
-                right: Box::new(r.into()),
-            },
-            (Some(c), None) => AggregationDisplayTree::UnaryNode {
-                public_key: format!("{:?}: {}", Direction::Left, value.data),
-                child: Box::new(c.into()),
-            },
-            (None, Some(c)) => AggregationDisplayTree::UnaryNode {
-                public_key: format!("{:?}: {}", Direction::Right, value.data),
-                child: Box::new(c.into()),
-            },
-            (None, None) => AggregationDisplayTree::Leaf {
-                public_key: format!("Leaf: {}", value.data),
-            },
         }
     }
 }

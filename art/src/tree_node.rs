@@ -1,12 +1,12 @@
-use crate::types::Direction;
+use crate::node_index::Direction;
 
 /// Trait to represent Children type in some tree node.
 ///
 /// The idea is for node to have the field children which implements this trait, and so shift
 /// children management from the node implementation.
-pub trait ParentRepr<C>
+pub trait TreeNode<C>
 where
-    C: Clone + Default,
+    C: Clone,
 {
     /// Return a reference on a child on the given direction. Return None, if there is no
     /// child there.
@@ -16,9 +16,9 @@ where
     /// if there is no child there.
     fn get_mut_child(&mut self, dir: Direction) -> Option<&mut C>;
 
-    /// Set the child on the direction `dir` with the given one. Return mutable reference to
-    /// new child.
-    fn set_child(&mut self, child: Direction, node: C) -> &mut C;
+    // /// Set the child on the direction `dir` with the given one. Return mutable reference to
+    // /// new child.
+    // fn set_child(&mut self, child: Direction, node: C) -> &mut C;
 
     /// Return true, if the node has no children.
     fn is_leaf(&self) -> bool;

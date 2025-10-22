@@ -1,15 +1,18 @@
+use crate::aggregations::{
+    AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
+    RelatedData, VerifierAggregationData,
+};
+use crate::art::{
+    ARTNode, BranchChanges, BranchChangesTypeHint, LeafStatus, PrivateART, ProverArtefacts,
+    PublicART, UpdateData,
+};
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
-use crate::traits::{ParentRepr, RelatedData};
-use crate::types::{
-    ARTNode, AggregationData, AggregationNode, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesTypeHint, Direction, LeafStatus, NodeIndex, PrivateART, ProverAggregationData,
-    ProverArtefacts, PublicART, UpdateData, VerifierAggregationData,
-};
+use crate::node_index::{Direction, NodeIndex};
+use crate::tree_node::TreeNode;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use display_tree::DisplayTree;
 use std::fmt::{Display, Formatter};
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
@@ -73,7 +76,7 @@ where
             } else if let Ok(parent) = art
                 .get_public_art()
                 .get_node(&NodeIndex::Direction(parent_path.clone()))
-                && let Ok(other_child) = parent.get_child(&last_direction.other())
+                && let Some(other_child) = parent.get_child(last_direction.other())
             {
                 // Try to retrieve Co-path from the original ART
                 other_child.get_public_key()
@@ -255,9 +258,16 @@ where
             .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
             .count();
         for dir in &intersection {
-            partial_co_path.push(current_art_node.get_child(&dir.other())?.get_public_key());
+            partial_co_path.push(
+                current_art_node
+                    .get_child(dir.other())
+                    .ok_or(ARTError::InvalidInput)?
+                    .get_public_key(),
+            );
 
-            current_art_node = current_art_node.get_child(dir)?;
+            current_art_node = current_art_node
+                .get_child(*dir)
+                .ok_or(ARTError::InvalidInput)?;
             current_agg_node = current_agg_node
                 .get_child(*dir)
                 .ok_or(ARTError::PathNotExists)?;
@@ -330,7 +340,7 @@ where
 
 impl<D> Display for ChangeAggregation<D>
 where
-    D: RelatedData + Clone + Display,
+    D: RelatedData + Clone + Display + Default,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.get_root() {
@@ -522,26 +532,4 @@ where
             Err(Self::Error::NoChanges)
         }
     }
-}
-
-#[derive(DisplayTree, Debug, Clone)]
-pub enum AggregationDisplayTree {
-    Leaf {
-        #[node_label]
-        public_key: String,
-    },
-    UnaryNode {
-        #[node_label]
-        public_key: String,
-        #[tree]
-        child: Box<Self>,
-    },
-    BinaryNode {
-        #[node_label]
-        public_key: String,
-        #[tree]
-        left: Box<Self>,
-        #[tree]
-        right: Box<Self>,
-    },
 }
