@@ -199,9 +199,7 @@ fn bench_separate_operations_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art
-                    .update_private_art(&update_key_change)
-                    .unwrap();
+                other_private_art.update(&update_key_change).unwrap();
                 update_table(&mut time_table, APPLY_UPDATE_KEY, i, start.elapsed());
             }
 
@@ -264,9 +262,7 @@ fn bench_separate_operations_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art
-                    .update_private_art(&add_member_change)
-                    .unwrap();
+                other_private_art.update(&add_member_change).unwrap();
                 update_table(&mut time_table, APPLY_ADD_MEMBER, i, start.elapsed());
             }
 
@@ -337,9 +333,7 @@ fn bench_separate_operations_creation() {
                 ///////////////////////////////////////////////////////////
 
                 let start = Instant::now();
-                other_private_art
-                    .update_private_art(&make_blank_change)
-                    .unwrap();
+                other_private_art.update(&make_blank_change).unwrap();
                 update_table(&mut time_table, APPLY_MAKE_BLANK, i, start.elapsed());
             }
         }
@@ -481,9 +475,7 @@ fn bench_operations_in_combination() {
                 // Apply update key
                 ///////////////////////////////////////////////////////////
 
-                other_private_art
-                    .update_private_art(&update_key_change)
-                    .unwrap();
+                other_private_art.update(&update_key_change).unwrap();
 
                 update_table(&mut time_table, APPLY_UPDATE_KEY, i, start.elapsed());
             }
@@ -543,9 +535,7 @@ fn bench_operations_in_combination() {
                 // Apply add member
                 ///////////////////////////////////////////////////////////
 
-                other_private_art
-                    .update_private_art(&add_member_change)
-                    .unwrap();
+                other_private_art.update(&add_member_change).unwrap();
 
                 update_table(&mut time_table, APPLY_ADD_MEMBER, i, start.elapsed());
             }
@@ -613,9 +603,7 @@ fn bench_operations_in_combination() {
                 // Apply make blank
                 ///////////////////////////////////////////////////////////
 
-                other_private_art
-                    .update_private_art(&make_blank_change)
-                    .unwrap();
+                other_private_art.update(&make_blank_change).unwrap();
 
                 update_table(&mut time_table, APPLY_MAKE_BLANK, i, start.elapsed());
             }

@@ -65,20 +65,6 @@ impl<G: AffineRepr> TreeNode<ARTNode<G>> for ARTNode<G> {
         }
     }
 
-    // fn set_child(&mut self, dir: Direction, other: Self) -> Result<(), ARTError> {
-    //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
-    //         ARTNode::Internal { l, r, .. } => {
-    //             match dir {
-    //                 Direction::Left => *l.as_mut() = other,
-    //                 Direction::Right => *r.as_mut() = other,
-    //             }
-    //
-    //             Ok(())
-    //         }
-    //     }
-    // }
-
     fn is_leaf(&self) -> bool {
         matches!(self, ARTNode::Leaf { .. })
     }

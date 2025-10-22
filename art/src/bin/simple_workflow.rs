@@ -9,7 +9,7 @@ use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
-use zrt_art::art::PrivateART;
+use zrt_art::art::{PrivateART, PublicART};
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
 };
@@ -54,7 +54,7 @@ fn general_example() {
     let (tk_1, change_1, _) = art_1.update_key(&new_secret_key_1).unwrap();
     // Root key tk is a new common secret. Other users can use returned change to update
     // theirs trees. Fot example, it can be done as next:
-    art_0.update_private_art(&change_1).unwrap();
+    art_0.update(&change_1).unwrap();
     assert_eq!(art_0, art_1);
 
     // To get common secret, user can call the next method
@@ -65,7 +65,7 @@ fn general_example() {
     // Addition of a new node can be done as next:
     let new_node1_secret_key = Fr::rand(&mut rng);
     let (_, changes_2, _) = art_1.append_or_replace_node(&new_node1_secret_key).unwrap();
-    art_0.update_private_art(&changes_2).unwrap();
+    art_0.update(&changes_2).unwrap();
     assert_eq!(art_0, art_1);
 
     // Remove member from the tree, by making his node temporary.
@@ -80,7 +80,7 @@ fn general_example() {
             &some_secret_key1,
         )
         .unwrap();
-    art_0.update_private_art(&changes_3).unwrap();
+    art_0.update(&changes_3).unwrap();
     assert_eq!(art_0, art_1);
 
     // For proof generation, use `ProverArtefacts` structure. They are returned with every art update.

@@ -140,7 +140,7 @@ mod tests {
             "Both users have different view on the state of the art, as they are not synced yet"
         );
 
-        user0.update_private_art(&change_key_update).unwrap();
+        user0.update(&change_key_update).unwrap();
 
         assert_eq!(
             user0, user1,
@@ -256,12 +256,12 @@ mod tests {
         );
 
         // Sync other users art
-        user1.update_private_art(&remove_member_change1).unwrap();
-        user3.update_private_art(&remove_member_change1).unwrap();
+        user1.update(&remove_member_change1).unwrap();
+        user3.update(&remove_member_change1).unwrap();
 
         assert!(
             matches!(
-                user2.update_private_art(&remove_member_change1).err(),
+                user2.update(&remove_member_change1).err(),
                 Some(ARTError::InapplicableBlanking)
             ),
             "Cant perform art update using blank leaf."
@@ -325,8 +325,8 @@ mod tests {
         );
 
         // Sync other users art
-        user0.update_private_art(&remove_member_change2).unwrap();
-        user3.update_private_art(&remove_member_change2).unwrap();
+        user0.update(&remove_member_change2).unwrap();
+        user3.update(&remove_member_change2).unwrap();
 
         assert_eq!(
             user0.get_root_key().ok(),
@@ -396,7 +396,7 @@ mod tests {
         );
 
         // User1 updates his art.
-        user1.update_private_art(&key_update_change0).unwrap();
+        user1.update(&key_update_change0).unwrap();
         let new_sk1 = Fr::rand(&mut rng);
         let (tk_r1, key_update_change1, _) = user1.update_key(&new_sk1).unwrap();
         assert_eq!(
@@ -406,8 +406,8 @@ mod tests {
         );
 
         // User2 updates his art.
-        user2.update_private_art(&key_update_change0).unwrap();
-        user2.update_private_art(&key_update_change1).unwrap();
+        user2.update(&key_update_change0).unwrap();
+        user2.update(&key_update_change1).unwrap();
         let new_sk2 = Fr::rand(&mut rng);
         let (tk_r2, key_update_change2, _) = user2.update_key(&new_sk2).unwrap();
         assert_eq!(
@@ -417,9 +417,9 @@ mod tests {
         );
 
         // Update art for other users.
-        user3.update_private_art(&key_update_change1).unwrap();
-        user3.update_private_art(&key_update_change0).unwrap();
-        user3.update_private_art(&key_update_change2).unwrap();
+        user3.update(&key_update_change1).unwrap();
+        user3.update(&key_update_change0).unwrap();
+        user3.update(&key_update_change2).unwrap();
 
         assert_ne!(
             user3.get_root(),
@@ -457,8 +457,8 @@ mod tests {
         let (tk_r0, key_update_change0, _) = user0.update_key(&new_sk0).unwrap();
 
         // Update art for other users.
-        user1.update_private_art(&key_update_change0).unwrap();
-        user1.update_private_art(&key_update_change0).unwrap();
+        user1.update(&key_update_change0).unwrap();
+        user1.update(&key_update_change0).unwrap();
 
         assert_eq!(
             user0, user1,
@@ -621,7 +621,7 @@ mod tests {
 
         // User1 fails to update his art.
         assert!(matches!(
-            user1.update_private_art(&key_update_change0),
+            user1.update(&key_update_change0),
             Err(ARTError::InapplicableKeyUpdate)
         ));
     }
@@ -674,9 +674,7 @@ mod tests {
         }
 
         let test_user_id = 12;
-        users_arts[test_user_id]
-            .update_private_art(&changes)
-            .unwrap();
+        users_arts[test_user_id].update(&changes).unwrap();
         assert_eq!(
             users_arts[test_user_id].get_root_key().unwrap().key,
             new_key.key
@@ -689,7 +687,7 @@ mod tests {
 
         for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id {
-                users_arts[i].update_private_art(&changes).unwrap();
+                users_arts[i].update(&changes).unwrap();
                 assert_eq!(
                     users_arts[i].get_root_key().unwrap().key,
                     recomputed_old_key.key
@@ -955,7 +953,7 @@ mod tests {
             if i != blank_user_id && i != main_user_id {
                 assert_ne!(users_arts[i].get_root_key().unwrap().key, root_key.key);
 
-                users_arts[i].update_private_art(&changes).unwrap();
+                users_arts[i].update(&changes).unwrap();
                 let user_root_key = users_arts[i].get_root_key().unwrap();
 
                 assert_eq!(user_root_key.key, root_key.key);
@@ -976,7 +974,7 @@ mod tests {
         assert_ne!(root_key2.key, root_key.key);
         for i in 0..TEST_GROUP_SIZE {
             if i != main_user_id && i != blank_user_id {
-                users_arts[i].update_private_art(&changes2).unwrap();
+                users_arts[i].update(&changes2).unwrap();
 
                 assert_eq!(users_arts[i].get_root_key().unwrap().key, root_key2.key);
                 assert_eq!(users_arts[i].get_root().get_weight(), TEST_GROUP_SIZE);
@@ -1340,7 +1338,7 @@ mod tests {
             .unwrap();
         let (_, make_blank_changes, _) =
             art.make_blank(&target_node_path, &new_secret_key).unwrap();
-        test_art.update_private_art(&make_blank_changes).unwrap();
+        test_art.update(&make_blank_changes).unwrap();
 
         let (_, append_node_changes, artefacts) =
             art.append_or_replace_node(&new_secret_key).unwrap();
@@ -1385,8 +1383,8 @@ mod tests {
 
         // usual update
         let mut art1 = art.clone();
-        art1.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
-        art1.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        art1.make_blank(&user_2_path, &sk_1).unwrap();
+        art1.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
             art1.get_node(&user_2_index).unwrap().get_public_key(),
             CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
@@ -1397,8 +1395,8 @@ mod tests {
             .unwrap()
             .set_status(LeafStatus::PendingRemoval)
             .unwrap();
-        art2.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
-        art2.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        art2.make_blank(&user_2_path, &sk_1).unwrap();
+        art2.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
             art2.get_node(&user_2_index).unwrap().get_public_key(),
             CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
@@ -1409,8 +1407,8 @@ mod tests {
             .unwrap()
             .set_status(LeafStatus::Blank)
             .unwrap();
-        art3.make_blank_in_public_art(&user_2_path, &sk_1).unwrap();
-        art3.make_blank_in_public_art(&user_2_path, &sk_2).unwrap();
+        art3.make_blank(&user_2_path, &sk_1).unwrap();
+        art3.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
             art3.get_node(&user_2_index).unwrap().get_public_key(),
             CortadoAffine::generator()
@@ -1470,8 +1468,8 @@ mod tests {
             PrivateART::from_public_art_and_secret(art.get_public_art().clone(), secrets[2])
                 .unwrap();
 
-        art1.update_private_art(&leave_change).unwrap();
-        art3.update_private_art(&leave_change).unwrap();
+        art1.update(&leave_change).unwrap();
+        art3.update(&leave_change).unwrap();
         assert_eq!(art1, art3);
         assert!(matches!(
             art1.get_public_art()
@@ -1489,7 +1487,7 @@ mod tests {
         );
 
         let (_, blank_change1, _) = art1.make_blank(&art_2_path, &sk_1).unwrap();
-        art3.update_private_art(&blank_change1).unwrap();
+        art3.update(&blank_change1).unwrap();
         assert_eq!(art1.get_root_key().unwrap(), art3.get_root_key().unwrap());
         assert!(matches!(
             art1.get_public_art()
@@ -1507,7 +1505,7 @@ mod tests {
         );
 
         let (_, blank_change2, _) = art3.make_blank(&art_2_path, &sk_2).unwrap();
-        art1.update_private_art(&blank_change2).unwrap();
+        art1.update(&blank_change2).unwrap();
         assert_eq!(art1, art3);
         assert!(matches!(
             art1.get_public_art()
@@ -1646,12 +1644,12 @@ mod tests {
         let post_sk = Fr::rand(&mut rng);
         let (_, post_secrets_1, _) = first.update_key(&post_sk).unwrap();
 
-        second.update_private_art(&post_secrets_1).unwrap();
+        second.update(&post_secrets_1).unwrap();
 
         assert_eq!(first, second);
 
         for i in 0..TEST_GROUP_SIZE - 2 {
-            user_arts[i].update_private_art(&post_secrets_1).unwrap();
+            user_arts[i].update(&post_secrets_1).unwrap();
 
             assert_eq!(user_arts[i], first);
         }
@@ -1832,12 +1830,12 @@ mod tests {
         let post_merge_sk = Fr::rand(&mut rng);
         let (_, post_change, _) = art1.update_key(&post_merge_sk).unwrap();
 
-        art2.update_private_art(&post_change).unwrap();
+        art2.update(&post_change).unwrap();
 
         assert_eq!(art1, art2);
 
         for i in 0..TEST_GROUP_SIZE - 4 {
-            user_arts[i].update_private_art(&post_change).unwrap();
+            user_arts[i].update(&post_change).unwrap();
             assert_eq!(art1, art2);
         }
     }
@@ -2056,10 +2054,10 @@ mod tests {
         let rem_node_sk: Fr = Fr::rand(&mut rng);
         let (tk, change0, artefacts0) = art1.make_blank(&target, &rem_node_sk).unwrap();
 
-        art0.update_private_art(&change0).unwrap();
-        art2.update_private_art(&change0).unwrap();
-        art3.update_private_art(&change0).unwrap();
-        art4.update_private_art(&change0).unwrap();
+        art0.update(&change0).unwrap();
+        art2.update(&change0).unwrap();
+        art3.update(&change0).unwrap();
+        art4.update(&change0).unwrap();
 
         // Backup previous arts for merge
         let def_art0 = art0.clone();
@@ -2120,7 +2118,7 @@ mod tests {
         let sk = Fr::rand(&mut rng);
         let (after_merge_tk1, changes1, artefacts1) = art1_0.update_key(&sk).unwrap();
 
-        art4_0.update_private_art(&changes1).unwrap();
+        art4_0.update(&changes1).unwrap();
 
         assert_eq!(art1_0.get_root_key().ok(), art4_0.get_root_key().ok());
     }
@@ -2190,7 +2188,7 @@ mod tests {
 
         // debug!("User1 receive changes ..");
         // let blank_user_0 = user1.get_changes(20, 0, None).await?;
-        user1.update_private_art(&change0).unwrap();
+        user1.update(&change0).unwrap();
         assert_eq!(
             user1
                 .get_public_art()
@@ -2221,7 +2219,7 @@ mod tests {
 
         // debug!("User 2 receive changes ...");
         // let blank_user_1 = user2.get_changes(20, 0, None).await?;
-        user2.update_private_art(&change0).unwrap();
+        user2.update(&change0).unwrap();
         // user2.epoch += 1;
         // debug!("art2:\n{}", user2.art.get_root());
         assert_eq!(user2.get_root(), user0.get_root());
@@ -2230,7 +2228,7 @@ mod tests {
             user0.public_key_of(&user0.get_root_key()?.key),
         );
 
-        user2.update_private_art(&change1)?;
+        user2.update(&change1)?;
         assert_eq!(
             user2
                 .get_public_art()

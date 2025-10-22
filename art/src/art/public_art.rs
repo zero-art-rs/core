@@ -261,7 +261,7 @@ where
     /// corresponding to a given secret key. Then it updates the necessary public keys on a
     /// path to root using new node's temporary secret key. Returns new ARTRootKey and
     /// BranchChanges for other users.
-    pub fn append_or_replace_node_in_public_art(
+    pub fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
@@ -293,7 +293,7 @@ where
     /// * `ARTRootKey<G>` – New root key after applying the change.
     /// * `BranchChanges<G>` – Helper data for other users to apply the same update of the art.
     /// * `ProverArtefacts<G>` – Artefacts required for proving correctness of the update.
-    pub fn make_blank_in_public_art(
+    pub fn make_blank(
         &mut self,
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
@@ -382,16 +382,16 @@ where
     }
 
     /// Updates art with given changes.
-    pub fn update_public_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+    pub fn update(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
             && matches!(
                 self.get_node(&changes.node_index)?.get_status(),
                 Some(LeafStatus::Blank)
             )
         {
-            self.update_public_art_with_options(changes, true, false)
+            self.update_with_options(changes, true, false)
         } else {
-            self.update_public_art_with_options(changes, false, true)
+            self.update_with_options(changes, false, true)
         }
     }
 
@@ -401,7 +401,7 @@ where
     /// - `update_weights` - If true updates the weights of the art on make blank change. If
     ///   false, it will leve those weights as is. Can be used to correctly apply the second
     ///   blanking of some node.
-    pub fn update_public_art_with_options(
+    pub fn update_with_options(
         &mut self,
         changes: &BranchChanges<G>,
         append_changes: bool,
@@ -489,9 +489,9 @@ where
         for i in iteration_start..changes.len() {
             // Make blank changes are of replaces all public keys on path or appends to all of them.
             if key_update_changes_len == 0 && self.get_node(&changes[i].node_index)?.is_active() {
-                self.update_public_art_with_options(&changes[i], false, true)?;
+                self.update_with_options(&changes[i], false, true)?;
             } else {
-                self.update_public_art_with_options(&changes[i], true, false)?;
+                self.update_with_options(&changes[i], true, false)?;
             }
         }
         iteration_start += previous_shift;

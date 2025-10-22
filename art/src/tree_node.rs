@@ -16,10 +16,6 @@ where
     /// if there is no child there.
     fn get_mut_child(&mut self, dir: Direction) -> Option<&mut C>;
 
-    // /// Set the child on the direction `dir` with the given one. Return mutable reference to
-    // /// new child.
-    // fn set_child(&mut self, child: Direction, node: C) -> &mut C;
-
     /// Return true, if the node has no children.
     fn is_leaf(&self) -> bool;
 

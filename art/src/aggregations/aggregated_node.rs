@@ -223,16 +223,6 @@ where
         child.map(|r| r.as_mut())
     }
 
-    // fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
-    //     let child = match dir {
-    //         Direction::Left => self.l.get_or_insert_default(),
-    //         Direction::Right => self.r.get_or_insert_default(),
-    //     };
-    //
-    //     *child = Box::new(node);
-    //     child.as_mut()
-    // }
-
     fn is_leaf(&self) -> bool {
         self.r.is_none() && self.l.is_none()
     }

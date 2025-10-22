@@ -235,7 +235,7 @@ where
         );
         let (mut tk, changes, artefacts) = self
             .get_mut_public_art()
-            .make_blank_in_public_art(path, temporary_secret_key)?;
+            .make_blank(path, temporary_secret_key)?;
 
         if append_changes {
             tk.key += *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?;
@@ -261,7 +261,7 @@ where
 
         let (tk, changes, artefacts) = self
             .get_mut_public_art()
-            .append_or_replace_node_in_public_art(secret_key)?;
+            .append_or_replace_node(secret_key)?;
         if self.get_node_index().is_subpath_of(&changes.node_index)? {
             // Extend path_secrets. Append additional leaf secret to the start.
             let mut new_path_secrets =
@@ -290,7 +290,7 @@ where
     }
 
     /// Updates art by applying changes. Also updates `path_secrets` and `node_index`.
-    pub fn update_private_art(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
+    pub fn update(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
             && matches!(
                 self.get_public_art()
@@ -447,11 +447,8 @@ where
             }
         }
 
-        self.get_mut_public_art().update_public_art_with_options(
-            changes,
-            append_changes,
-            update_weights,
-        )?;
+        self.get_mut_public_art()
+            .update_with_options(changes, append_changes, update_weights)?;
 
         if let BranchChangesType::AppendNode = &changes.change_type {
             self.update_node_index()?;

@@ -138,7 +138,7 @@ mod tests {
             let old_sk = group_arts[i].get_path_secrets()[0];
 
             if i != target_user {
-                group_arts[i].update_private_art(&change).unwrap()
+                group_arts[i].update(&change).unwrap()
             }
 
             assert_eq!(
@@ -199,7 +199,7 @@ mod tests {
             let old_sk = group_arts[i].get_path_secrets()[0];
 
             if i != target_user {
-                group_arts[i].update_private_art(&change).unwrap()
+                group_arts[i].update(&change).unwrap()
             }
 
             assert_eq!(
@@ -287,7 +287,7 @@ mod tests {
             }
 
             if i != target_user && i != blank_target_user {
-                group_arts[i].update_private_art(&change).unwrap()
+                group_arts[i].update(&change).unwrap()
             }
 
             assert_eq!(
