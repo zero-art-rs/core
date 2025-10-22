@@ -2,9 +2,9 @@
 use crate::errors::ARTError;
 use crate::traits::{ParentRepr, RelatedData};
 use crate::types::{
-    AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges,
-    BranchChangesTypeHint, ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng,
-    Direction, NodeIndex, ProverAggregationData, ProverArtefacts, VerifierAggregationData,
+    AggregationDisplayTree, AggregationNodeIterWithPath, BranchChanges, BranchChangesTypeHint,
+    ChangeAggregation, ChangeAggregationNode, ChangeAggregationWithRng, Direction, NodeIndex,
+    ProverAggregationData, ProverArtefacts, VerifierAggregationData,
 };
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -175,8 +175,7 @@ where
             }
 
             // Update parent
-            parent = parent
-                .get_or_insert_default(*dir);
+            parent = parent.get_or_insert_default(*dir);
             parent.data.aggregate(child_data);
         }
 
@@ -483,13 +482,11 @@ where
                                 } else if last_direction == Direction::Left {
                                     // go on the right.
                                     self.path.push((parent, Direction::Right));
-                                    self.current_node = parent
-                                        .get_child(Direction::Right)
-                                        .map(|item| item);
+                                    self.current_node =
+                                        parent.get_child(Direction::Right).map(|item| item);
                                     break;
                                 }
-                            } else if let (Some(_), None) | (None, Some(_)) =
-                                (&parent.l, &parent.r)
+                            } else if let (Some(_), None) | (None, Some(_)) = (&parent.l, &parent.r)
                             {
                                 // Go up
                                 self.current_node = Some(parent);

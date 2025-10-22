@@ -1,15 +1,18 @@
+use crate::errors::ARTError;
 use crate::{
     helper_tools::{ark_de, ark_se},
     types::NodeIndex,
 };
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangesType {
     MakeBlank,
     AppendNode,
+    #[default]
     UpdateKey,
     Leave,
 }
@@ -44,6 +47,20 @@ where
     },
 }
 
+impl<G> From<&BranchChangesTypeHint<G>> for BranchChangesType
+where
+    G: AffineRepr,
+{
+    fn from(value: &BranchChangesTypeHint<G>) -> Self {
+        match value {
+            BranchChangesTypeHint::MakeBlank { .. } => BranchChangesType::MakeBlank,
+            BranchChangesTypeHint::AppendNode { .. } => BranchChangesType::AppendNode,
+            BranchChangesTypeHint::UpdateKey { .. } => BranchChangesType::UpdateKey,
+            BranchChangesTypeHint::Leave { .. } => BranchChangesType::Leave,
+        }
+    }
+}
+
 /// Helper data type, which contains information about ART change. Can be used to apply this
 /// change to the different ART.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -61,4 +78,17 @@ where
 
     /// index of the target leaf
     pub node_index: NodeIndex,
+}
+
+impl<G> BranchChanges<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
+        to_allocvec(self).map_err(ARTError::Postcard)
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(ARTError::Postcard)
+    }
 }

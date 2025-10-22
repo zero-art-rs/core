@@ -4,7 +4,6 @@ mod art_node;
 mod art_root_key;
 mod artefacts;
 mod branch_changes;
-mod children;
 mod node_index;
 mod private_art;
 mod public_art;
@@ -23,7 +22,6 @@ pub use art_node::{
 pub use art_root_key::ARTRootKey;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use branch_changes::{BranchChanges, BranchChangesType, BranchChangesTypeHint};
-pub use children::BinaryChildrenRelation;
 pub use node_index::{Direction, NodeIndex};
 pub use private_art::PrivateART;
 pub use public_art::PublicART;

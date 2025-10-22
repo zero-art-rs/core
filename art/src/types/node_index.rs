@@ -1,6 +1,6 @@
+use crate::errors::ARTError;
 use serde::{Deserialize, Serialize};
 use tracing::error;
-use crate::errors::ARTError;
 
 /// Possible identifier of a child node in binary tree.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize, Hash)]

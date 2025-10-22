@@ -89,3 +89,8 @@ where
 
     Ok(artefacts)
 }
+
+/// Return first 8 chars from the string with three following dots.
+pub(crate) fn prepare_short_marker(full_marker: &str) -> String {
+    full_marker.chars().take(8).collect::<String>() + "..."
+}
