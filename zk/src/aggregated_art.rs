@@ -1,5 +1,4 @@
 #![allow(non_snake_case)]
-use ark_ec::VariableBaseMSM;
 use ark_ec::{AffineRepr, CurveGroup};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
