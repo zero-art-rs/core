@@ -89,7 +89,7 @@ where
             bl_marker,
             self.change_type
                 .iter()
-                .map(|change_type| BranchChangesType::from(change_type))
+                .map(BranchChangesType::from)
                 .collect::<Vec<_>>(),
         )
     }
@@ -144,7 +144,7 @@ where
             pk_marker,
             self.change_type
                 .iter()
-                .map(|change_type| BranchChangesType::from(change_type))
+                .map(BranchChangesType::from)
                 .collect::<Vec<_>>(),
         )
     }

@@ -3,8 +3,8 @@ use crate::aggregations::{
     RelatedData, VerifierAggregationData,
 };
 use crate::art::{
-    ARTNode, BranchChanges, BranchChangesTypeHint, LeafStatus, PrivateART, ProverArtefacts,
-    PublicART, UpdateData,
+    ARTNode, ArtUpdateOutput, BranchChanges, BranchChangesTypeHint, LeafStatus, PrivateART,
+    ProverArtefacts, PublicART,
 };
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
@@ -339,7 +339,7 @@ where
         }
 
         intersection.push(node_path[intersection.len()].other());
-        partial_co_path.push(agg_root.get_node(&*intersection)?.data.public_key);
+        partial_co_path.push(agg_root.get_node(&intersection)?.data.public_key);
         partial_co_path.reverse();
 
         // Compute path_secrets for aggregation.
@@ -445,10 +445,9 @@ where
         change_hint: BranchChangesTypeHint<G>,
     ) -> Result<(), ARTError> {
         let Self { root, rng } = self;
-        let root =
-            root.get_or_insert_with(|| AggregationNode::<ProverAggregationData<G>>::default());
+        let root = root.get_or_insert_with(AggregationNode::<ProverAggregationData<G>>::default);
 
-        root.extend(rng, changes, &artefacts, change_hint)
+        root.extend(rng, changes, artefacts, change_hint)
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
@@ -456,7 +455,7 @@ where
         &mut self,
         new_secret_key: &G::ScalarField,
         art: &mut PrivateART<G>,
-    ) -> Result<UpdateData<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let (tk, changes, artefacts) = art.update_key(new_secret_key)?;
 
         self.extend(
@@ -475,9 +474,9 @@ where
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
         art: &mut PrivateART<G>,
-    ) -> Result<UpdateData<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let merge = matches!(
-            art.get_public_art().get_node_at(&path)?.get_status(),
+            art.get_public_art().get_node_at(path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         if merge {
@@ -502,7 +501,7 @@ where
         &mut self,
         secret_key: &G::ScalarField,
         art: &mut PrivateART<G>,
-    ) -> Result<UpdateData<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let path = match art.get_public_art().find_path_to_left_most_blank_node() {
             Some(path) => path,
             None => art.get_public_art().find_path_to_lowest_leaf()?,
@@ -540,7 +539,7 @@ where
         &mut self,
         new_secret_key: &G::ScalarField,
         art: &mut PrivateART<G>,
-    ) -> Result<UpdateData<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let (tk, changes, artefacts) = art.leave(*new_secret_key)?;
 
         self.extend(

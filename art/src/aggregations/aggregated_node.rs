@@ -261,7 +261,7 @@ where
                 let verifier_data = D2::from(node.data.clone());
                 let next_node = AggregationNode::from(verifier_data);
 
-                if let Ok(child) = aggregation.get_mut_node(&*node_path) {
+                if let Ok(child) = aggregation.get_mut_node(&node_path) {
                     child.set_child(last_dir, next_node);
                 }
             }
@@ -280,7 +280,7 @@ where
     fn try_from(value: &AggregationNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = AggregationNodeIterWithPath::new(&value);
+        let mut node_iter = AggregationNodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
@@ -319,7 +319,7 @@ where
     fn try_from(value: &AggregationNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = AggregationNodeIterWithPath::new(&value);
+        let mut node_iter = AggregationNodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
@@ -442,8 +442,7 @@ where
                                 } else if last_direction == Direction::Left {
                                     // go on the right.
                                     self.path.push((parent, Direction::Right));
-                                    self.current_node =
-                                        parent.get_child(Direction::Right).map(|item| item);
+                                    self.current_node = parent.get_child(Direction::Right);
                                     break;
                                 }
                             } else if let (Some(_), None) | (None, Some(_)) = (&parent.l, &parent.r)

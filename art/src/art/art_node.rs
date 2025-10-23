@@ -1,6 +1,6 @@
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se};
-use crate::node_index::{Direction, NodeIndex};
+use crate::node_index::Direction;
 use crate::tree_node::TreeNode;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

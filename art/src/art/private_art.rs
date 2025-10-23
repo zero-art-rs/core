@@ -1,6 +1,6 @@
 use crate::art::{
-    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, LeafStatus, ProverArtefacts, PublicART,
-    UpdateData,
+    ARTNode, ARTRootKey, ArtUpdateOutput, BranchChanges, BranchChangesType, LeafStatus,
+    ProverArtefacts, PublicART,
 };
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se, recompute_artefacts};
@@ -103,7 +103,7 @@ where
     }
 
     pub fn get_root(&self) -> &ARTNode<G> {
-        &self.public_art.get_root()
+        self.public_art.get_root()
     }
 
     pub fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>> {
@@ -180,7 +180,7 @@ where
     pub fn update_key(
         &mut self,
         new_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         self.set_secret_key(new_secret_key);
 
         let path = self.get_node_index().get_path()?;
@@ -199,9 +199,9 @@ where
         &mut self,
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let append_changes = matches!(
-            self.get_public_art().get_node_at(&path)?.get_status(),
+            self.get_public_art().get_node_at(path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         let (mut tk, changes, artefacts) = self
@@ -225,7 +225,7 @@ where
     pub fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         if self.get_path_secrets().is_empty() {
             return Err(ARTError::EmptyART);
         }
@@ -248,7 +248,10 @@ where
     }
 
     /// Remove yourself from the art.
-    pub fn leave(&mut self, new_secret_key: G::ScalarField) -> Result<UpdateData<G>, ARTError> {
+    pub fn leave(
+        &mut self,
+        new_secret_key: G::ScalarField,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let (tk, mut changes, artefacts) = self.update_key(&new_secret_key)?;
         let index = self.get_node_index().clone();
         self.get_mut_public_art()

@@ -1,6 +1,6 @@
 use crate::art::{
-    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, LeafIterWithPath, LeafStatus,
-    NodeIterWithPath, PrivateART, ProverArtefacts, VerifierArtefacts,
+    ARTNode, ARTRootKey, ArtLevel, ArtUpdateOutput, BranchChanges, BranchChangesType,
+    LeafIterWithPath, LeafStatus, NodeIterWithPath, PrivateART, ProverArtefacts, VerifierArtefacts,
 };
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se, iota_function};
@@ -13,8 +13,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-type ArtLevel<G> = (Vec<Box<ARTNode<G>>>, Vec<<G as AffineRepr>::ScalarField>);
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(bound = "")]
@@ -311,7 +309,7 @@ where
         }
         iteration_start += previous_shift;
 
-        self.prepare_structure_for_append_node_changes(&*append_member_changes)?;
+        self.prepare_structure_for_append_node_changes(&append_member_changes)?;
         changes.extend(append_member_changes);
         for i in iteration_start..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
@@ -361,7 +359,7 @@ where
     pub(crate) fn append_or_replace_node(
         &mut self,
         secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let mut path = match self.find_path_to_left_most_blank_node() {
             Some(path) => path,
             None => self.find_path_to_lowest_leaf()?,
@@ -394,7 +392,7 @@ where
         &mut self,
         path: &[Direction],
         temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let append_changes = matches!(
             self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
             Some(LeafStatus::Blank)
@@ -566,7 +564,7 @@ where
         secret_key: &G::ScalarField,
         path: &[Direction],
         append_changes: bool,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let mut next = path.to_vec();
         let mut public_key = self.public_key_of(secret_key);
 

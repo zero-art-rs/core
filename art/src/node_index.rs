@@ -107,13 +107,13 @@ impl NodeIndex {
     pub fn push(&mut self, dir: Direction) {
         match self {
             NodeIndex::Index(index) => match dir {
-                Direction::Left => *index = *index << 1,
+                Direction::Left => *index <<= 1,
                 Direction::Right => *index = (*index << 1) + 1,
             },
             NodeIndex::Coordinate(level, position) => {
                 *level += 1;
                 match dir {
-                    Direction::Left => *position = *position << 1,
+                    Direction::Left => *position <<= 1,
                     Direction::Right => *position = (*position << 1) + 1,
                 }
             }

@@ -9,7 +9,7 @@ use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
-use zrt_art::art::{PrivateART, PublicART};
+use zrt_art::art::PrivateART;
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
 };
@@ -186,7 +186,7 @@ fn merge_conflict_changes() {
 
     assert_eq!(
         participant, observer,
-        "Observer and participant have the same wiev on the state of the art."
+        "Observer and participant have the same view on the state of the art."
     );
 }
 
