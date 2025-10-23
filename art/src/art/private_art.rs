@@ -53,67 +53,6 @@ where
         }
     }
 
-    pub fn get_root(&self) -> &ARTNode<G> {
-        &self.public_art.get_root()
-    }
-
-    pub fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>> {
-        self.public_art.get_mut_root()
-    }
-
-    pub fn get_generator(&self) -> G {
-        self.public_art.get_generator()
-    }
-
-    pub fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>> {
-        mem::replace(self.public_art.get_mut_root(), new_root)
-    }
-
-    pub fn get_secret_key(&self) -> G::ScalarField {
-        self.secret_key
-    }
-
-    pub fn set_secret_key(&mut self, secret_key: &G::ScalarField) {
-        self.secret_key = *secret_key;
-    }
-
-    pub fn get_node_index(&self) -> &NodeIndex {
-        &self.node_index
-    }
-
-    pub fn set_node_index(&mut self, node_index: NodeIndex) {
-        self.node_index = node_index
-    }
-
-    pub fn get_path_secrets(&self) -> &Vec<G::ScalarField> {
-        &self.path_secrets
-    }
-
-    pub fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField> {
-        &mut self.path_secrets
-    }
-
-    /// Changes path_secrets to the given ones.
-    pub fn set_path_secrets(
-        &mut self,
-        new_path_secrets: Vec<G::ScalarField>,
-    ) -> Vec<G::ScalarField> {
-        mem::replace(self.get_mut_path_secrets(), new_path_secrets)
-    }
-
-    pub fn get_public_art(&self) -> &PublicART<G> {
-        &self.public_art
-    }
-
-    pub fn get_mut_public_art(&mut self) -> &mut PublicART<G> {
-        &mut self.public_art
-    }
-
-    /// Shorthand for computing public key to given secret.
-    pub fn public_key_of(&self, secret: &G::ScalarField) -> G {
-        self.get_public_art().public_key_of(secret)
-    }
-
     /// Creates new PrivateART from provided `secrets`. The order of secrets is preserved:
     /// the leftmost leaf corresponds to the firsts secret in `secrets`.
     pub fn new_art_from_secrets(
@@ -132,17 +71,16 @@ where
         mut other: PublicART<G>,
         secret_key: G::ScalarField,
     ) -> Result<Self, ARTError> {
-        let node_index =
-            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
-                .as_index()?;
-        let (_, artefacts) =
-            other.recompute_root_key_with_artefacts_using_secret_key(secret_key, &node_index)?;
-        let root = other.replace_root(Box::new(ARTNode::default()));
+        let leaf_path = other.get_path_to_leaf(&other.public_key_of(&secret_key))?;
+        let co_path = other.get_co_path_values(&leaf_path)?;
+        let artefacts = recompute_artefacts(secret_key, &co_path)?;
+
+        let root = mem::replace(other.get_mut_root(), Box::new(ARTNode::default()));
 
         Ok(Self::new(
             PublicART::new(root, other.get_generator()),
             secret_key,
-            node_index,
+            NodeIndex::from(leaf_path).as_index()?,
             artefacts.secrets,
         ))
     }
@@ -153,17 +91,60 @@ where
         path_secrets: Vec<G::ScalarField>,
     ) -> Result<Self, ARTError> {
         let secret_key = *path_secrets.first().ok_or(ARTError::InvalidInput)?;
-        let node_index =
-            NodeIndex::from(other.get_path_to_leaf(&other.public_key_of(&secret_key))?)
-                .as_index()?;
-        let root = other.replace_root(Box::default());
+        let leaf_path = other.get_path_to_leaf(&other.public_key_of(&secret_key))?;
+        let root = mem::replace(other.get_mut_root(), Box::new(ARTNode::default()));
 
         Ok(Self::new(
             PublicART::new(root, other.get_generator()),
             secret_key,
-            node_index,
+            NodeIndex::from(leaf_path).as_index()?,
             path_secrets,
         ))
+    }
+
+    pub fn get_root(&self) -> &ARTNode<G> {
+        &self.public_art.get_root()
+    }
+
+    pub fn get_mut_root(&mut self) -> &mut Box<ARTNode<G>> {
+        self.public_art.get_mut_root()
+    }
+
+    pub fn get_generator(&self) -> G {
+        self.public_art.get_generator()
+    }
+
+    pub fn get_secret_key(&self) -> G::ScalarField {
+        self.secret_key
+    }
+
+    /// Returns actual root key, stored at the end of path_secrets.
+    pub fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
+        Ok(ARTRootKey {
+            key: *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?,
+            generator: self.get_generator(),
+        })
+    }
+
+    pub fn get_node_index(&self) -> &NodeIndex {
+        &self.node_index
+    }
+
+    pub fn get_path_secrets(&self) -> &Vec<G::ScalarField> {
+        &self.path_secrets
+    }
+
+    pub fn get_public_art(&self) -> &PublicART<G> {
+        &self.public_art
+    }
+
+    pub fn get_mut_public_art(&mut self) -> &mut PublicART<G> {
+        &mut self.public_art
+    }
+
+    /// Shorthand for computing public key to given secret.
+    pub fn public_key_of(&self, secret: &G::ScalarField) -> G {
+        self.get_public_art().public_key_of(secret)
     }
 
     /// Returns serde json string representation
@@ -195,14 +176,6 @@ where
         )
     }
 
-    /// Returns actual root key, stored at the end of path_secrets.
-    pub fn get_root_key(&self) -> Result<ARTRootKey<G>, ARTError> {
-        Ok(ARTRootKey {
-            key: *self.get_path_secrets().last().ok_or(ARTError::EmptyART)?,
-            generator: self.get_generator(),
-        })
-    }
-
     /// Changes old_secret_key of a user leaf to the new_secret_key and update path_secrets.
     pub fn update_key(
         &mut self,
@@ -228,9 +201,7 @@ where
         temporary_secret_key: &G::ScalarField,
     ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
         let append_changes = matches!(
-            self.get_public_art()
-                .get_node_with_path(&path)?
-                .get_status(),
+            self.get_public_art().get_node_at(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         let (mut tk, changes, artefacts) = self
@@ -359,6 +330,30 @@ where
             .merge_with_skip(&[applied_change], unapplied_changes)?;
 
         Ok(())
+    }
+
+    pub(crate) fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>> {
+        mem::replace(self.public_art.get_mut_root(), new_root)
+    }
+
+    pub(crate) fn set_secret_key(&mut self, secret_key: &G::ScalarField) {
+        self.secret_key = *secret_key;
+    }
+
+    pub(crate) fn set_node_index(&mut self, node_index: NodeIndex) {
+        self.node_index = node_index
+    }
+
+    pub(crate) fn get_mut_path_secrets(&mut self) -> &mut Vec<G::ScalarField> {
+        &mut self.path_secrets
+    }
+
+    /// Changes path_secrets to the given ones.
+    pub(crate) fn set_path_secrets(
+        &mut self,
+        new_path_secrets: Vec<G::ScalarField>,
+    ) -> Vec<G::ScalarField> {
+        mem::replace(self.get_mut_path_secrets(), new_path_secrets)
     }
 
     /// Updates users node index by researching it in a tree.

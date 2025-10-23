@@ -1284,16 +1284,6 @@ mod tests {
             "user secret_key is present in path_secrets"
         );
         assert_eq!(tk, art.get_root_key().unwrap());
-        let (_, artefacts_rl) = art
-            .get_public_art()
-            .recompute_root_key_with_artefacts_using_secret_key(
-                new_secret_key,
-                &append_node_changes.node_index,
-            )
-            .unwrap();
-        assert_eq!(artefacts.co_path, artefacts_rl.co_path);
-        assert_eq!(artefacts.path, artefacts_rl.path);
-        assert_eq!(artefacts.secrets, artefacts_rl.secrets);
 
         let verification_artefacts = test_art
             .get_public_art()
@@ -1372,11 +1362,12 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(seed);
         let secrets = create_random_secrets_with_rng(TEST_GROUP_SIZE, &mut rng);
         let (art, _) =
-            PublicART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
+            PrivateART::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
 
         let sk_1 = Fr::rand(&mut rng);
         let sk_2 = Fr::rand(&mut rng);
         let user_2_path = art
+            .get_public_art()
             .get_path_to_leaf(&CortadoAffine::generator().mul(&secrets[1]).into_affine())
             .unwrap();
         let user_2_index = NodeIndex::from(user_2_path.clone());
@@ -1386,31 +1377,42 @@ mod tests {
         art1.make_blank(&user_2_path, &sk_1).unwrap();
         art1.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
-            art1.get_node(&user_2_index).unwrap().get_public_key(),
+            art1.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
             CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
         );
 
         let mut art2 = art.clone();
-        art2.get_mut_node(&user_2_index)
+        art2.get_mut_public_art()
+            .get_mut_node(&user_2_index)
             .unwrap()
             .set_status(LeafStatus::PendingRemoval)
             .unwrap();
         art2.make_blank(&user_2_path, &sk_1).unwrap();
         art2.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
-            art2.get_node(&user_2_index).unwrap().get_public_key(),
+            art2.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
             CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
         );
 
         let mut art3 = art.clone();
-        art3.get_mut_node(&user_2_index)
+        art3.get_mut_public_art()
+            .get_mut_node(&user_2_index)
             .unwrap()
             .set_status(LeafStatus::Blank)
             .unwrap();
         art3.make_blank(&user_2_path, &sk_1).unwrap();
         art3.make_blank(&user_2_path, &sk_2).unwrap();
         assert_eq!(
-            art3.get_node(&user_2_index).unwrap().get_public_key(),
+            art3.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
             CortadoAffine::generator()
                 .mul(&(secrets[1] + sk_1 + sk_2))
                 .into_affine()

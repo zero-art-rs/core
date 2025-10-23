@@ -10,7 +10,7 @@ pub enum ARTError {
     Postcard(#[from] postcard::Error),
     #[error("Serde JSON error: {0}.")]
     SerdeJson(#[from] serde_json::Error),
-    #[error("Cant find path to given node.")]
+    #[error("Cant find path to the node.")]
     PathNotExists,
     #[error("Failed to convert &[u8] into &[u8;32] {0}.")]
     ConversionError(#[from] std::array::TryFromSliceError),

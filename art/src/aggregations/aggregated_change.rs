@@ -84,8 +84,7 @@ where
                 // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
                 let mut path = parent_path.clone();
                 path.push(last_direction.other());
-                art.get_public_art()
-                    .get_last_public_key_on_path(agg_root, &path)?
+                Self::get_last_public_key_on_path(art.get_public_art(), agg_root, &path)?
             };
             resulting_target_node.data.co_public_key = Some(pk);
         }
@@ -93,6 +92,65 @@ where
         Ok(ChangeAggregation {
             root: Some(resulting_aggregation_root),
         })
+    }
+
+    /// Retrieve the last public key on given `path`, by applying required changes from the
+    /// `aggregation`.
+    pub(crate) fn get_last_public_key_on_path(
+        art: &PublicART<G>,
+        aggregation: &AggregationNode<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ARTError> {
+        let mut leaf_public_key = art.get_root().get_public_key();
+
+        let mut current_art_node = Some(art.get_root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            // Retrieve leaf public key from art
+            if let Some(art_node) = current_art_node {
+                if let Some(node) = art_node.get_child(*dir) {
+                    if let ARTNode::Leaf { public_key, .. } = node {
+                        leaf_public_key = *public_key;
+                    }
+
+                    current_art_node = Some(node);
+                } else {
+                    current_art_node = None;
+                }
+            }
+
+            // Retrieve leaf public key updates form aggregation
+            if let Some(agg_node) = current_agg_node {
+                if let Some(node) = agg_node.get_child(*dir) {
+                    for change_type in &node.data.change_type {
+                        match change_type {
+                            BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {
+                                leaf_public_key = *blank_pk
+                            }
+                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
+                                if let Some(replacement_pk) = ext_pk {
+                                    match path.get(i + 1) {
+                                        Some(Direction::Right) => leaf_public_key = *pk,
+                                        Some(Direction::Left) => {}
+                                        None => leaf_public_key = *replacement_pk,
+                                    }
+                                } else {
+                                    leaf_public_key = *pk;
+                                }
+                            }
+                            BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+                            BranchChangesTypeHint::Leave { pk } => leaf_public_key = *pk,
+                        }
+                    }
+
+                    current_agg_node = Some(node);
+                } else {
+                    current_agg_node = None;
+                }
+            }
+        }
+
+        Ok(leaf_public_key)
     }
 }
 
@@ -212,7 +270,7 @@ where
             current_agg_node = current_agg_node
                 .get_child(path[i + skip])
                 .ok_or(ARTError::InvalidAggregation)?;
-            let target_node = art.get_mut_node_with_path(&path[0..i + 1])?;
+            let target_node = art.get_mut_node_at(&path[0..i + 1])?;
 
             match append_changes {
                 true => target_node.merge_public_key(current_agg_node.data.public_key),
@@ -240,7 +298,7 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        if agg_root.contain(&art.get_node_index().get_path()?) {
+        if agg_root.contains(&art.get_node_index().get_path()?) {
             return Err(ARTError::InvalidInput);
         }
 
@@ -419,7 +477,7 @@ where
         art: &mut PrivateART<G>,
     ) -> Result<UpdateData<G>, ARTError> {
         let merge = matches!(
-            art.get_public_art().get_node_with_path(&path)?.get_status(),
+            art.get_public_art().get_node_at(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
         if merge {

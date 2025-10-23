@@ -1,7 +1,6 @@
-use crate::aggregations::{AggregationData, AggregationNode};
 use crate::art::{
-    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, BranchChangesTypeHint, LeafIterWithPath,
-    LeafStatus, NodeIterWithPath, PrivateART, ProverArtefacts, VerifierArtefacts,
+    ARTNode, ARTRootKey, BranchChanges, BranchChangesType, LeafIterWithPath, LeafStatus,
+    NodeIterWithPath, PrivateART, ProverArtefacts, VerifierArtefacts,
 };
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se, iota_function};
@@ -14,9 +13,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::mem;
 
-pub(crate) type ArtLevel<G> = (Vec<ARTNode<G>>, Vec<<G as AffineRepr>::ScalarField>);
+type ArtLevel<G> = (Vec<Box<ARTNode<G>>>, Vec<<G as AffineRepr>::ScalarField>);
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(bound = "")]
@@ -51,63 +49,6 @@ where
 
     pub fn get_generator(&self) -> G {
         self.generator
-    }
-
-    pub fn replace_root(&mut self, new_root: Box<ARTNode<G>>) -> Box<ARTNode<G>> {
-        mem::replace(&mut self.root, new_root)
-    }
-
-    /// Create new art form the given `secrets`.
-    pub fn new_art_from_secrets(
-        secrets: &Vec<G::ScalarField>,
-        generator: &G,
-    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
-        if secrets.is_empty() {
-            return Err(ARTError::InvalidInput);
-        }
-        let mut level_nodes = Vec::with_capacity(secrets.len());
-        let mut level_secrets = Vec::with_capacity(secrets.len());
-
-        // Process leaves of the tree
-        for leaf_secret in secrets {
-            let node = ARTNode::new_leaf(generator.mul(leaf_secret).into_affine());
-
-            level_nodes.push(node);
-            level_secrets.push(*leaf_secret);
-        }
-
-        // fully fit leaf nodes in the next level by combining only part of them
-        if level_nodes.len() > 2 {
-            (level_nodes, level_secrets) =
-                Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator)?;
-        }
-
-        let mut level_boxes = Vec::new();
-        for node in level_nodes {
-            level_boxes.push(Box::new(node));
-        }
-
-        let (root, tk) =
-            Self::compute_next_layer_of_tree(level_boxes, &mut level_secrets, generator)?;
-
-        let root_key = ARTRootKey {
-            key: tk,
-            generator: *generator,
-        };
-
-        let art = Self::new(root, *generator);
-
-        Ok((art, root_key))
-    }
-
-    /// Serialize with postcard
-    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
-        to_allocvec(self).map_err(ARTError::Postcard)
-    }
-
-    /// Deserialize with postcard
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
-        from_bytes(bytes).map_err(ARTError::Postcard)
     }
 
     /// Brute-force depth-first search in a tree for a leaf node that matches the given public key. Returns the
@@ -183,38 +124,76 @@ where
         Err(ARTError::PathNotExists)
     }
 
-    /// Recomputes art root key using the given leaf secret key. Returns additional artifacts for
-    /// proof creation. The method will work only if all the nodes on path from root to leaf are
-    /// the result of Diffie-Hellman key exchanged. The result might be unpredictable, is case when
-    /// there is any node on a path which where merged from several changes. Users, which want
-    /// to join the art, should update their secret key to initialize the `path_secrets`.
-    pub fn recompute_root_key_with_artefacts_using_secret_key(
-        &self,
-        secret_key: G::ScalarField,
-        node_index: &NodeIndex,
-    ) -> Result<(ARTRootKey<G>, ProverArtefacts<G>), ARTError> {
-        let co_path_values = self.get_co_path_values(node_index)?;
+    /// Returns node by the given `index`.
+    pub fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
+        self.get_node_at(&index.get_path()?)
+    }
 
-        let mut ark_secret = secret_key;
-        let mut secrets: Vec<G::ScalarField> = vec![secret_key];
-        let mut path_values: Vec<G> = vec![G::generator().mul(ark_secret).into_affine()];
-        for public_key in co_path_values.iter() {
-            ark_secret = iota_function(&public_key.mul(ark_secret).into_affine())?;
-            secrets.push(ark_secret);
-            path_values.push(G::generator().mul(ark_secret).into_affine());
+    /// Returns node on the end of the given `path`.
+    pub fn get_node_at(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError> {
+        let mut node = self.get_root();
+        for direction in path {
+            node = node.get_child(*direction).ok_or(ARTError::InvalidInput)?;
         }
 
-        Ok((
-            ARTRootKey {
-                key: ark_secret,
-                generator: self.get_generator(),
-            },
-            ProverArtefacts {
-                path: path_values,
-                co_path: co_path_values,
-                secrets,
-            },
-        ))
+        Ok(node)
+    }
+
+    /// Returns mutable node by the given `index`.
+    pub fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
+        self.get_mut_node_at(&index.get_path()?)
+    }
+
+    /// Returns mutable node on the end of the given `path`.
+    pub fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ARTNode<G>, ARTError> {
+        let mut node = self.get_mut_root().as_mut();
+        for direction in path {
+            node = node
+                .get_mut_child(*direction)
+                .ok_or(ARTError::PathNotExists)?;
+        }
+
+        Ok(node)
+    }
+
+    /// Create new art form the given `secrets`.
+    pub fn new_art_from_secrets(
+        secrets: &Vec<G::ScalarField>,
+        generator: &G,
+    ) -> Result<(Self, ARTRootKey<G>), ARTError> {
+        if secrets.is_empty() {
+            return Err(ARTError::InvalidInput);
+        }
+
+        let mut level_nodes = Vec::with_capacity(secrets.len());
+        let mut level_secrets = secrets.clone();
+
+        // Process leaves of the tree
+        for leaf_secret in secrets {
+            level_nodes.push(Box::new(ARTNode::new_leaf(
+                generator.mul(leaf_secret).into_affine(),
+            )));
+        }
+
+        // Fully fit leaf nodes in the next level by combining only part of them
+        if level_nodes.len() > 2 {
+            (level_nodes, level_secrets) =
+                Self::fit_leaves_in_one_level(level_nodes, level_secrets, generator)?;
+        }
+
+        let (root, tk) = Self::compute_root_node(level_nodes, &mut level_secrets, generator)?;
+
+        Ok((Self::new(root, *generator), ARTRootKey::new(tk, *generator)))
+    }
+
+    /// Serialize with postcard
+    pub fn serialize(&self) -> Result<Vec<u8>, ARTError> {
+        to_allocvec(self).map_err(ARTError::Postcard)
+    }
+
+    /// Deserialize with postcard
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, ARTError> {
+        from_bytes(bytes).map_err(ARTError::Postcard)
     }
 
     /// Returns helper structure for verification of art update.
@@ -257,179 +236,15 @@ where
         self.get_generator().mul(secret).into_affine()
     }
 
-    /// Extends or replaces the leaf on a path with new node. New node contains public key
-    /// corresponding to a given secret key. Then it updates the necessary public keys on a
-    /// path to root using new node's temporary secret key. Returns new ARTRootKey and
-    /// BranchChanges for other users.
-    pub fn append_or_replace_node(
-        &mut self,
-        secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let mut path = match self.find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => self.find_path_to_lowest_leaf()?,
-        };
-
-        let node = ARTNode::new_leaf(self.public_key_of(secret_key));
-
-        let extend_path = self.append_or_replace_node_without_changes(node.clone(), &path)?;
-        if extend_path {
-            path.push(Direction::Right);
-        }
-
-        let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
-        self.update_art_branch_with_leaf_secret_key(secret_key, &path, false)
-            .map(|(root_key, mut changes, artefacts)| {
-                changes.node_index = node_index;
-                changes.change_type = BranchChangesType::AppendNode;
-                (root_key, changes, artefacts)
-            })
-    }
-
-    /// Replaces the leaf at the given `path` with a given `temporary_secret_key`. Also updates
-    /// the branch up to the root.
-    ///
-    /// # Returns
-    /// * `ARTRootKey<G>` – New root key after applying the change.
-    /// * `BranchChanges<G>` – Helper data for other users to apply the same update of the art.
-    /// * `ProverArtefacts<G>` – Artefacts required for proving correctness of the update.
-    pub fn make_blank(
-        &mut self,
-        path: &[Direction],
-        temporary_secret_key: &G::ScalarField,
-    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
-        let append_changes = matches!(
-            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
-            Some(LeafStatus::Blank)
-        );
-        let update_weights = !append_changes;
-
-        self.make_blank_without_changes_with_options(path, update_weights)?;
-
-        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, path, append_changes)
-            .map(|(root_key, mut changes, artefacts)| {
-                changes.change_type = BranchChangesType::MakeBlank;
-                (root_key, changes, artefacts)
-            })
-    }
-
-    /// Updates art public keys using public keys provided in changes. It doesn't change the art
-    /// structure.
-    pub fn update_art_with_changes(
-        &mut self,
-        changes: &BranchChanges<G>,
-        append_changes: bool,
-    ) -> Result<(), ARTError> {
-        if changes.public_keys.is_empty() {
-            return Err(ARTError::InvalidInput);
-        }
-
-        let mut current_node = self.get_mut_root().as_mut();
-        for i in 0..changes.public_keys.len() - 1 {
-            current_node.set_public_key_with_options(changes.public_keys[i], append_changes);
-            current_node = current_node
-                .get_mut_child(
-                    *changes
-                        .node_index
-                        .get_path()?
-                        .get(i)
-                        .unwrap_or(&Direction::Right),
-                )
-                .ok_or(ARTError::InvalidInput)?;
-        }
-
-        current_node.set_public_key_with_options(
-            changes.public_keys[changes.public_keys.len() - 1],
-            append_changes,
-        );
-
-        Ok(())
-    }
-
-    /// Returns node by the given `index`.
-    pub fn get_node(&self, index: &NodeIndex) -> Result<&ARTNode<G>, ARTError> {
-        self.get_node_with_path(&index.get_path()?)
-    }
-
-    /// Returns node on the end of the given `path`.
-    pub fn get_node_with_path(&self, path: &[Direction]) -> Result<&ARTNode<G>, ARTError> {
-        let mut node = self.get_root();
-        for direction in path {
-            node = node.get_child(*direction).ok_or(ARTError::InvalidInput)?;
-        }
-
-        Ok(node)
-    }
-
-    /// Returns mutable node by the given `index`.
-    pub fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ARTNode<G>, ARTError> {
-        self.get_mut_node_with_path(&index.get_path()?)
-    }
-
-    /// Returns mutable node on the end of the given `path`.
-    pub fn get_mut_node_with_path(
-        &mut self,
-        path: &[Direction],
-    ) -> Result<&mut ARTNode<G>, ARTError> {
-        let mut node = self.get_mut_root().as_mut();
-        for direction in path {
-            node = node
-                .get_mut_child(*direction)
-                .ok_or(ARTError::InvalidInput)?;
-        }
-
-        Ok(node)
-    }
-
     /// Updates art with given changes.
     pub fn update(&mut self, changes: &BranchChanges<G>) -> Result<(), ARTError> {
         if let BranchChangesType::MakeBlank = changes.change_type
-            && matches!(
-                self.get_node(&changes.node_index)?.get_status(),
-                Some(LeafStatus::Blank)
-            )
+            && let Some(LeafStatus::Blank) = self.get_node(&changes.node_index)?.get_status()
         {
             self.update_with_options(changes, true, false)
         } else {
             self.update_with_options(changes, false, true)
         }
-    }
-
-    /// Updates art with given changes. Available options are:
-    /// - `append_changes` - if false replace public keys with provided in changes, Else, append
-    ///   them to the available ones.
-    /// - `update_weights` - If true updates the weights of the art on make blank change. If
-    ///   false, it will leve those weights as is. Can be used to correctly apply the second
-    ///   blanking of some node.
-    pub fn update_with_options(
-        &mut self,
-        changes: &BranchChanges<G>,
-        append_changes: bool,
-        update_weights: bool,
-    ) -> Result<(), ARTError> {
-        match &changes.change_type {
-            BranchChangesType::UpdateKey => {}
-            BranchChangesType::AppendNode => {
-                let leaf =
-                    ARTNode::new_leaf(*changes.public_keys.last().ok_or(ARTError::NoChanges)?);
-                self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
-            }
-            BranchChangesType::MakeBlank => {
-                self.make_blank_without_changes_with_options(
-                    &changes.node_index.get_path()?,
-                    update_weights,
-                )?;
-            }
-            BranchChangesType::Leave => {
-                self.get_mut_node(&changes.node_index)?
-                    .set_status(LeafStatus::PendingRemoval)?;
-                // let mut update_path = changes.node_index.get_path()?;
-                // // update_path.pop();
-                // self.update_weights(&update_path, false)?;
-            }
-        }
-
-        self.update_art_with_changes(changes, append_changes)
     }
 
     /// Merges given conflict changes into the art.
@@ -505,111 +320,136 @@ where
         Ok(())
     }
 
-    /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
-    /// they are not they can be lifted with `fit_leaves_in_one_level` method.
-    fn compute_next_layer_of_tree(
-        level_nodes: Vec<Box<ARTNode<G>>>,
-        level_secrets: &mut [G::ScalarField],
-        generator: &G,
-    ) -> Result<(Box<ARTNode<G>>, G::ScalarField), ARTError> {
-        let mut stack = Vec::with_capacity(level_nodes.len());
-
-        let mut last_secret = G::ScalarField::zero();
-
-        // stack contains node, and her conditional weight
-        stack.push((level_nodes[0].clone(), 1));
-        for (sk, node) in level_secrets.iter().zip(level_nodes).skip(1) {
-            let mut right_node = node;
-            let mut right_secret = *sk;
-            let mut right_weight = 1;
-
-            while let Some((left_node, left_weight)) = stack.pop() {
-                if left_weight != right_weight {
-                    // return the node bask and wait for it to be the same weight
-                    stack.push((left_node, left_weight));
-                    break;
-                }
-
-                let ark_common_secret =
-                    iota_function(&left_node.get_public_key().mul(right_secret).into_affine())?;
-                right_secret = ark_common_secret;
-                last_secret = ark_common_secret;
-
-                right_node = Box::new(ARTNode::new_internal_node(
-                    generator.mul(&ark_common_secret).into_affine(),
-                    left_node,
-                    right_node,
-                ));
-                right_weight += left_weight;
+    /// Updates art with given changes. Available options are:
+    /// - `append_changes` - if false replace public keys with provided in changes, Else, append
+    ///   them to the available ones.
+    /// - `update_weights` - If true updates the weights of the art on make blank change. If
+    ///   false, it will leve those weights as is. Can be used to correctly apply the second
+    ///   blanking of some node.
+    pub(crate) fn update_with_options(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+        update_weights: bool,
+    ) -> Result<(), ARTError> {
+        match &changes.change_type {
+            BranchChangesType::UpdateKey => {}
+            BranchChangesType::AppendNode => {
+                let leaf =
+                    ARTNode::new_leaf(*changes.public_keys.last().ok_or(ARTError::NoChanges)?);
+                self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
             }
-
-            // put the node to the end of stack
-            stack.push((right_node, right_weight));
+            BranchChangesType::MakeBlank => {
+                self.make_blank_without_changes_with_options(
+                    &changes.node_index.get_path()?,
+                    update_weights,
+                )?;
+            }
+            BranchChangesType::Leave => {
+                self.get_mut_node(&changes.node_index)?
+                    .set_status(LeafStatus::PendingRemoval)?;
+            }
         }
 
-        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
-
-        Ok((root, last_secret))
+        self.update_art_with_changes(changes, append_changes)
     }
 
-    fn fit_leaves_in_one_level(
-        mut level_nodes: Vec<ARTNode<G>>,
-        mut level_secrets: Vec<G::ScalarField>,
-        generator: &G,
-    ) -> Result<ArtLevel<G>, ARTError> {
-        let mut level_size = 2;
-        while level_size < level_nodes.len() {
-            level_size <<= 1;
+    /// Extends or replaces the leaf on a path with new node. New node contains public key
+    /// corresponding to a given secret key. Then it updates the necessary public keys on a
+    /// path to root using new node's temporary secret key. Returns new ARTRootKey and
+    /// BranchChanges for other users.
+    pub(crate) fn append_or_replace_node(
+        &mut self,
+        secret_key: &G::ScalarField,
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+        let mut path = match self.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.find_path_to_lowest_leaf()?,
+        };
+
+        let node = ARTNode::new_leaf(self.public_key_of(secret_key));
+
+        let extend_path = self.append_or_replace_node_without_changes(node.clone(), &path)?;
+        if extend_path {
+            path.push(Direction::Right);
         }
 
-        if level_size == level_nodes.len() {
-            return Ok((level_nodes, level_secrets));
+        let node_index = NodeIndex::Index(NodeIndex::get_index_from_path(&path)?);
+        self.update_art_branch_with_leaf_secret_key(secret_key, &path, false)
+            .map(|(root_key, mut changes, artefacts)| {
+                changes.node_index = node_index;
+                changes.change_type = BranchChangesType::AppendNode;
+                (root_key, changes, artefacts)
+            })
+    }
+
+    /// Replaces the leaf at the given `path` with a given `temporary_secret_key`. Also updates
+    /// the branch up to the root.
+    ///
+    /// # Returns
+    /// * `ARTRootKey<G>` – New root key after applying the change.
+    /// * `BranchChanges<G>` – Helper data for other users to apply the same update of the art.
+    /// * `ProverArtefacts<G>` – Artefacts required for proving correctness of the update.
+    pub(crate) fn make_blank(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: &G::ScalarField,
+    ) -> Result<(ARTRootKey<G>, BranchChanges<G>, ProverArtefacts<G>), ARTError> {
+        let append_changes = matches!(
+            self.get_node(&NodeIndex::from(path.to_vec()))?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+        let update_weights = !append_changes;
+
+        self.make_blank_without_changes_with_options(path, update_weights)?;
+
+        self.update_art_branch_with_leaf_secret_key(temporary_secret_key, path, append_changes)
+            .map(|(root_key, mut changes, artefacts)| {
+                changes.change_type = BranchChangesType::MakeBlank;
+                (root_key, changes, artefacts)
+            })
+    }
+
+    /// Updates art public keys using public keys provided in changes. It doesn't change the art
+    /// structure.
+    pub(crate) fn update_art_with_changes(
+        &mut self,
+        changes: &BranchChanges<G>,
+        append_changes: bool,
+    ) -> Result<(), ARTError> {
+        if changes.public_keys.is_empty() {
+            return Err(ARTError::InvalidInput);
         }
 
-        let excess = level_size - level_nodes.len();
-
-        let mut upper_level_nodes = Vec::new();
-        let mut upper_level_secrets = Vec::new();
-        for _ in 0..(level_nodes.len() - excess) >> 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            level_secrets.remove(0); // skip the first secret
-
-            let ark_common_secret = iota_function(
-                &left_node
-                    .get_public_key()
-                    .mul(level_secrets.remove(0))
-                    .into_affine(),
-            )?;
-
-            let node = ARTNode::new_internal_node(
-                generator.mul(&ark_common_secret).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
-
-            upper_level_nodes.push(node);
-            upper_level_secrets.push(ark_common_secret);
+        let mut current_node = self.get_mut_root().as_mut();
+        for i in 0..changes.public_keys.len() - 1 {
+            current_node.set_public_key_with_options(changes.public_keys[i], append_changes);
+            current_node = current_node
+                .get_mut_child(
+                    *changes
+                        .node_index
+                        .get_path()?
+                        .get(i)
+                        .unwrap_or(&Direction::Right),
+                )
+                .ok_or(ARTError::InvalidInput)?;
         }
 
-        for _ in 0..excess {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-            let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret);
-        }
+        current_node.set_public_key_with_options(
+            changes.public_keys[changes.public_keys.len() - 1],
+            append_changes,
+        );
 
-        Ok((upper_level_nodes, upper_level_secrets))
+        Ok(())
     }
 
     /// Returns a co-path to the leaf with a given public key. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
-    pub(crate) fn get_co_path_values(&self, index: &NodeIndex) -> Result<Vec<G>, ARTError> {
+    pub(crate) fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ARTError> {
         let mut co_path_values = Vec::new();
 
         let mut parent = self.get_root();
-        for direction in &index.get_path()? {
+        for direction in path {
             co_path_values.push(
                 parent
                     .get_child(direction.other())
@@ -893,7 +733,7 @@ where
         increment_weight: bool,
     ) -> Result<(), ARTError> {
         for i in 0..path.len() {
-            let weight = self.get_mut_node_with_path(&path[0..i])?.get_mut_weight()?;
+            let weight = self.get_mut_node_at(&path[0..i])?.get_mut_weight()?;
 
             if increment_weight {
                 *weight += 1;
@@ -905,65 +745,102 @@ where
         Ok(())
     }
 
-    /// Retrieve the last public key on given `path`, by applying required changes from the
-    /// `aggregation`.
-    pub(crate) fn get_last_public_key_on_path(
-        &self,
-        aggregation: &AggregationNode<AggregationData<G>>,
-        path: &[Direction],
-    ) -> Result<G, ARTError> {
-        let mut leaf_public_key = self.get_root().get_public_key();
+    /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
+    /// they are not they can be lifted with `fit_leaves_in_one_level` method.
+    fn compute_root_node(
+        level_nodes: Vec<Box<ARTNode<G>>>,
+        level_secrets: &mut [G::ScalarField],
+        generator: &G,
+    ) -> Result<(Box<ARTNode<G>>, G::ScalarField), ARTError> {
+        let mut stack = Vec::with_capacity(level_nodes.len());
 
-        let mut current_art_node = Some(self.get_root());
-        let mut current_agg_node = Some(aggregation);
-        for (i, dir) in path.iter().enumerate() {
-            // Retrieve leaf public key from art
-            if let Some(art_node) = current_art_node {
-                if let Some(node) = art_node.get_child(*dir) {
-                    if let ARTNode::Leaf { public_key, .. } = node {
-                        leaf_public_key = *public_key;
-                    }
+        let mut last_secret = G::ScalarField::zero();
 
-                    current_art_node = Some(node);
-                } else {
-                    current_art_node = None;
+        // stack contains node, and her conditional weight
+        stack.push((level_nodes[0].clone(), 1));
+        for (sk, node) in level_secrets.iter().zip(level_nodes).skip(1) {
+            let mut right_node = node;
+            let mut right_secret = *sk;
+            let mut right_weight = 1;
+
+            while let Some((left_node, left_weight)) = stack.pop() {
+                if left_weight != right_weight {
+                    // return the node bask and wait for it to be the same weight
+                    stack.push((left_node, left_weight));
+                    break;
                 }
+
+                let ark_common_secret =
+                    iota_function(&left_node.get_public_key().mul(right_secret).into_affine())?;
+                right_secret = ark_common_secret;
+                last_secret = ark_common_secret;
+
+                right_node = Box::new(ARTNode::new_internal_node(
+                    generator.mul(&ark_common_secret).into_affine(),
+                    left_node,
+                    right_node,
+                ));
+                right_weight += left_weight;
             }
 
-            // Retrieve leaf public key updates form aggregation
-            if let Some(agg_node) = current_agg_node {
-                if let Some(node) = agg_node.get_child(*dir) {
-                    for change_type in &node.data.change_type {
-                        match change_type {
-                            BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {
-                                leaf_public_key = *blank_pk
-                            }
-                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
-                                if let Some(replacement_pk) = ext_pk {
-                                    match path.get(i + 1) {
-                                        Some(Direction::Right) => leaf_public_key = *pk,
-                                        Some(Direction::Left) => {}
-                                        None => leaf_public_key = *replacement_pk,
-                                    }
-                                } else {
-                                    leaf_public_key = *pk;
-                                }
-                            }
-                            BranchChangesTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
-                            BranchChangesTypeHint::Leave { pk } => leaf_public_key = *pk,
-                        }
-                    }
-
-                    current_agg_node = Some(node);
-                } else {
-                    current_agg_node = None;
-                }
-            }
-
-            // current_agg_node = current_agg_node.children.get_child(*dir).ok_or(ARTError::NoChanges)?;
+            // put the node to the end of stack
+            stack.push((right_node, right_weight));
         }
 
-        Ok(leaf_public_key)
+        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
+
+        Ok((root, last_secret))
+    }
+
+    fn fit_leaves_in_one_level(
+        mut level_nodes: Vec<Box<ARTNode<G>>>,
+        mut level_secrets: Vec<G::ScalarField>,
+        generator: &G,
+    ) -> Result<ArtLevel<G>, ARTError> {
+        let mut level_size = 2;
+        while level_size < level_nodes.len() {
+            level_size <<= 1;
+        }
+
+        if level_size == level_nodes.len() {
+            return Ok((level_nodes, level_secrets));
+        }
+
+        let excess = level_size - level_nodes.len();
+
+        let mut upper_level_nodes = Vec::new();
+        let mut upper_level_secrets = Vec::new();
+        for _ in 0..(level_nodes.len() - excess) >> 1 {
+            let left_node = level_nodes.remove(0);
+            let right_node = level_nodes.remove(0);
+
+            level_secrets.remove(0); // skip the first secret
+
+            let common_secret = iota_function(
+                &left_node
+                    .get_public_key()
+                    .mul(level_secrets.remove(0))
+                    .into_affine(),
+            )?;
+
+            let node = ARTNode::new_internal_node(
+                generator.mul(&common_secret).into_affine(),
+                left_node,
+                right_node,
+            );
+
+            upper_level_nodes.push(Box::new(node));
+            upper_level_secrets.push(common_secret);
+        }
+
+        for _ in 0..excess {
+            let first_node = level_nodes.remove(0);
+            upper_level_nodes.push(first_node);
+            let first_secret = level_secrets.remove(0);
+            upper_level_secrets.push(first_secret);
+        }
+
+        Ok((upper_level_nodes, upper_level_secrets))
     }
 }
 

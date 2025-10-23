@@ -54,7 +54,7 @@ where
     }
 
     /// Return `true` if the specified path exists in the tree, otherwise `false`.
-    pub fn contain(&self, path: &[Direction]) -> bool {
+    pub fn contains(&self, path: &[Direction]) -> bool {
         let mut current_node = self;
         for direction in path {
             if let Some(child) = current_node.get_child(*direction) {

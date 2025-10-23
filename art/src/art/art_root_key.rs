@@ -11,3 +11,12 @@ pub struct ARTRootKey<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize>
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub generator: G,
 }
+
+impl<G> ARTRootKey<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
+    pub fn new(key: G::ScalarField, generator: G) -> Self {
+        Self { key, generator }
+    }
+}

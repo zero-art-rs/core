@@ -8,10 +8,8 @@ use std::{
     hint::black_box,
     time::{Duration, Instant},
 };
-use zrt_art::{
-    errors::ARTError,
-    types::{PrivateART, PublicART},
-};
+use zrt_art::art::{PrivateART, PublicART};
+use zrt_art::errors::ARTError;
 
 // hardcoded number of leaves in a tree for testing
 // pub const TEST_SAMPLES: [usize; 4] = [16, 64, 256, 1024];
@@ -190,7 +188,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                 let secret = Fr::rand(&mut rng);
                 let (_, changes, _) = private_art1.update_key(&secret).unwrap();
 
-                b.iter(|| private_art2.update_private_art(&changes))
+                b.iter(|| private_art2.update(&changes))
             },
         );
     }
@@ -253,8 +251,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                     iter_with_revert(
                         iters,
                         &mut private_art3,
-                        |art| _ = art.update_private_art(&make_blank_changes),
-                        |art| _ = art.update_private_art(&append_changes),
+                        |art| _ = art.update(&make_blank_changes),
+                        |art| _ = art.update(&append_changes),
                     )
                 })
             },
@@ -290,7 +288,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                         .unwrap();
 
                 let lambda = Fr::rand(&mut StdRng::seed_from_u64(rand::random()));
-                let public_key = private_arts[0].xnode_index.get_path().unwrap();
+                let public_key = private_arts[0].get_node_index().get_path().unwrap();
 
                 let (_, append_changes, _) =
                     private_arts[0].append_or_replace_node(&lambda).unwrap();
@@ -304,8 +302,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                     iter_with_revert(
                         iters,
                         &mut art,
-                        |mut art| _ = PrivateART::update_private_art(&mut art, &append_changes),
-                        |mut art| _ = PrivateART::update_private_art(&mut art, &make_blank_changes),
+                        |mut art| _ = PrivateART::update(&mut art, &append_changes),
+                        |mut art| _ = PrivateART::update(&mut art, &make_blank_changes),
                     )
                 })
             },

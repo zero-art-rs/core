@@ -5,6 +5,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::io::SeekFrom::Start;
 use zrt_zk::art::{ProverBranchNode, VerifierBranchNode};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
@@ -45,6 +46,14 @@ impl<G> ProverArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
+    pub fn new(path: Vec<G>, co_path: Vec<G>, secrets: Vec<G::ScalarField>) -> Self {
+        Self {
+            path,
+            co_path,
+            secrets,
+        }
+    }
+
     pub fn to_prover_branch<R: Rng + ?Sized>(
         &self,
         rng: &mut R,
@@ -71,6 +80,10 @@ impl<G> VerifierArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
+    pub fn new(path: Vec<G>, co_path: Vec<G>) -> Self {
+        Self { path, co_path }
+    }
+
     pub fn to_verifier_branch(&self) -> Result<Vec<VerifierBranchNode<G>>, ARTError> {
         if self.path.len() != self.co_path.len() + 1 {
             return Err(ARTError::InvalidInput);
