@@ -1,46 +1,106 @@
 #![allow(non_snake_case)]
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::Instant;
-
-use ark_ec::VariableBaseMSM;
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 use ark_std::log2;
 use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof as BPR1CSProof, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
+use cortado::{self, CortadoAffine, ToScalar};
 use curve25519_dalek::ristretto::CompressedRistretto as DalekCompressedRistretto;
-use curve25519_dalek::scalar::Scalar;
-use merlin::Transcript;
 use rand::{Rng, thread_rng};
 use rand_core::{OsRng, le};
+use merlin::Transcript;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, instrument};
+use std::fmt::{Display, Formatter};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Instant;
+use tracing::debug;
 use zkp::toolbox::SchnorrCS;
-use zkp::toolbox::cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis};
-use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark};
+use zkp::toolbox::cross_dleq::PedersenBasis;
+use zkp::toolbox::dalek_ark::ark_to_ristretto255;
 use zkp::toolbox::{
     FromBytes, ToBytes, prover::Prover as SigmaProver, verifier::Verifier as SigmaVerifier,
 };
 
-use crate::dh::{art_level_gadget, dh_gadget};
+use crate::dh::art_level_gadget;
 use crate::gadgets::r1cs_utils::AllocatedScalar;
 use zkp::CompactProof;
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct ProverBranchNode<G: AffineRepr> {
-    pub secret: G::ScalarField,
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash, CanonicalSerialize, CanonicalDeserialize)]
+pub struct ProverNodeData<G>
+where
+    G: AffineRepr,
+{
+    pub public_key: G,
+    pub co_public_key: Option<G>,
+    pub secret_key: G::ScalarField,
     pub blinding_factor: G::ScalarField,
+}
+
+impl<G> Display for ProverNodeData<G>
+where
+    G: AffineRepr,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let pk_marker = match self.public_key.x() {
+            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
+            None => "None".to_string(),
+        };
+
+        let co_pk_marker = match self.co_public_key {
+            Some(co_pk) => match co_pk.x() {
+                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
+                None => "None".to_string(),
+            },
+            None => "None".to_string(),
+        };
+
+        let sk_marker = self
+            .secret_key
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>()
+            + "...";
+
+        write!(
+            f,
+            "pk: {}, co_pk: {}, sk: {}",
+            pk_marker, co_pk_marker, sk_marker
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash, CanonicalSerialize, CanonicalDeserialize)]
+pub struct VerifierNodeData<G>
+where
+    G: AffineRepr,
+{
     pub public_key: G,
     pub co_public_key: Option<G>,
 }
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct VerifierBranchNode<G: AffineRepr> {
-    pub public_key: G,
-    pub co_public_key: Option<G>,
+impl<G> Display for VerifierNodeData<G>
+where
+    G: AffineRepr,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let pk_marker = match self.public_key.x() {
+            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
+            None => "None".to_string(),
+        };
+
+        let co_pk_marker = match self.co_public_key {
+            Some(co_pk) => match co_pk.x() {
+                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
+                None => "None".to_string(),
+            },
+            None => "None".to_string(),
+        };
+
+        write!(f, "pk: {}, co_pk: {}", pk_marker, co_pk_marker)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -166,7 +226,7 @@ impl CanonicalDeserialize for CompressedRistretto {
 }
 
 /// Estimate the number of generators needed for the given depth
-pub(crate) fn estimate_bp_gens(mut height: usize, leaves: usize, dh_ver: u32) -> usize {
+pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u32) -> usize {
     let eps = 5;
 
     let scalar_mul_complexity = match dh_ver {
@@ -422,7 +482,7 @@ fn Rι_verify(
 fn Rδ_prove(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
-    branch_nodes: &Vec<ProverBranchNode<CortadoAffine>>,
+    branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
 ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
     let start = Instant::now();
     let k = branch_nodes.len() - 1;
@@ -446,15 +506,16 @@ fn Rδ_prove(
                 let mut transcript = Transcript::new(b"ARTGadget");
                 let mut prover = Prover::new(&pc_gens, &mut transcript);
                 let (a_commitment, var_a) = prover.commit(
-                    node.secret.into_scalar(),
+                    node.secret_key.into_scalar(),
                     node.blinding_factor.into_scalar(),
                 );
                 let (ab_commitment, var_ab) = prover.commit(
-                    next_node.secret.into_scalar(),
+                    next_node.secret_key.into_scalar(),
                     next_node.blinding_factor.into_scalar(),
                 );
-                let λ_a_i = AllocatedScalar::new(var_a, Some(node.secret.into_scalar()));
-                let λ_a_next = AllocatedScalar::new(var_ab, Some(next_node.secret.into_scalar()));
+                let λ_a_i = AllocatedScalar::new(var_a, Some(node.secret_key.into_scalar()));
+                let λ_a_next =
+                    AllocatedScalar::new(var_ab, Some(next_node.secret_key.into_scalar()));
                 {
                     let mut commitments = commitments.lock().unwrap();
                     commitments[i] = a_commitment;
@@ -567,7 +628,7 @@ fn Rδ_verify(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     proofs: Vec<R1CSProof>,
-    branch_nodes: &Vec<VerifierBranchNode<CortadoAffine>>,
+    branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
     commitments: Vec<CompressedRistretto>, // k+1
 ) -> Result<(), R1CSError> {
     let start = Instant::now();
@@ -658,7 +719,7 @@ pub fn art_prove(
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     ad: &[u8], // auxiliary data
 
-    branch_nodes: &Vec<ProverBranchNode<CortadoAffine>>,
+    branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     s: Vec<cortado::Fr>,   // auxiliary 𝔾_1 secrets
 ) -> Result<ARTProof, R1CSError> {
@@ -728,7 +789,7 @@ pub fn art_verify(
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     ad: &[u8], // auxiliary data
 
-    branch_nodes: &Vec<VerifierBranchNode<CortadoAffine>>,
+    branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     proof: ARTProof,
 ) -> Result<(), R1CSError> {
@@ -816,12 +877,12 @@ pub fn art_verify(
 
 #[cfg(test)]
 mod tests {
-    use zkp::ProofError;
+    use zkp::{toolbox::dalek_ark::ristretto255_to_ark, ProofError};
 
     use super::*;
 
     /// generate random witness for $\mathcal{R}_{\mathsf{upd}}$
-    fn random_witness_gen(k: u32) -> Vec<ProverBranchNode<CortadoAffine>> {
+    fn random_witness_gen(k: u32) -> Vec<ProverNodeData<CortadoAffine>> {
         let start = Instant::now();
         let mut blinding_rng = rand::thread_rng();
         let mut nodes = Vec::new();
@@ -830,8 +891,8 @@ mod tests {
         let r: cortado::Fr = blinding_rng.r#gen();
         let mut q_b = (CortadoAffine::generator() * r).into_affine();
         // First node
-        nodes.push(ProverBranchNode {
-            secret: λ_a,
+        nodes.push(ProverNodeData {
+            secret_key: λ_a,
             blinding_factor: blinding_rng.r#gen(),
             public_key: (CortadoAffine::generator() * λ_a).into_affine(),
             co_public_key: Some(q_b),
@@ -844,8 +905,8 @@ mod tests {
             let r: cortado::Fr = blinding_rng.r#gen();
             q_b = (CortadoAffine::generator() * r).into_affine();
             // Create next node
-            nodes.push(ProverBranchNode {
-                secret: λ_a,
+            nodes.push(ProverNodeData {
+                secret_key: λ_a,
                 blinding_factor: blinding_rng.r#gen(),
                 public_key: (CortadoAffine::generator() * λ_a).into_affine(),
                 co_public_key: if i != k - 1 { Some(q_b) } else { None },
@@ -955,9 +1016,9 @@ mod tests {
             .collect::<Vec<_>>();
 
         // important: in real app verifier nodes should be generated from the current state of ART(co_public_keys) and the updating branch
-        let verifier_nodes: Vec<VerifierBranchNode<CortadoAffine>> = branch_nodes
+        let verifier_nodes: Vec<VerifierNodeData<CortadoAffine>> = branch_nodes
             .iter()
-            .map(|node| VerifierBranchNode {
+            .map(|node| VerifierNodeData {
                 public_key: node.public_key,
                 co_public_key: node.co_public_key,
             })

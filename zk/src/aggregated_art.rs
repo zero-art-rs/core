@@ -1,119 +1,35 @@
 #![allow(non_snake_case)]
-use std::fmt::{Display, Formatter};
+use ark_ec::VariableBaseMSM;
+use ark_ec::{AffineRepr, CurveGroup};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
-use crate::art::{CompressedRistretto, R1CSProof, estimate_bp_gens};
+use crate::art::{
+    CompressedRistretto, ProverNodeData, R1CSProof, VerifierNodeData, estimate_bp_gens,
+};
 use crate::dh::art_level_gadget;
 use crate::gadgets::r1cs_utils::AllocatedScalar;
 
-use ark_ec::VariableBaseMSM;
-use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
-use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
-use ark_std::log2;
-use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof as BPR1CSProof, Verifier};
+use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use curve25519_dalek::scalar::Scalar;
+use cortado::{self, CortadoAffine, ToScalar};
 use merlin::Transcript;
-use rand::thread_rng;
-use rand_core::{OsRng, le};
-use serde::Serialize;
-use tracing::{debug, info, instrument};
+use tracing::debug;
 
 use tree_ds::{prelude::Node, prelude::TraversalStrategy, prelude::Tree};
 use zkp::CompactProof;
 use zkp::toolbox::{
-    FromBytes, SchnorrCS, ToBytes,
-    cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis},
-    dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark},
-    prover::Prover as SigmaProver,
-    verifier::Verifier as SigmaVerifier,
+    SchnorrCS, cross_dleq::PedersenBasis, dalek_ark::ark_to_ristretto255,
+    prover::Prover as SigmaProver, verifier::Verifier as SigmaVerifier,
 };
 
 /// aggregation tree for the prover
-pub type ProverAggregationTree<G> = Tree<u64, ProverAggregatedNodeData<G>>;
+pub type ProverAggregationTree<G> = Tree<u64, ProverNodeData<G>>;
 
 /// aggregation tree for the verifier
-pub type VerifierAggregationTree<G> = Tree<u64, VerifierAggregatedNodeData<G>>;
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
-pub struct ProverAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    pub public_key: G,
-    pub co_public_key: Option<G>,
-    pub secret_key: G::ScalarField,
-    pub blinding_factor: G::ScalarField,
-}
-
-impl<G> Display for ProverAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-            None => "None".to_string(),
-        };
-
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
-
-        let sk_marker = self
-            .secret_key
-            .to_string()
-            .chars()
-            .take(8)
-            .collect::<String>()
-            + "...";
-
-        write!(
-            f,
-            "pk: {}, co_pk: {}, sk: {}",
-            pk_marker, co_pk_marker, sk_marker
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
-pub struct VerifierAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    pub public_key: G,
-    pub co_public_key: Option<G>,
-}
-
-impl<G> Display for VerifierAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-            None => "None".to_string(),
-        };
-
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
-
-        write!(f, "pk: {}, co_pk: {}", pk_marker, co_pk_marker)
-    }
-}
+pub type VerifierAggregationTree<G> = Tree<u64, VerifierNodeData<G>>;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregatedTreeProof(Tree<u64, (Option<R1CSProof>, CompressedRistretto)>);
@@ -658,12 +574,14 @@ pub fn art_aggregated_verify(
 mod tests {
     use super::*;
     use crate::gadgets::poseidon_gadget::PADDING_CONST;
-    use rand::Rng;
+    use ark_ff::{PrimeField, UniformRand};
+    use rand::{Rng, thread_rng};
     use serde::de;
     use std::fmt::Display;
     use std::hash::Hash;
     use tracing_subscriber::field::debug;
     use zkp::ProofError;
+    use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
     fn convert_to_verifier_tree(
         tree: &ProverAggregationTree<CortadoAffine>,
@@ -678,7 +596,7 @@ mod tests {
                 .add_node(
                     Node::new(
                         node_id,
-                        Some(VerifierAggregatedNodeData {
+                        Some(VerifierNodeData {
                             public_key: node_data.public_key,
                             co_public_key: node_data.co_public_key,
                         }),
@@ -747,7 +665,7 @@ mod tests {
         let root_id = 0;
         let root_node = Node::new(
             root_id,
-            Some(ProverAggregatedNodeData {
+            Some(ProverNodeData {
                 public_key: root_pk,
                 co_public_key: None,
                 secret_key: root_sk,
@@ -779,7 +697,7 @@ mod tests {
                             // current node becomes a left child, add the new node to the right child
                             let left_child_node = Node::new(
                                 node_count,
-                                Some(ProverAggregatedNodeData {
+                                Some(ProverNodeData {
                                     secret_key: node_value.secret_key,
                                     public_key: node_value.public_key,
                                     co_public_key: Some(right_child_pk),
@@ -791,7 +709,7 @@ mod tests {
 
                             let right_child_node = Node::new(
                                 node_count,
-                                Some(ProverAggregatedNodeData {
+                                Some(ProverNodeData {
                                     public_key: right_child_pk,
                                     co_public_key: Some(node_value.public_key),
                                     secret_key: right_child_sk,
