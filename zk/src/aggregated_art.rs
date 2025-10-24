@@ -108,188 +108,269 @@ impl CanonicalDeserialize for AggregatedTreeProof {
     }
 }
 
-fn Rδ_prove(
+pub(crate) fn prove_tree_single_threaded(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+) -> Result<AggregatedTreeProof, R1CSError> {
+    let start = Instant::now();
+    let mut aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
+    let root_id = aggregated_tree
+        .get_root_node()
+        .ok_or(R1CSError::FormatError)?
+        .get_node_id()
+        .map_err(|_| R1CSError::FormatError)?;
+
+    let mut transcript = Transcript::new(b"ARTGadget");
+    let mut prover = Prover::new(pc_gens, &mut transcript);
+    for node_id in aggregated_tree
+        .traverse(&root_id, TraversalStrategy::PreOrder)
+        .map_err(|_| R1CSError::FormatError)?
+    {
+        let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+        let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+
+        if let Some(parent_id) = parent_id {
+            let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
+            let node_data = node
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+            let parent_data = parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+
+            let λ_a_i = node_data.secret_key.into_scalar();
+            let b_i = node_data.blinding_factor.into_scalar();
+            let λ_a_next = parent_data.secret_key.into_scalar();
+            let b_next = parent_data.blinding_factor.into_scalar();
+            let Q_a_i = node_data.public_key.clone();
+            let Q_ab_i = parent_data.public_key.clone();
+            let Q_b_i = node_data.co_public_key.unwrap().clone();
+            let level = node.get_children_ids().unwrap().len();
+
+            let (a_commitment, var_a) = prover.commit(λ_a_i, b_i);
+            let (ab_commitment, var_ab) = prover.commit(λ_a_next, b_next);
+            let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
+            let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
+
+            art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)?;
+
+            if parent_id == root_id {
+                aggregated_proof
+                    .0
+                    .get_node_by_id(&parent_id)
+                    .unwrap()
+                    .update_value(|x| *x = Some((None, CompressedRistretto(ab_commitment))))
+                    .unwrap();
+            }
+            aggregated_proof
+                .0
+                .get_node_by_id(&node_id)
+                .unwrap()
+                .update_value(|x| *x = Some((None, CompressedRistretto(a_commitment))))
+                .unwrap();
+        }
+    }
+    let proof = prover.prove(bp_gens)?;
+    aggregated_proof
+        .0
+        .get_node_by_id(&root_id)
+        .unwrap()
+        .update_value(|x| {
+            if let Some(x) = x.as_mut() {
+                *x = (Some(R1CSProof(proof)), x.1.clone());
+            }
+        })
+        .unwrap(); // place whole proof in the root node
+    let proof_len = aggregated_proof.serialized_size(Compress::Yes);
+    debug!(
+        "prove_tree_single_threaded for depth {} proving time: {:?}, proof_len: {}",
+        aggregated_tree.get_nodes().len() - 1,
+        start.elapsed(),
+        proof_len
+    );
+    Ok(aggregated_proof)
+}
+
+pub(crate) fn prove_tree_multi_threaded(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     aggregated_tree: &ProverAggregationTree<CortadoAffine>,
 ) -> Result<AggregatedTreeProof, R1CSError> {
     let start = Instant::now();
 
-    #[cfg(feature = "multi_thread_prover")]
+    let pc_gens = Arc::new(pc_gens.clone());
+    let bp_gens = Arc::new(bp_gens.clone());
+    let aggregated_proof = Arc::new(Mutex::new(AggregatedTreeProof::from(
+        &aggregated_tree.clone(),
+    )));
+    let mut handles = Vec::new();
+    let root_id = aggregated_tree
+        .get_root_node()
+        .ok_or(R1CSError::FormatError)?
+        .get_node_id()
+        .map_err(|_| R1CSError::FormatError)?;
+    let k = aggregated_tree.get_nodes().len() - 1; // number of edges
+
+    for node_id in aggregated_tree
+        .traverse(&root_id, TraversalStrategy::PreOrder)
+        .map_err(|_| R1CSError::FormatError)?
     {
-        let pc_gens = Arc::new(pc_gens.clone());
-        let bp_gens = Arc::new(bp_gens.clone());
-        let aggregated_proof = Arc::new(Mutex::new(AggregatedTreeProof::from(
-            &aggregated_tree.clone(),
-        )));
-        let mut handles = Vec::new();
-        let root_id = aggregated_tree
-            .get_root_node()
-            .ok_or(R1CSError::FormatError)?
-            .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
-        let k = aggregated_tree.get_nodes().len() - 1; // number of edges
+        let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+        let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+        let parent = parent_id.map(|x| aggregated_tree.get_node_by_id(&x).unwrap());
 
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
-            let parent = parent_id.map(|x| aggregated_tree.get_node_by_id(&x).unwrap());
+        if let Some(parent) = parent {
+            let node_data = node
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+            let parent_data = parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+            let aggregated_proof = aggregated_proof.clone();
+            let pc_gens = pc_gens.clone();
+            let bp_gens = bp_gens.clone();
 
-            if let Some(parent) = parent {
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let aggregated_proof = aggregated_proof.clone();
-                let pc_gens = pc_gens.clone();
-                let bp_gens = bp_gens.clone();
-
-                let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor.into_scalar();
-                let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor.into_scalar();
-                let Q_a_i = node_data.public_key.clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let level = node.get_children_ids().unwrap().len(); // for leaves level is 0
-                handles.push(std::thread::spawn(move || {
-                    let mut transcript = Transcript::new(b"ARTGadget");
-                    let mut prover = Prover::new(&pc_gens, &mut transcript);
-                    let (a_commitment, var_a) = prover.commit(λ_a_i, b_i);
-                    let (ab_commitment, var_ab) = prover.commit(λ_a_next, b_next);
-                    let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
-                    let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
-
-                    art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)
-                        .unwrap();
-
-                    let proof = prover.prove(&bp_gens).unwrap();
-                    let lock = aggregated_proof.lock().unwrap();
-                    let proof_node = lock.0.get_node_by_id(&node_id).unwrap();
-                    let proof_parent = lock.0.get_node_by_id(&parent_id.unwrap()).unwrap();
-                    if parent_id.unwrap() == root_id {
-                        proof_parent
-                            .update_value(|x| *x = Some((None, CompressedRistretto(ab_commitment))))
-                            .unwrap();
-                    }
-                    proof_node
-                        .update_value(|x| {
-                            *x = Some((Some(R1CSProof(proof)), CompressedRistretto(a_commitment)))
-                        })
-                        .unwrap();
-                }));
-            }
-
-            /*node.update_value(|x| if let Some(x) = x.as_mut() {
-                x.marker = true;
-            }).map_err(|_| R1CSError::FormatError)?;*/
-        }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        let proof_len = aggregated_proof
-            .lock()
-            .unwrap()
-            .serialized_size(Compress::Yes);
-        debug!(
-            "aggregated Rδ_prove (parallel) for depth {k} proving time: {:?}, proof_len: {proof_len}",
-            start.elapsed()
-        );
-        Ok((*aggregated_proof.lock().unwrap()).clone())
-    }
-    #[cfg(not(feature = "multi_thread_prover"))]
-    {
-        let mut aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
-        let root_id = aggregated_tree
-            .get_root_node()
-            .ok_or(R1CSError::FormatError)?
-            .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
-
-        let mut transcript = Transcript::new(b"ARTGadget");
-        let mut prover = Prover::new(pc_gens, &mut transcript);
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
-
-            if let Some(parent_id) = parent_id {
-                let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-
-                let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor.into_scalar();
-                let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor.into_scalar();
-                let Q_a_i = node_data.public_key.clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let level = node.get_children_ids().unwrap().len();
-
+            let λ_a_i = node_data.secret_key.into_scalar();
+            let b_i = node_data.blinding_factor.into_scalar();
+            let λ_a_next = parent_data.secret_key.into_scalar();
+            let b_next = parent_data.blinding_factor.into_scalar();
+            let Q_a_i = node_data.public_key.clone();
+            let Q_ab_i = parent_data.public_key.clone();
+            let Q_b_i = node_data.co_public_key.unwrap().clone();
+            let level = node.get_children_ids().unwrap().len(); // for leaves level is 0
+            handles.push(std::thread::spawn(move || {
+                let mut transcript = Transcript::new(b"ARTGadget");
+                let mut prover = Prover::new(&pc_gens, &mut transcript);
                 let (a_commitment, var_a) = prover.commit(λ_a_i, b_i);
                 let (ab_commitment, var_ab) = prover.commit(λ_a_next, b_next);
                 let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
                 let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
 
-                art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)?;
+                art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)
+                    .unwrap();
 
-                if parent_id == root_id {
-                    aggregated_proof
-                        .0
-                        .get_node_by_id(&parent_id)
-                        .unwrap()
+                let proof = prover.prove(&bp_gens).unwrap();
+                let lock = aggregated_proof.lock().unwrap();
+                let proof_node = lock.0.get_node_by_id(&node_id).unwrap();
+                let proof_parent = lock.0.get_node_by_id(&parent_id.unwrap()).unwrap();
+                if parent_id.unwrap() == root_id {
+                    proof_parent
                         .update_value(|x| *x = Some((None, CompressedRistretto(ab_commitment))))
                         .unwrap();
                 }
-                aggregated_proof
-                    .0
-                    .get_node_by_id(&node_id)
-                    .unwrap()
-                    .update_value(|x| *x = Some((None, CompressedRistretto(a_commitment))))
+                proof_node
+                    .update_value(|x| {
+                        *x = Some((Some(R1CSProof(proof)), CompressedRistretto(a_commitment)))
+                    })
                     .unwrap();
-            }
+            }));
         }
-        let proof = prover.prove(bp_gens)?;
-        aggregated_proof
-            .0
-            .get_node_by_id(&root_id)
-            .unwrap()
-            .update_value(|x| {
-                if let Some(x) = x.as_mut() {
-                    *x = (Some(R1CSProof(proof)), x.1.clone());
-                }
-            })
-            .unwrap(); // place whole proof in the root node
-        let proof_len = aggregated_proof.serialized_size(Compress::Yes);
-        debug!(
-            "aggregated Rδ_prove (sequential) for depth {} proving time: {:?}, proof_len: {}",
-            aggregated_tree.get_nodes().len() - 1,
-            start.elapsed(),
-            proof_len
-        );
-        Ok(aggregated_proof)
     }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let proof_len = aggregated_proof
+        .lock()
+        .unwrap()
+        .serialized_size(Compress::Yes);
+    debug!(
+        "prove_tree_multi_threaded for depth {k} proving time: {:?}, proof_len: {proof_len}",
+        start.elapsed()
+    );
+    Ok((*aggregated_proof.lock().unwrap()).clone())
 }
 
-fn Rδ_verify(
+pub(crate) fn verify_tree_single_threaded(
+    pc_gens: &PedersenGens,
+    bp_gens: &BulletproofGens,
+    aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+    proof_tree: &AggregatedTreeProof,
+) -> Result<(), R1CSError> {
+    let start = Instant::now();
+    let mut transcript = Transcript::new(b"ARTGadget");
+    let mut verifier = Verifier::new(&mut transcript);
+    let root_id = aggregated_tree
+        .get_root_node()
+        .ok_or(R1CSError::FormatError)?
+        .get_node_id()
+        .map_err(|_| R1CSError::FormatError)?;
+
+    for node_id in aggregated_tree
+        .traverse(&root_id, TraversalStrategy::PreOrder)
+        .map_err(|_| R1CSError::FormatError)?
+    {
+        let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+        let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+
+        if let Some(parent_id) = parent_id {
+            let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
+            let node_data = node
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+            let parent_data = parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+
+            let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
+            let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
+            let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
+            let proof_parent_data = proof_parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?;
+
+            let Q_a_i = node_data.public_key.clone();
+            let Q_b_i = node_data.co_public_key.unwrap().clone();
+            let Q_ab_i = parent_data.public_key.clone();
+            let (_, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
+            let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
+            let level = node.get_children_ids().unwrap().len();
+
+            let var_a = verifier.commit(commitment_i.0);
+            let var_ab = verifier.commit(commitment_next.0);
+            let λ_a_i = AllocatedScalar::new(var_a, None);
+            let λ_a_next = AllocatedScalar::new(var_ab, None);
+
+            art_level_gadget(
+                2,
+                &mut verifier,
+                level,
+                λ_a_i,
+                λ_a_next,
+                Q_a_i,
+                Q_ab_i,
+                Q_b_i,
+            )?;
+        }
+    }
+    let proof = proof_tree
+        .0
+        .get_node_by_id(&root_id)
+        .unwrap()
+        .get_value()
+        .map_err(|_| R1CSError::FormatError)?
+        .ok_or(R1CSError::FormatError)?
+        .0
+        .ok_or(R1CSError::FormatError)?;
+    verifier.verify(&proof.0, &pc_gens, &bp_gens)?;
+
+    debug!(
+        "verify_tree_single_threaded for depth {} verification time: {:?}",
+        aggregated_tree.get_nodes().len() - 1,
+        start.elapsed()
+    );
+    Ok(())
+}
+
+pub(crate) fn verify_tree_multi_threaded(
     pc_gens: &PedersenGens,
     bp_gens: &BulletproofGens,
     aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
@@ -297,155 +378,82 @@ fn Rδ_verify(
 ) -> Result<(), R1CSError> {
     let start = Instant::now();
 
-    #[cfg(feature = "multi_thread_verifier")]
+    let pc_gens = Arc::new(pc_gens.clone());
+    let bp_gens = Arc::new(bp_gens.clone());
+    let (tx, rx) = mpsc::channel();
+    let mut handles = Vec::new();
+    let root_id = aggregated_tree
+        .get_root_node()
+        .ok_or(R1CSError::FormatError)?
+        .get_node_id()
+        .map_err(|_| R1CSError::FormatError)?;
+
+    for node_id in aggregated_tree
+        .traverse(&root_id, TraversalStrategy::PreOrder)
+        .map_err(|_| R1CSError::FormatError)?
     {
-        let pc_gens = Arc::new(pc_gens.clone());
-        let bp_gens = Arc::new(bp_gens.clone());
-        let (tx, rx) = mpsc::channel();
-        let mut handles = Vec::new();
-        let root_id = aggregated_tree
-            .get_root_node()
-            .ok_or(R1CSError::FormatError)?
-            .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
+        let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+        let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
 
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+        if let Some(parent_id) = parent_id {
+            let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
+            let node_data = node
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
+            let parent_data = parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?
+                .unwrap();
 
-            if let Some(parent_id) = parent_id {
-                let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
+            let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
+            let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
+            let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
+            let proof_parent_data = proof_parent
+                .get_value()
+                .map_err(|_| R1CSError::FormatError)?;
 
-                let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
-                let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-                let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
-                let proof_parent_data = proof_parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?;
+            let tx = tx.clone();
+            let pc_gens = pc_gens.clone();
+            let bp_gens = bp_gens.clone();
+            let Q_a_i = node_data.public_key.clone();
+            let Q_b_i = node_data.co_public_key.unwrap().clone();
+            let Q_ab_i = parent_data.public_key.clone();
+            let (proof, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
+            let proof = proof.ok_or(R1CSError::FormatError)?;
+            let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
+            let level = node.get_children_ids().unwrap().len();
 
-                let tx = tx.clone();
-                let pc_gens = pc_gens.clone();
-                let bp_gens = bp_gens.clone();
-                let Q_a_i = node_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let (proof, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
-                let proof = proof.ok_or(R1CSError::FormatError)?;
-                let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
-                let level = node.get_children_ids().unwrap().len();
-
-                handles.push(std::thread::spawn(move || {
-                    let mut transcript = Transcript::new(b"ARTGadget");
-                    let mut verifier = Verifier::new(&mut transcript);
-                    let var_a = verifier.commit(commitment_i.0);
-                    let var_ab = verifier.commit(commitment_next.0);
-                    let λ_a_i = AllocatedScalar::new(var_a, None);
-                    let λ_a_next = AllocatedScalar::new(var_ab, None);
-                    let _ = tx.send(
-                        art_level_gadget(
-                            2,
-                            &mut verifier,
-                            level,
-                            λ_a_i,
-                            λ_a_next,
-                            Q_a_i,
-                            Q_ab_i,
-                            Q_b_i,
-                        )
-                        .and_then(|_| verifier.verify(&proof.0, &pc_gens, &bp_gens)),
-                    );
-                }));
-            }
-        }
-
-        for _ in handles {
-            rx.recv().unwrap()?;
-        }
-    }
-    #[cfg(not(feature = "multi_thread_verifier"))]
-    {
-        let mut transcript = Transcript::new(b"ARTGadget");
-        let mut verifier = Verifier::new(&mut transcript);
-        let root_id = aggregated_tree
-            .get_root_node()
-            .ok_or(R1CSError::FormatError)?
-            .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
-
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
-
-            if let Some(parent_id) = parent_id {
-                let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-
-                let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
-                let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-                let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
-                let proof_parent_data = proof_parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?;
-
-                let Q_a_i = node_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let (_, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
-                let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
-                let level = node.get_children_ids().unwrap().len();
-
+            handles.push(std::thread::spawn(move || {
+                let mut transcript = Transcript::new(b"ARTGadget");
+                let mut verifier = Verifier::new(&mut transcript);
                 let var_a = verifier.commit(commitment_i.0);
                 let var_ab = verifier.commit(commitment_next.0);
                 let λ_a_i = AllocatedScalar::new(var_a, None);
                 let λ_a_next = AllocatedScalar::new(var_ab, None);
-
-                art_level_gadget(
-                    2,
-                    &mut verifier,
-                    level,
-                    λ_a_i,
-                    λ_a_next,
-                    Q_a_i,
-                    Q_ab_i,
-                    Q_b_i,
-                )?;
-            }
+                let _ = tx.send(
+                    art_level_gadget(
+                        2,
+                        &mut verifier,
+                        level,
+                        λ_a_i,
+                        λ_a_next,
+                        Q_a_i,
+                        Q_ab_i,
+                        Q_b_i,
+                    )
+                    .and_then(|_| verifier.verify(&proof.0, &pc_gens, &bp_gens)),
+                );
+            }));
         }
-        let proof = proof_tree
-            .0
-            .get_node_by_id(&root_id)
-            .unwrap()
-            .get_value()
-            .map_err(|_| R1CSError::FormatError)?
-            .ok_or(R1CSError::FormatError)?
-            .0
-            .ok_or(R1CSError::FormatError)?;
-        verifier.verify(&proof.0, &pc_gens, &bp_gens)?;
+    }
+
+    for _ in handles {
+        rx.recv().unwrap()?;
     }
 
     debug!(
-        "aggregated Rδ_verify for depth {} verification time: {:?}",
+        "verify_tree_multi_threaded for depth {} verification time: {:?}",
         aggregated_tree.get_nodes().len() - 1,
         start.elapsed()
     );
@@ -481,7 +489,7 @@ pub fn art_aggregated_prove(
     }
     #[cfg(not(feature = "cross_sigma"))]
     {
-        let levels_proof = Rδ_prove(&pc_gens, &bp_gens, aggregated_tree)?;
+        let levels_proof = prove_tree_multi_threaded(&pc_gens, &bp_gens, aggregated_tree)?;
 
         let mut transcript = Transcript::new(b"R_sigma");
         transcript.append_message(b"ad", ad);
@@ -534,7 +542,7 @@ pub fn art_aggregated_verify(
     }
     #[cfg(not(feature = "cross_sigma"))]
     {
-        Rδ_verify(&pc_gens, &bp_gens, aggregated_tree, &proof.Rδ)?;
+        verify_tree_multi_threaded(&pc_gens, &bp_gens, aggregated_tree, &proof.Rδ)?;
 
         let mut transcript = Transcript::new(b"R_sigma");
         transcript.append_message(b"ad", ad);

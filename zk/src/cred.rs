@@ -2,6 +2,7 @@
 
 use std::time::{self, Instant, SystemTime};
 
+use crate::art::{CompressedRistretto, R1CSProof};
 use crate::dh::{bin_equality_gadget, scalar_mul_gadget};
 use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
@@ -11,11 +12,11 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs::{
     ProofError,
-    r1cs::{self, *},
+    r1cs::{self, ConstraintSystem, LinearCombination, Prover, R1CSError, Variable, Verifier},
 };
 use chrono::{DateTime, Utc};
 use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use curve25519_dalek::ristretto::{self, CompressedRistretto};
+use curve25519_dalek::ristretto::{self};
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::{Rng, thread_rng};
@@ -50,12 +51,12 @@ pub struct Credential {
 }
 
 // TODO: implement FromBytes and ToBytes for CredentialPresentationProof
-#[derive(Clone)]
+#[derive(Clone, CanonicalDeserialize, CanonicalSerialize)]
 pub struct CredentialPresentationProof {
     pub proof: R1CSProof,
     pub id_comm: CompressedRistretto,
     pub Q_holder_comm: (CompressedRistretto, CompressedRistretto),
-    pub claimed_time: DateTime<Utc>,
+    pub claimed_time: u64,
     pub exp_comm: CompressedRistretto,
     pub k_comm: CompressedRistretto,
     pub c_comm: CompressedRistretto,
@@ -267,15 +268,18 @@ impl Credential {
         );
 
         Ok(CredentialPresentationProof {
-            proof,
-            id_comm,
-            Q_holder_comm,
-            claimed_time,
-            exp_comm,
-            k_comm,
-            c_comm,
-            R_comm,
-            s_comm,
+            proof: R1CSProof(proof),
+            id_comm: CompressedRistretto(id_comm),
+            Q_holder_comm: (
+                CompressedRistretto(Q_holder_comm.0),
+                CompressedRistretto(Q_holder_comm.1),
+            ),
+            claimed_time: claimed_time.timestamp() as u64,
+            exp_comm: CompressedRistretto(exp_comm),
+            k_comm: CompressedRistretto(k_comm),
+            c_comm: CompressedRistretto(c_comm),
+            R_comm: (CompressedRistretto(R_comm.0), CompressedRistretto(R_comm.1)),
+            s_comm: CompressedRistretto(s_comm),
             Q_issuer: self.issuer,
         })
     }
@@ -289,17 +293,17 @@ impl Credential {
         let pc_gens = PedersenGens::default();
         let mut verifier = r1cs::Verifier::new(&mut transcript);
 
-        let id_var = verifier.allocate_scalar(proof.id_comm)?;
-        let Q_holder = verifier.allocate_point(proof.Q_holder_comm.0, proof.Q_holder_comm.1)?;
-        let exp_var = verifier.allocate_scalar(proof.exp_comm)?;
-        let k_var = verifier.allocate_scalar(proof.k_comm)?;
-        let c_var = verifier.allocate_scalar(proof.c_comm)?;
-        let R = verifier.allocate_point(proof.R_comm.0, proof.R_comm.1)?;
-        let s_var = verifier.allocate_scalar(proof.s_comm)?;
+        let id_var = verifier.allocate_scalar(proof.id_comm.0)?;
+        let Q_holder = verifier.allocate_point(proof.Q_holder_comm.0.0, proof.Q_holder_comm.1.0)?;
+        let exp_var = verifier.allocate_scalar(proof.exp_comm.0)?;
+        let k_var = verifier.allocate_scalar(proof.k_comm.0)?;
+        let c_var = verifier.allocate_scalar(proof.c_comm.0)?;
+        let R = verifier.allocate_point(proof.R_comm.0.0, proof.R_comm.1.0)?;
+        let s_var = verifier.allocate_scalar(proof.s_comm.0)?;
 
         Self::credential_presentation_gadget(
             &mut verifier,
-            proof.claimed_time.timestamp() as u64,
+            proof.claimed_time,
             proof.Q_issuer,
             revocation_list,
             id_var,
@@ -310,17 +314,21 @@ impl Credential {
             R,
             s_var,
         )?;
-        if Utc::now() - proof.claimed_time
+
+        if Utc::now()
+            - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0).unwrap_or_default()
             > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64)
         {
             debug!(
                 "Credential presentation proof claimed time is within tolerance {:?}",
-                Utc::now() - proof.claimed_time
+                Utc::now()
+                    - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0)
+                        .unwrap_or_default()
             );
             return Err(R1CSError::VerificationError);
         }
 
-        verifier.verify(&proof.proof, &pc_gens, &BulletproofGens::new(8192, 1))?;
+        verifier.verify(&proof.proof.0, &pc_gens, &BulletproofGens::new(8192, 1))?;
         debug!(
             "Credential presentation proof verified in {:?}",
             start.elapsed()
