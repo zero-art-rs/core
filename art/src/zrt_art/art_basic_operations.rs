@@ -3,16 +3,16 @@ use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
 use crate::zrt_art::EligibilityProofInput;
 use crate::zrt_art::art_node::{ArtNode, LeafStatus};
-use crate::zrt_art::art_types::PrivateArt;
-use crate::zrt_art::branch_change::BranchChanges;
-use crate::zrt_art::tree_node::TreeMethods;
+use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt};
+use crate::zrt_art::branch_change::{BranchChange, VerifiableBranchChange};
+use crate::zrt_art::tree_methods::TreeMethods;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
+use ark_std::rand::Rng;
+use cortado::{CortadoAffine, Fr};
+use std::ops::Mul;
 use tracing::debug;
-// art.update_node_key::<VerifiableBranchChanges>(...)
-//
-// VerifiableBranchChanges::update_node_key(&art, ...)
-// VerifiableBranchChanges::mut_update_node_key(&mut art, ...)
+use zrt_zk::art::{art_prove, art_verify};
 
 pub trait ArtBasicOps<G, R>
 where
@@ -50,7 +50,7 @@ where
     ) -> Result<R, ARTError>;
 }
 
-impl<G> ArtBasicOps<G, BranchChanges<G>> for PrivateArt<G>
+impl<G> ArtBasicOps<G, BranchChange<G>> for PrivateArt<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -62,7 +62,7 @@ where
         append_changes: bool,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         let path = target_leaf.get_path()?;
         let (_, changes, artefacts) =
             self.update_art_branch_with_leaf_secret_key(new_key, &path, append_changes)?;
@@ -81,7 +81,7 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         let mut path = match self.public_art.find_path_to_left_most_blank_node() {
             Some(path) => path,
             None => self.public_art.find_path_to_lowest_leaf()?,
@@ -124,7 +124,7 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         todo!()
     }
 
@@ -133,7 +133,147 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
+        todo!()
+    }
+}
+
+impl<'a, R> ArtBasicOps<CortadoAffine, VerifiableBranchChange> for PrivateZeroArt<'a, R>
+where
+    R: ?Sized + Rng,
+{
+    fn update_node_key(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: Fr,
+        append_changes: bool,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let user_secret_key = self.private_art.get_leaf_secret_key()?;
+
+        let path = target_leaf.get_path()?;
+        let (_, change, artefacts) = self.private_art.update_art_branch_with_leaf_secret_key(
+            new_key,
+            &path,
+            append_changes,
+        )?;
+
+        self.private_art.zip_update_path_secrets(
+            artefacts.secrets.clone(),
+            &change.node_index,
+            append_changes,
+        )?;
+
+        let proof = art_prove(
+            self.proof_basis.clone(),
+            ad,
+            &artefacts.to_prover_branch(self.rng)?,
+            vec![
+                CortadoAffine::generator()
+                    .mul(user_secret_key)
+                    .into_affine(),
+            ],
+            vec![user_secret_key],
+        )?;
+
+        Ok({
+            VerifiableBranchChange {
+                branch_change: change,
+                proof,
+            }
+        })
+    }
+
+    fn add_node(
+        &mut self,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let user_secret_key = self.private_art.get_leaf_secret_key()?;
+
+        let mut path = match self.get_public_art().find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.get_public_art().find_path_to_lowest_leaf()?,
+        };
+
+        let new_leaf = ArtNode::new_leaf(CortadoAffine::generator().mul(new_key).into_affine());
+        let target_leaf = self.get_mut_node_at(&path)?;
+
+        if !target_leaf.is_leaf() {
+            return Err(ARTError::LeafOnly);
+        }
+
+        let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
+        target_leaf.extend_or_replace(new_leaf)?;
+
+        self.private_art
+            .public_art
+            .update_branch_weight(&path, false)?;
+
+        if extend_node {
+            path.push(Direction::Right);
+        }
+
+        let (_, change, artefacts) = self
+            .private_art
+            .update_art_branch_with_leaf_secret_key(new_key, &path, false)?;
+
+        if self
+            .private_art
+            .get_node_index()
+            .is_subpath_of(&change.node_index)?
+        {
+            let mut new_path_secrets =
+                vec![*self.private_art.secrets.first().ok_or(ARTError::EmptyART)?];
+            new_path_secrets.append(self.private_art.secrets.clone().as_mut());
+            self.private_art.secrets = new_path_secrets;
+        }
+        self.private_art.update_node_index()?;
+
+        self.private_art.zip_update_path_secrets(
+            artefacts.secrets.clone(),
+            &change.node_index,
+            false,
+        )?;
+
+        let proof = art_prove(
+            self.proof_basis.clone(),
+            ad,
+            &artefacts.to_prover_branch(self.rng)?,
+            vec![
+                CortadoAffine::generator()
+                    .mul(user_secret_key)
+                    .into_affine(),
+            ],
+            vec![user_secret_key],
+        )?;
+
+        Ok({
+            VerifiableBranchChange {
+                branch_change: change,
+                proof,
+            }
+        })
+    }
+
+    fn draft_update_node_key(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        todo!()
+    }
+
+    fn draft_add_node(
+        &mut self,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
         todo!()
     }
 }

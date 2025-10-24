@@ -1,3 +1,4 @@
+use bulletproofs::r1cs::R1CSError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -38,4 +39,6 @@ pub enum ARTError {
     TreeDS,
     #[error("Provided aggregation is invalid.")]
     InvalidAggregation,
+    #[error("R1CSError: {0}")]
+    R1CSError(#[from] R1CSError),
 }

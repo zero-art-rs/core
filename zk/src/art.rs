@@ -37,7 +37,7 @@ pub struct ProverBranchNode<G: AffineRepr> {
     pub co_public_key: Option<G>,
 }
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct VerifierBranchNode<G: AffineRepr> {
     pub public_key: G,
     pub co_public_key: Option<G>,

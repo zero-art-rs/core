@@ -1,12 +1,14 @@
 use crate::errors::ARTError;
 use crate::node_index::NodeIndex;
 use crate::zrt_art::art_node::LeafStatus;
-use crate::zrt_art::art_types::PrivateArt;
-use crate::zrt_art::branch_change::{BranchChanges, BranchChangesType};
-use crate::zrt_art::tree_node::TreeMethods;
+use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt};
+use crate::zrt_art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
+use crate::zrt_art::tree_methods::TreeMethods;
 use crate::zrt_art::{ArtBasicOps, EligibilityProofInput};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
+use ark_std::rand::Rng;
+use cortado::{CortadoAffine, Fr};
 use tracing::debug;
 
 pub trait ArtAdvancedOps<G, R>: ArtBasicOps<G, R>
@@ -43,7 +45,7 @@ where
     ) -> Result<R, ARTError>;
 }
 
-impl<G> ArtAdvancedOps<G, BranchChanges<G>> for PrivateArt<G>
+impl<G> ArtAdvancedOps<G, BranchChange<G>> for PrivateArt<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -53,11 +55,13 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
-        let change = self.add_node(new_key, eligibility_proof_input, ad).map(|mut change| {
-            change.change_type = BranchChangesType::AddMember;
-            change
-        })?;
+    ) -> Result<BranchChange<G>, ARTError> {
+        let change = self
+            .add_node(new_key, eligibility_proof_input, ad)
+            .map(|mut change| {
+                change.change_type = BranchChangeType::AddMember;
+                change
+            })?;
 
         let mut update_path = change.node_index.get_path()?;
         if let None = update_path.pop() {
@@ -75,22 +79,24 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
             self.get_node_at(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
-        let change = self.update_node_key(
-            target_leaf,
-            new_key,
-            append_changes,
-            eligibility_proof_input,
-            ad,
-        ).map(|mut change| {
-            change.change_type = BranchChangesType::MakeBlank;
-            change
-        })?;
+        let change = self
+            .update_node_key(
+                target_leaf,
+                new_key,
+                append_changes,
+                eligibility_proof_input,
+                ad,
+            )
+            .map(|mut change| {
+                change.change_type = BranchChangeType::MakeBlank;
+                change
+            })?;
 
         self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
 
@@ -106,11 +112,12 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         let index = self.get_node_index().clone();
-        let change =
-            self.update_node_key(&index, new_key, false, eligibility_proof_input, ad).map(|mut change| {
-                change.change_type = BranchChangesType::Leave;
+        let change = self
+            .update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+            .map(|mut change| {
+                change.change_type = BranchChangeType::Leave;
                 change
             })?;
 
@@ -125,8 +132,104 @@ where
         new_key: G::ScalarField,
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
-    ) -> Result<BranchChanges<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ARTError> {
         let index = self.get_node_index().clone();
+        self.update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+    }
+}
+
+impl<'a, R> ArtAdvancedOps<CortadoAffine, VerifiableBranchChange> for PrivateZeroArt<'a, R>
+where
+    R: Rng + ?Sized,
+{
+    fn add_member(
+        &mut self,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let change = self
+            .add_node(new_key, eligibility_proof_input, ad)
+            .map(|mut change| {
+                change.branch_change.change_type = BranchChangeType::AddMember;
+                change
+            })?;
+
+        let mut update_path = change.branch_change.node_index.get_path()?;
+        if let None = update_path.pop() {
+            return Err(ARTError::EmptyART);
+        };
+
+        self.private_art
+            .public_art
+            .update_branch_weight(&update_path, true)?;
+
+        Ok(change)
+    }
+
+    fn remove_member(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let path = target_leaf.get_path()?;
+        let append_changes = matches!(
+            self.get_node_at(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+        let change = self
+            .update_node_key(
+                target_leaf,
+                new_key,
+                append_changes,
+                eligibility_proof_input,
+                ad,
+            )
+            .map(|mut change| {
+                change.branch_change.change_type = BranchChangeType::MakeBlank;
+                change
+            })?;
+
+        self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+
+        if !append_changes {
+            self.private_art
+                .public_art
+                .update_branch_weight(&path, false)?;
+        }
+
+        Ok(change)
+    }
+
+    fn leave_group(
+        &mut self,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let index = self.private_art.get_node_index().clone();
+        let change = self
+            .update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+            .map(|mut change| {
+                change.branch_change.change_type = BranchChangeType::Leave;
+                change
+            })?;
+
+        self.get_mut_node(&index)?
+            .set_status(LeafStatus::PendingRemoval)?;
+
+        Ok(change)
+    }
+
+    fn update_key(
+        &mut self,
+        new_key: Fr,
+        eligibility_proof_input: Option<EligibilityProofInput>,
+        ad: &[u8],
+    ) -> Result<VerifiableBranchChange, ARTError> {
+        let index = self.private_art.get_node_index().clone();
         self.update_node_key(&index, new_key, false, eligibility_proof_input, ad)
     }
 }
@@ -137,8 +240,9 @@ mod tests {
     use crate::init_tracing;
     use crate::zrt_art::applicable_change::ApplicableChange;
     use crate::zrt_art::art_advanced_operations::ArtAdvancedOps;
-    use crate::zrt_art::art_types::{PrivateArt, PublicArt};
-    use crate::zrt_art::tree_node::TreeMethods;
+    use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+    use crate::zrt_art::tree_methods::TreeMethods;
+    use crate::zrt_art::verifiable_change::VerifiableChange;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
@@ -146,7 +250,10 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::ops::Mul;
-    use tracing::debug;
+    use tracing::{debug, warn};
+    use zrt_zk::art::ARTProof;
+
+    const DEFAULT_TEST_GROUP_SIZE: i32 = 100;
 
     #[test]
     fn test_flow_append_join_update() {
@@ -322,18 +429,17 @@ mod tests {
 
         let err = remove_member_change1.update(&mut user2).err();
         assert!(
-            matches!(
-                err,
-                Some(ARTError::InapplicableBlanking)
-            ),
+            matches!(err, Some(ARTError::InapplicableBlanking)),
             "Must fail to perform art update using blank leaf, but got {:?}.",
             err
         );
 
         assert_eq!(
-            user0, user1,
+            user0,
+            user1,
             "Both users have the same view on the state of the art, but have: user0:\n{},\nuser1:\n{}",
-            user0.get_root(), user1.get_root(),
+            user0.get_root(),
+            user1.get_root(),
         );
         assert_eq!(
             user0, user3,

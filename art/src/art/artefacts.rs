@@ -5,6 +5,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use zrt_zk::art::{ProverBranchNode, VerifierBranchNode};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
@@ -91,7 +92,7 @@ where
         let mut nodes = Vec::with_capacity(self.path.len());
         for i in 0..self.path.len() {
             nodes.push(VerifierBranchNode::<G> {
-                public_key: *self.path.get(i).ok_or(ARTError::InvalidInput)?,
+                public_key: *self.path.get(i).ok_or(ARTError::PathNotExists)?,
                 co_public_key: self.co_path.get(i).copied(),
             })
         }

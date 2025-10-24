@@ -1,16 +1,21 @@
+use crate::art::VerifierArtefacts;
 use crate::errors::ARTError;
-use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
+use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use crate::zrt_art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
-use crate::zrt_art::branch_change::{BranchChanges, BranchChangesType};
-use crate::zrt_art::tree_node::TreeMethods;
+use crate::zrt_art::branch_change::{BranchChange, BranchChangeType};
+use crate::zrt_art::tree_methods::TreeMethods;
 use crate::zrt_art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_ed25519::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
 use ark_std::rand::Rng;
+use bulletproofs::PedersenGens;
+use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
+use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
@@ -32,24 +37,18 @@ where
 }
 
 #[derive(Clone)]
-pub struct PublicZeroArt<G1, G2>
-where
-    G1: AffineRepr,
-    G2: AffineRepr,
-{
-    pub(crate) public_art: PublicArt<G1>,
-    pub(crate) proof_basis: PedersenBasis<G1, G2>,
+pub struct PublicZeroArt {
+    pub(crate) public_art: PublicArt<CortadoAffine>,
+    pub(crate) proof_basis: PedersenBasis<CortadoAffine, EdwardsAffine>,
 }
 
-pub struct PrivateZeroArt<'a, G1, G2, R>
+pub struct PrivateZeroArt<'a, R>
 where
-    G1: AffineRepr,
-    G2: AffineRepr,
     R: Rng + ?Sized,
 {
     pub(crate) rng: &'a mut R,
-    pub(crate) private_art: PrivateArt<G1>,
-    pub(crate) proof_basis: PedersenBasis<G1, G2>,
+    pub(crate) private_art: PrivateArt<CortadoAffine>,
+    pub(crate) proof_basis: PedersenBasis<CortadoAffine, EdwardsAffine>,
 }
 
 impl<G> PublicArt<G>
@@ -104,24 +103,24 @@ where
     ///   blanking of some node.
     pub(crate) fn update_with_options(
         &mut self,
-        change: &BranchChanges<G>,
+        change: &BranchChange<G>,
         append_changes: bool,
         update_weights: bool,
     ) -> Result<(), ARTError> {
         match &change.change_type {
-            BranchChangesType::UpdateKey => {}
-            BranchChangesType::AddMember => {
+            BranchChangeType::UpdateKey => {}
+            BranchChangeType::AddMember => {
                 let leaf =
                     ArtNode::new_leaf(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
                 self.append_or_replace_node_without_changes(leaf, &change.node_index.get_path()?)?;
             }
-            BranchChangesType::MakeBlank => {
+            BranchChangeType::MakeBlank => {
                 self.make_blank_without_changes_with_options(
                     &change.node_index.get_path()?,
                     update_weights,
                 )?;
             }
-            BranchChangesType::Leave => {
+            BranchChangeType::Leave => {
                 self.get_mut_node(&change.node_index)?
                     .set_status(LeafStatus::PendingRemoval)?;
             }
@@ -184,7 +183,7 @@ where
     /// structure.
     pub fn update_art_with_changes(
         &mut self,
-        changes: &BranchChanges<G>,
+        changes: &BranchChange<G>,
         append_changes: bool,
     ) -> Result<(), ARTError> {
         if changes.public_keys.is_empty() {
@@ -257,6 +256,43 @@ where
 
         Ok(next)
     }
+
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn compute_artefacts_for_verification(
+        &self,
+        changes: &BranchChange<G>,
+    ) -> Result<VerifierArtefacts<G>, ARTError> {
+        let mut co_path = Vec::new();
+
+        let mut parent = self.get_root();
+        for direction in &changes.node_index.get_path()? {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = changes.change_type
+                    && matches!(parent.get_status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.get_public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .get_child(direction.other())
+                        .ok_or(ARTError::PathNotExists)?
+                        .get_public_key(),
+                );
+                parent = parent
+                    .get_child(*direction)
+                    .ok_or(ARTError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        Ok(VerifierArtefacts {
+            path: changes.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        })
+    }
 }
 
 impl<G> PrivateArt<G>
@@ -285,7 +321,7 @@ where
                 Self::fit_leaves_in_one_level(level_nodes, level_secrets)?;
         }
 
-        let (root, tk) = Self::compute_root_node(level_nodes, &mut level_secrets)?;
+        let (root, _) = Self::compute_root_node(level_nodes, &mut level_secrets)?;
 
         let public_art = PublicArt {
             tree_root: root.as_ref().to_owned(),
@@ -529,8 +565,8 @@ where
 
         path_values.reverse();
 
-        let changes = BranchChanges {
-            change_type: BranchChangesType::UpdateKey,
+        let changes = BranchChange {
+            change_type: BranchChangeType::UpdateKey,
             public_keys: path_values,
             node_index: NodeIndex::Index(NodeIndex::get_index_from_path(path)?),
         };
@@ -541,7 +577,7 @@ where
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     pub(crate) fn update_private_art_with_options(
         &mut self,
-        change: &BranchChanges<G>,
+        change: &BranchChange<G>,
         append_changes: bool,
         update_weights: bool,
     ) -> Result<(), ARTError> {
@@ -549,10 +585,10 @@ where
         // path secrets at that point.
         if self.get_node_index().is_subpath_of(&change.node_index)? {
             match change.change_type {
-                BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
-                BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
-                BranchChangesType::Leave => return Err(ARTError::InapplicableLeave),
-                BranchChangesType::AddMember => {
+                BranchChangeType::MakeBlank => return Err(ARTError::InapplicableBlanking),
+                BranchChangeType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                BranchChangeType::Leave => return Err(ARTError::InapplicableLeave),
+                BranchChangeType::AddMember => {
                     // Extend path_secrets. Append additional leaf secret to the start.
                     let mut new_path_secrets =
                         vec![*self.secrets.first().ok_or(ARTError::EmptyART)?];
@@ -565,7 +601,7 @@ where
         self.public_art
             .update_with_options(change, append_changes, update_weights)?;
 
-        if let BranchChangesType::AddMember = &change.change_type {
+        if let BranchChangeType::AddMember = &change.change_type {
             self.update_node_index()?;
         };
 
@@ -639,7 +675,7 @@ where
     /// Returns secrets from changes (ordering from leaf to the root).
     fn get_artefact_secrets_from_change(
         &self,
-        changes: &BranchChanges<G>,
+        changes: &BranchChange<G>,
     ) -> Result<Vec<G::ScalarField>, ARTError> {
         let intersection = self.get_node_index().intersect_with(&changes.node_index)?;
 
@@ -687,6 +723,76 @@ where
         }
 
         Ok(new_path_secrets)
+    }
+}
+
+impl PublicZeroArt {
+    pub fn new(public_art: PublicArt<CortadoAffine>) -> Result<Self, ARTError> {
+        let gens = PedersenGens::default();
+        let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
+            CortadoAffine::generator(),
+            CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
+            ristretto255_to_ark(gens.B).unwrap(),
+            ristretto255_to_ark(gens.B_blinding).unwrap(),
+        );
+        Ok(Self {
+            public_art,
+            proof_basis,
+        })
+    }
+
+    pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {
+        &self.public_art
+    }
+}
+
+impl<'a, R> PrivateZeroArt<'a, R>
+where
+    R: Rng + ?Sized,
+{
+    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: &'a mut R) -> Result<Self, ARTError> {
+        let gens = PedersenGens::default();
+        let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
+            CortadoAffine::generator(),
+            CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
+            ristretto255_to_ark(gens.B).unwrap(),
+            ristretto255_to_ark(gens.B_blinding).unwrap(),
+        );
+        Ok(Self {
+            rng,
+            private_art,
+            proof_basis,
+        })
+    }
+
+    pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {
+        &self.private_art.get_public_art()
+    }
+
+    pub fn get_node_index(&self) -> &NodeIndex {
+        &self.private_art.node_index
+    }
+
+    pub fn get_leaf_secret_key(&self) -> Result<Fr, ARTError> {
+        self.private_art
+            .secrets
+            .first()
+            .copied()
+            .ok_or(ARTError::EmptyART)
+    }
+
+    pub fn get_root_secret_key(&self) -> Result<Fr, ARTError> {
+        self.private_art
+            .secrets
+            .last()
+            .copied()
+            .ok_or(ARTError::EmptyART)
+    }
+
+    pub fn get_leaf_public_key(&self) -> Result<CortadoAffine, ARTError> {
+        Ok(CortadoAffine::generator()
+            .mul(self.get_leaf_secret_key()?)
+            .into_affine())
     }
 }
 
