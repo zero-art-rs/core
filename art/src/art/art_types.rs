@@ -1,11 +1,11 @@
-use crate::art::VerifierArtefacts;
+use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
+use crate::art::artefacts::VerifierArtefacts;
+use crate::art::branch_change::{BranchChange, BranchChangeType};
+use crate::art::tree_methods::TreeMethods;
+use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::errors::ARTError;
 use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
-use crate::zrt_art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
-use crate::zrt_art::branch_change::{BranchChange, BranchChangeType};
-use crate::zrt_art::tree_methods::TreeMethods;
-use crate::zrt_art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
@@ -13,6 +13,7 @@ use ark_std::rand::Rng;
 use bulletproofs::PedersenGens;
 use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
@@ -796,6 +797,30 @@ where
     }
 }
 
+// impl<G> Debug for PrivateArt<G>
+// where
+//     G: AffineRepr,
+// {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.debug_struct("PublicArt")
+//             .field("public_art", &self.public_art)
+//             .field("secrets", &self.secrets)
+//             .field("node_index", &self.node_index)
+//             .finish()
+//     }
+// }
+
+impl<'a, R> Debug for PrivateZeroArt<'a, R>
+where
+    R: Rng + ?Sized,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PublicArt")
+            .field("private_art", &self.private_art)
+            .finish()
+    }
+}
+
 impl<G> PartialEq for PrivateArt<G>
 where
     G: AffineRepr,
@@ -818,3 +843,14 @@ where
     G::BaseField: PrimeField,
 {
 }
+
+impl<'a, R> PartialEq for PrivateZeroArt<'a, R>
+where
+    R: Rng + ?Sized,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.private_art == other.private_art
+    }
+}
+
+impl<'a, R> Eq for PrivateZeroArt<'a, R> where R: Rng + ?Sized {}

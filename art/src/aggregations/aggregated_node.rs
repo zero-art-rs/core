@@ -2,7 +2,8 @@ use crate::aggregations::{
     ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData, RelatedData,
     VerifierAggregationData,
 };
-use crate::art::{BranchChanges, BranchChangesTypeHint, ProverArtefacts};
+use crate::art::artefacts::ProverArtefacts;
+use crate::art::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_node::TreeNode;
@@ -117,12 +118,12 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
 {
-    /// Append `BranchChanges<G>` to the structure by overwriting unnecessary data. utilizes
+    /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
     /// `change_type_hint` to perform extension correctly
     pub fn extend<R: Rng + ?Sized>(
         &mut self,
         rng: &mut R,
-        change: &BranchChanges<G>,
+        change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
         change_type_hint: BranchChangesTypeHint<G>,
     ) -> Result<(), ARTError> {
@@ -150,7 +151,7 @@ where
     fn extend_tree_with<R: Rng + ?Sized>(
         &mut self,
         rng: &mut R,
-        change: &BranchChanges<G>,
+        change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
     ) -> Result<(), ARTError> {
         let leaf_path = change.node_index.get_path()?;

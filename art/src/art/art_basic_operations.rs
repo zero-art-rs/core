@@ -1,11 +1,10 @@
-use crate::art::ARTNode;
+use crate::art::EligibilityProofInput;
+use crate::art::art_node::{ArtNode, LeafStatus};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+use crate::art::branch_change::{BranchChange, VerifiableBranchChange};
+use crate::art::tree_methods::TreeMethods;
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
-use crate::zrt_art::EligibilityProofInput;
-use crate::zrt_art::art_node::{ArtNode, LeafStatus};
-use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::zrt_art::branch_change::{BranchChange, VerifiableBranchChange};
-use crate::zrt_art::tree_methods::TreeMethods;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
@@ -207,10 +206,6 @@ where
 
         let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
         target_leaf.extend_or_replace(new_leaf)?;
-
-        self.private_art
-            .public_art
-            .update_branch_weight(&path, false)?;
 
         if extend_node {
             path.push(Direction::Right);

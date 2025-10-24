@@ -1,8 +1,6 @@
 use crate::aggregations::{AggregationNode, RelatedData};
-use crate::art::{ARTNode, LeafStatus};
+use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::node_index::Direction;
-use crate::zrt_art;
-use crate::zrt_art::art_node::ArtNode;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
@@ -23,43 +21,6 @@ pub enum ARTDisplayTree {
     },
 }
 
-impl<G> From<&ARTNode<G>> for ARTDisplayTree
-where
-    G: AffineRepr,
-{
-    fn from(node: &ARTNode<G>) -> Self {
-        let blank_marker = match node {
-            ARTNode::Leaf { status, .. } => match status {
-                LeafStatus::Active => "Active",
-                LeafStatus::PendingRemoval => "PendingRemoval",
-                LeafStatus::Blank => "Blank",
-            },
-            ARTNode::Internal { .. } => "",
-        };
-
-        let pk_marker = match node.get_public_key().x() {
-            Some(x) => x.to_string(),
-            None => "None".to_string(),
-        };
-
-        match node {
-            ARTNode::Leaf { .. } => ARTDisplayTree::Leaf {
-                public_key: format!(
-                    "{} leaf of weight: {}, x: {}",
-                    blank_marker,
-                    node.get_weight(),
-                    pk_marker,
-                ),
-            },
-            ARTNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-                public_key: format!("Node of weight: {}, x: {}", node.get_weight(), pk_marker,),
-                left: Box::new(ARTDisplayTree::from(l.as_ref())),
-                right: Box::new(ARTDisplayTree::from(r.as_ref())),
-            },
-        }
-    }
-}
-
 impl<G> From<&ArtNode<G>> for ARTDisplayTree
 where
     G: AffineRepr,
@@ -67,9 +28,9 @@ where
     fn from(node: &ArtNode<G>) -> Self {
         let blank_marker = match node {
             ArtNode::Leaf { status, .. } => match status {
-                zrt_art::art_node::LeafStatus::Active => "Active",
-                zrt_art::art_node::LeafStatus::PendingRemoval => "PendingRemoval",
-                zrt_art::art_node::LeafStatus::Blank => "Blank",
+                LeafStatus::Active => "Active",
+                LeafStatus::PendingRemoval => "PendingRemoval",
+                LeafStatus::Blank => "Blank",
             },
             ArtNode::Internal { .. } => "",
         };
@@ -94,24 +55,6 @@ where
                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
             },
         }
-    }
-}
-
-impl<G> Display for ARTNode<G>
-where
-    G: AffineRepr,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            format_tree!(
-                ARTDisplayTree::from(self),
-                Style::default()
-                    .indentation(4)
-                    .char_set(CharSet::SINGLE_LINE)
-            )
-        )
     }
 }
 

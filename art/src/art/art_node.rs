@@ -1,8 +1,8 @@
 use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::Direction;
-use crate::tree_node::TreeNode;
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::AffineRepr;
+use ark_ec::CurveGroup;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -19,7 +19,7 @@ pub enum LeafStatus {
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[serde(bound = "")]
-pub enum ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
+pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     Leaf {
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         public_key: G,
@@ -29,13 +29,13 @@ pub enum ARTNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     Internal {
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         public_key: G,
-        l: Box<ARTNode<G>>,
-        r: Box<ARTNode<G>>,
+        l: Box<ArtNode<G>>,
+        r: Box<ArtNode<G>>,
         weight: usize,
     },
 }
 
-impl<G> Default for ARTNode<G>
+impl<G> Default for ArtNode<G>
 where
     G: AffineRepr,
 {
@@ -44,35 +44,20 @@ where
     }
 }
 
-impl<G: AffineRepr> TreeNode<ARTNode<G>> for ARTNode<G> {
-    fn get_child(&self, child: Direction) -> Option<&Self> {
-        match self {
-            ARTNode::Leaf { .. } => None,
-            ARTNode::Internal { l, r, .. } => match child {
-                Direction::Left => Some(l.as_ref()),
-                Direction::Right => Some(r.as_ref()),
-            },
+impl<G> ArtNode<G>
+where
+    G: AffineRepr,
+{
+    /// Creates a new ArtNode leaf with the given public key.
+    pub fn new_leaf(public_key: G) -> Self {
+        Self::Leaf {
+            public_key,
+            status: LeafStatus::Active,
+            metadata: vec![],
         }
     }
 
-    fn get_mut_child(&mut self, child: Direction) -> Option<&mut Self> {
-        match self {
-            ARTNode::Leaf { .. } => None,
-            ARTNode::Internal { l, r, .. } => match child {
-                Direction::Left => Some(l.as_mut()),
-                Direction::Right => Some(r.as_mut()),
-            },
-        }
-    }
-
-    fn is_leaf(&self) -> bool {
-        matches!(self, ARTNode::Leaf { .. })
-    }
-}
-
-/// Implementation of main methods for operating with ARTNode
-impl<G: AffineRepr> ARTNode<G> {
-    /// Creates a new ARTNode internal node with the given public key.
+    /// Creates a new ArtNode internal node with the given public key.
     pub fn new_internal_node(public_key: G, l: Box<Self>, r: Box<Self>) -> Self {
         let weight = l.get_weight() + r.get_weight();
 
@@ -81,15 +66,6 @@ impl<G: AffineRepr> ARTNode<G> {
             l,
             r,
             weight,
-        }
-    }
-
-    /// Creates a new ARTNode leaf with the given public key.
-    pub fn new_leaf(public_key: G) -> Self {
-        Self::Leaf {
-            public_key,
-            status: LeafStatus::Active,
-            metadata: vec![],
         }
     }
 
@@ -106,91 +82,27 @@ impl<G: AffineRepr> ARTNode<G> {
 
     pub fn get_mut_weight(&mut self) -> Result<&mut usize, ARTError> {
         match self {
-            ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
-            ARTNode::Internal { weight, .. } => Ok(weight),
+            ArtNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
+            ArtNode::Internal { weight, .. } => Ok(weight),
         }
     }
 
     /// If the node is leaf, return its status, else None
     pub fn get_status(&self) -> Option<LeafStatus> {
         match self {
-            ARTNode::Leaf { status, .. } => Some(*status),
-            ARTNode::Internal { .. } => None,
+            Self::Leaf { status, .. } => Some(*status),
+            Self::Internal { .. } => None,
         }
     }
 
-    /// Returns `true` if the node is internal of it is active leaf. Else return `false`
-    pub fn is_active(&self) -> bool {
-        match self {
-            ARTNode::Leaf { status, .. } => matches!(status, LeafStatus::Active),
-            ARTNode::Internal { .. } => true,
-        }
-    }
-
-    /// If the node is a leaf node, converts the node to blank, else return error
-    pub fn make_blank(&mut self, temporary_public_key: &G, append: bool) -> Result<(), ARTError> {
-        match self {
-            ARTNode::Leaf { .. } => {
-                self.set_status(LeafStatus::Blank)?;
-                self.set_public_key_with_options(*temporary_public_key, append);
-                Ok(())
-            }
-            ARTNode::Internal { .. } => Err(ARTError::LeafOnly),
-        }
-    }
-
+    /// If the node is leaf, return its status, else None
     pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ARTError> {
         match self {
-            ARTNode::Leaf { status, .. } => {
-                *status = new_status;
-                Ok(())
-            }
-            ARTNode::Internal { .. } => Err(ARTError::LeafOnly),
+            Self::Leaf { status, .. } => *status = new_status,
+            Self::Internal { .. } => return Err(ARTError::LeafOnly),
         }
-    }
 
-    // /// Returns a reference to the left child node.
-    // pub fn get_left(&self) -> Result<&Self, ARTError> {
-    //     self.get_child(&Direction::Left)
-    // }
-    //
-    // /// Returns a mutable reference to the left child node.
-    // pub fn get_mut_left(&mut self) -> Result<&mut Box<Self>, ARTError> {
-    //     self.get_mut_child(&Direction::Left)
-    // }
-    //
-    // /// Returns a reference to the right child node.
-    // pub fn get_right(&self) -> Result<&Self, ARTError> {
-    //     self.get_child(&Direction::Right)
-    // }
-    //
-    // /// Returns a mutable reference to the right child node.
-    // pub fn get_mut_right(&mut self) -> Result<&mut Box<Self>, ARTError> {
-    //     self.get_mut_child(&Direction::Right)
-    // }
-
-    pub fn set_child(&mut self, other: Self, dir: &Direction) -> Result<(), ARTError> {
-        match self {
-            ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
-            ARTNode::Internal { l, r, .. } => {
-                match dir {
-                    Direction::Left => *l.as_mut() = other,
-                    Direction::Right => *r.as_mut() = other,
-                }
-
-                Ok(())
-            }
-        }
-    }
-
-    /// Changes left child of inner node with a given one
-    pub fn set_left(&mut self, other: Self) -> Result<(), ARTError> {
-        self.set_child(other, &Direction::Left)
-    }
-
-    /// Changes right child of inner node with a given one
-    pub fn set_right(&mut self, other: Self) -> Result<(), ARTError> {
-        self.set_child(other, &Direction::Right)
+        Ok(())
     }
 
     // Returns a copy of its public key
@@ -208,14 +120,6 @@ impl<G: AffineRepr> ARTNode<G> {
         }
     }
 
-    pub fn merge_public_key(&mut self, new_public_key: G) {
-        let new_public_key = new_public_key.add(self.get_public_key()).into_affine();
-        match self {
-            Self::Internal { public_key, .. } => *public_key = new_public_key,
-            Self::Leaf { public_key, .. } => *public_key = new_public_key,
-        }
-    }
-
     pub fn set_public_key_with_options(&mut self, new_public_key: G, append: bool) {
         let new_public_key = match append {
             true => new_public_key.add(self.get_public_key()).into_affine(),
@@ -225,43 +129,33 @@ impl<G: AffineRepr> ARTNode<G> {
         self.set_public_key(new_public_key);
     }
 
-    // /// Returns a reference on a child of a given inner node by a given direction to the child.
-    // pub fn get_child(&self, child: &Direction) -> Result<&Self, ARTError> {
-    //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
-    //         ARTNode::Internal { l, r, .. } => match child {
-    //             Direction::Left => Ok(l.as_ref()),
-    //             Direction::Right => Ok(r.as_ref()),
-    //         },
-    //     }
-    // }
+    pub fn merge_public_key(&mut self, new_public_key: G) {
+        self.set_public_key(new_public_key.add(self.get_public_key()).into_affine());
+    }
 
-    // /// Returns a mutable reference on a child of a given inner node by a given direction to
-    // /// the child.
-    // pub fn get_mut_child(&mut self, child: &Direction) -> Result<&mut Box<Self>, ARTError> {
-    //     match self {
-    //         ARTNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
-    //         ARTNode::Internal { l, r, .. } => match child {
-    //             Direction::Left => Ok(l),
-    //             Direction::Right => Ok(r),
-    //         },
-    //     }
-    // }
+    pub fn get_child(&self, child: Direction) -> Option<&Self> {
+        match self {
+            ArtNode::Leaf { .. } => None,
+            ArtNode::Internal { l, r, .. } => match child {
+                Direction::Left => Some(l.as_ref()),
+                Direction::Right => Some(r.as_ref()),
+            },
+        }
+    }
 
-    // /// Returns a reference on a child of a given inner node, which is located on the opposite
-    // /// side to the given direction.
-    // pub fn get_other_child(&self, child: &Direction) -> Result<&Self, ARTError> {
-    //     self.get_child(&child.other())
-    // }
+    pub fn get_mut_child(&mut self, child: Direction) -> Option<&mut Self> {
+        match self {
+            ArtNode::Leaf { .. } => None,
+            ArtNode::Internal { l, r, .. } => match child {
+                Direction::Left => Some(l.as_mut()),
+                Direction::Right => Some(r.as_mut()),
+            },
+        }
+    }
 
-    // /// Returns a mutable reference on a child of a given inner node, which is located on the
-    // /// opposite side to the given direction.
-    // pub fn get_mut_other_child(
-    //     &mut self,
-    //     child: &Direction,
-    // ) -> Result<&mut Box<Self>, ARTError> {
-    //     self.get_mut_child(&child.other())
-    // }
+    pub fn is_leaf(&self) -> bool {
+        matches!(self, ArtNode::Leaf { .. })
+    }
 
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
@@ -291,109 +185,16 @@ impl<G: AffineRepr> ARTNode<G> {
     /// and append other node to the right.
     pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTError> {
         match self {
-            ARTNode::Leaf { status, .. } => {
+            ArtNode::Leaf { status, .. } => {
                 match status {
                     LeafStatus::Active => self.extend(other),
                     _ => _ = self.replace_with(other),
                 };
             }
-            ARTNode::Internal { .. } => return Err(ARTError::LeafOnly),
+            ArtNode::Internal { .. } => return Err(ARTError::LeafOnly),
         }
 
         Ok(())
-    }
-
-    pub(crate) fn new_default_tree_with_public_keys(
-        public_keys: &Vec<G>,
-    ) -> Result<Self, ARTError> {
-        if public_keys.is_empty() {
-            return Err(ARTError::InvalidInput);
-        }
-
-        let mut level_nodes = Vec::new();
-
-        // leaves of the tree
-        for pk in public_keys {
-            level_nodes.push(ARTNode::new_leaf(*pk));
-        }
-
-        // fully fit leaf nodes in the next level by combining only part of them
-        if level_nodes.len() > 2 {
-            level_nodes = Self::fit_leaves_in_one_level(level_nodes)?;
-        }
-
-        // iterate by levels. Go from current level to upper level
-        while level_nodes.len() > 1 {
-            level_nodes = Self::compute_next_layer_of_tree(&mut level_nodes)?;
-        }
-
-        let root = level_nodes.remove(0);
-
-        Ok(root)
-    }
-
-    fn fit_leaves_in_one_level(
-        mut level_nodes: Vec<ARTNode<G>>,
-    ) -> Result<Vec<ARTNode<G>>, ARTError> {
-        let mut level_size = 2;
-        while level_size < level_nodes.len() {
-            level_size <<= 1;
-        }
-
-        if level_size == level_nodes.len() {
-            return Ok(level_nodes);
-        }
-
-        let excess = level_size - level_nodes.len();
-
-        let mut upper_level_nodes = Vec::new();
-        for _ in 0..(level_nodes.len() - excess) >> 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            let node = ARTNode::new_internal_node(
-                (left_node.get_public_key() + right_node.get_public_key()).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
-
-            upper_level_nodes.push(node);
-        }
-
-        for _ in 0..excess {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-        }
-
-        Ok(upper_level_nodes)
-    }
-
-    fn compute_next_layer_of_tree(
-        level_nodes: &mut Vec<ARTNode<G>>,
-    ) -> Result<Vec<ARTNode<G>>, ARTError> {
-        let mut upper_level_nodes = Vec::new();
-
-        // iterate until level_nodes is empty, then swap it with the next layer
-        while level_nodes.len() > 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            let node = ARTNode::new_internal_node(
-                (left_node.get_public_key() + right_node.get_public_key()).into_affine(),
-                Box::new(left_node),
-                Box::new(right_node),
-            );
-
-            upper_level_nodes.push(node);
-        }
-
-        // if one have an odd number of nodes, the last one will be added to the next level
-        if level_nodes.len() == 1 {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-        }
-
-        Ok(upper_level_nodes)
     }
 }
 
@@ -401,8 +202,8 @@ pub struct NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
 {
-    pub current_node: Option<&'a ARTNode<G>>,
-    pub path: Vec<(&'a ARTNode<G>, Direction)>,
+    pub current_node: Option<&'a ArtNode<G>>,
+    pub path: Vec<(&'a ArtNode<G>, Direction)>,
 }
 
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
@@ -410,7 +211,7 @@ impl<'a, G> NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
 {
-    pub fn new(root: &'a ARTNode<G>) -> Self {
+    pub fn new(root: &'a ArtNode<G>) -> Self {
         NodeIterWithPath {
             current_node: Some(root),
             path: vec![],
@@ -422,7 +223,7 @@ impl<'a, G> Iterator for NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
 {
-    type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
+    type Item = (&'a ArtNode<G>, Vec<(&'a ArtNode<G>, Direction)>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(current_node) = self.current_node {
@@ -470,7 +271,7 @@ impl<'a, G> LeafIterWithPath<'a, G>
 where
     G: AffineRepr,
 {
-    pub fn new(root: &'a ARTNode<G>) -> Self {
+    pub fn new(root: &'a ArtNode<G>) -> Self {
         LeafIterWithPath {
             inner_iter: NodeIterWithPath::new(root),
         }
@@ -481,7 +282,7 @@ impl<'a, G> Iterator for LeafIterWithPath<'a, G>
 where
     G: AffineRepr,
 {
-    type Item = (&'a ARTNode<G>, Vec<(&'a ARTNode<G>, Direction)>);
+    type Item = (&'a ArtNode<G>, Vec<(&'a ArtNode<G>, Direction)>);
 
     fn next(&mut self) -> Option<Self::Item> {
         for (item, path) in &mut self.inner_iter {
@@ -506,7 +307,7 @@ impl<'a, G> NodeIter<'a, G>
 where
     G: AffineRepr,
 {
-    pub fn new(root: &'a ARTNode<G>) -> Self {
+    pub fn new(root: &'a ArtNode<G>) -> Self {
         NodeIter {
             inner_iter: NodeIterWithPath::new(root),
         }
@@ -517,7 +318,7 @@ impl<'a, G> Iterator for NodeIter<'a, G>
 where
     G: AffineRepr,
 {
-    type Item = &'a ARTNode<G>;
+    type Item = &'a ArtNode<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner_iter.next().map(|item| item.0)
@@ -536,7 +337,7 @@ impl<'a, G> LeafIter<'a, G>
 where
     G: AffineRepr,
 {
-    pub fn new(root: &'a ARTNode<G>) -> Self {
+    pub fn new(root: &'a ArtNode<G>) -> Self {
         LeafIter {
             inner_iter: NodeIterWithPath::new(root),
         }
@@ -547,7 +348,7 @@ impl<'a, G> Iterator for LeafIter<'a, G>
 where
     G: AffineRepr,
 {
-    type Item = &'a ARTNode<G>;
+    type Item = &'a ArtNode<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
         (&mut self.inner_iter)
@@ -557,11 +358,11 @@ where
 }
 
 /// Default iterator iterates over all the leaves from left to right
-impl<'a, G> IntoIterator for &'a ARTNode<G>
+impl<'a, G> IntoIterator for &'a ArtNode<G>
 where
     G: AffineRepr,
 {
-    type Item = &'a ARTNode<G>;
+    type Item = &'a ArtNode<G>;
     type IntoIter = LeafIter<'a, G>;
 
     fn into_iter(self) -> Self::IntoIter {

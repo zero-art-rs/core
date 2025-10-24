@@ -1,10 +1,10 @@
+use crate::art::art_node::LeafStatus;
+use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+use crate::art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
+use crate::art::tree_methods::TreeMethods;
+use crate::art::{ArtBasicOps, EligibilityProofInput};
 use crate::errors::ARTError;
 use crate::node_index::NodeIndex;
-use crate::zrt_art::art_node::LeafStatus;
-use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::zrt_art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
-use crate::zrt_art::tree_methods::TreeMethods;
-use crate::zrt_art::{ArtBasicOps, EligibilityProofInput};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
@@ -236,13 +236,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::art::applicable_change::ApplicableChange;
+    use crate::art::art_advanced_operations::ArtAdvancedOps;
+    use crate::art::art_types::{PrivateArt, PublicArt};
+    use crate::art::tree_methods::TreeMethods;
     use crate::errors::ARTError;
     use crate::init_tracing;
-    use crate::zrt_art::applicable_change::ApplicableChange;
-    use crate::zrt_art::art_advanced_operations::ArtAdvancedOps;
-    use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-    use crate::zrt_art::tree_methods::TreeMethods;
-    use crate::zrt_art::verifiable_change::VerifiableChange;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
@@ -250,8 +249,6 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::ops::Mul;
-    use tracing::{debug, warn};
-    use zrt_zk::art::ARTProof;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 100;
 

@@ -1,0 +1,85 @@
+use crate::helper_tools::{ark_de, ark_se};
+use crate::node_index::NodeIndex;
+use ark_ec::AffineRepr;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use cortado::CortadoAffine;
+use serde::{Deserialize, Serialize};
+use zrt_zk::art::ARTProof;
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum BranchChangeType {
+    #[default]
+    UpdateKey,
+    AddMember,
+    MakeBlank,
+    Leave,
+}
+
+/// Helper data type, which contains information about ART change. Can be used to apply this
+/// change to the different ART.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(bound = "")]
+pub struct BranchChange<G>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+{
+    /// Marker of the change operation.
+    pub change_type: BranchChangeType,
+
+    /// Set of updated public keys on the path from the root to the target leaf.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    pub public_keys: Vec<G>,
+
+    /// index of the target leaf
+    pub node_index: NodeIndex,
+}
+
+#[derive(Clone)]
+pub struct VerifiableBranchChange {
+    pub branch_change: BranchChange<CortadoAffine>,
+    pub proof: ARTProof,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub enum BranchChangesTypeHint<G>
+where
+    G: AffineRepr,
+{
+    MakeBlank {
+        /// Public key used for blanking.
+        pk: G,
+
+        /// If true, that blanking is the commit blanking, else it is initialisation.
+        merge: bool,
+    },
+    AppendNode {
+        /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
+        /// of the node, else the node was replaced.
+        ext_pk: Option<G>,
+
+        /// New user public key.
+        pk: G,
+    },
+    UpdateKey {
+        /// New public key
+        pk: G,
+    },
+    Leave {
+        /// New public key
+        pk: G,
+    },
+}
+
+impl<G> From<&BranchChangesTypeHint<G>> for BranchChangeType
+where
+    G: AffineRepr,
+{
+    fn from(value: &BranchChangesTypeHint<G>) -> Self {
+        match value {
+            BranchChangesTypeHint::MakeBlank { .. } => BranchChangeType::MakeBlank,
+            BranchChangesTypeHint::AppendNode { .. } => BranchChangeType::AddMember,
+            BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
+            BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
+        }
+    }
+}

@@ -5,7 +5,6 @@ pub mod errors;
 pub mod helper_tools;
 pub mod node_index;
 pub mod tree_node;
-pub mod zrt_art;
 
 #[cfg(test)]
 mod test_helper_tools {

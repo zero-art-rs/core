@@ -1,4 +1,4 @@
-use crate::art::ProverArtefacts;
+use crate::art::artefacts::ProverArtefacts;
 use crate::errors::ARTError;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};

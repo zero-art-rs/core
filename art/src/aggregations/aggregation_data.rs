@@ -1,4 +1,4 @@
-use crate::art::{BranchChangesType, BranchChangesTypeHint};
+use crate::art::branch_change::{BranchChangeType, BranchChangesTypeHint};
 use crate::helper_tools::prepare_short_marker;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -89,7 +89,7 @@ where
             bl_marker,
             self.change_type
                 .iter()
-                .map(BranchChangesType::from)
+                .map(BranchChangeType::from)
                 .collect::<Vec<_>>(),
         )
     }
@@ -121,7 +121,7 @@ where
             co_pk_marker,
             self.change_type
                 .iter()
-                .map(|change_type| BranchChangesType::from(change_type))
+                .map(|change_type| BranchChangeType::from(change_type))
                 .collect::<Vec<_>>(),
         )
     }
@@ -144,7 +144,7 @@ where
             pk_marker,
             self.change_type
                 .iter()
-                .map(BranchChangesType::from)
+                .map(BranchChangeType::from)
                 .collect::<Vec<_>>(),
         )
     }

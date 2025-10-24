@@ -1,12 +1,10 @@
+use crate::art::applicable_change::ApplicableChange;
+use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
+use crate::art::branch_change::VerifiableBranchChange;
 use crate::errors::ARTError;
-use crate::zrt_art::applicable_change::ApplicableChange;
-use crate::zrt_art::art_types::{PrivateZeroArt, PublicZeroArt};
-use crate::zrt_art::branch_change::{BranchChange, VerifiableBranchChange};
 use ark_std::rand::Rng;
-use bulletproofs::r1cs::R1CSError;
 use cortado::CortadoAffine;
-use tracing::debug;
-use zrt_zk::art::{ARTProof, art_verify};
+use zrt_zk::art::art_verify;
 
 pub trait VerifiableChange<T>: ApplicableChange<T> {
     fn verify(
@@ -82,13 +80,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::art::applicable_change::ApplicableChange;
+    use crate::art::art_advanced_operations::ArtAdvancedOps;
+    use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+    use crate::art::tree_methods::TreeMethods;
+    use crate::art::verifiable_change::VerifiableChange;
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
-    use crate::zrt_art::applicable_change::ApplicableChange;
-    use crate::zrt_art::art_advanced_operations::ArtAdvancedOps;
-    use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::zrt_art::tree_methods::TreeMethods;
-    use crate::zrt_art::verifiable_change::VerifiableChange;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;

@@ -1,8 +1,8 @@
+use crate::art::art_node::LeafStatus;
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
+use crate::art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
+use crate::art::tree_methods::TreeMethods;
 use crate::errors::ARTError;
-use crate::zrt_art::art_node::LeafStatus;
-use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::zrt_art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
-use crate::zrt_art::tree_methods::TreeMethods;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;

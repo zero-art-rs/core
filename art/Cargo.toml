@@ -10,9 +10,9 @@ path = "src/lib.rs"
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
 
-[[bin]]
-name = "simple_benchmarks"
-path = "src/bin/simple_benchmarks.rs"
+#[[bin]]
+#name = "simple_benchmarks"
+#path = "src/bin/simple_benchmarks.rs"
 
 [[bench]]
 name = "art_benches"

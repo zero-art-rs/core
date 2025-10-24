@@ -1,7 +1,7 @@
+use crate::art::art_node::{ArtNode, NodeIterWithPath};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
-use crate::zrt_art::art_node::{ArtNode, NodeIterWithPath};
-use crate::zrt_art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
 use ark_ec::AffineRepr;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
