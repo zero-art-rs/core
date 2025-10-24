@@ -6,6 +6,8 @@ pub enum ARTError {
     ARTLogicError,
     #[error("Invalid input provided.")]
     InvalidInput,
+    #[error("Fail to update. Path to user leaf is a subpath of updated path.")]
+    SubPath,
     #[error("Postcard error: {0}")]
     Postcard(#[from] postcard::Error),
     #[error("Serde JSON error: {0}.")]
