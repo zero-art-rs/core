@@ -115,7 +115,7 @@ where
                     ArtNode::new_leaf(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
                 self.append_or_replace_node_without_changes(leaf, &change.node_index.get_path()?)?;
             }
-            BranchChangeType::MakeBlank => {
+            BranchChangeType::RemoveMember => {
                 self.make_blank_without_changes_with_options(
                     &change.node_index.get_path()?,
                     update_weights,
@@ -134,7 +134,7 @@ where
     /// doesn't change other nodes public keys. To update art, use update_art_with_secret_key,
     /// update_art_with_changes, etc. The return value is true if the target node is extended
     /// with the other. Else it will be replaced.
-    pub fn append_or_replace_node_without_changes(
+    pub(crate) fn append_or_replace_node_without_changes(
         &mut self,
         node: ArtNode<G>,
         path: &[Direction],
@@ -160,7 +160,7 @@ where
     /// Converts the type of leaf on a given path to blank leaf by changing its public key on a temporary one.
     /// This method doesn't change other art nodes. To update art afterward, use update_art_with_secret_key
     /// or update_art_with_changes.
-    pub fn make_blank_without_changes_with_options(
+    pub(crate) fn make_blank_without_changes_with_options(
         &mut self,
         path: &[Direction],
         update_weights: bool,
@@ -182,7 +182,7 @@ where
 
     /// Updates art public keys using public keys provided in changes. It doesn't change the art
     /// structure.
-    pub fn update_art_with_changes(
+    pub(crate) fn update_art_with_changes(
         &mut self,
         changes: &BranchChange<G>,
         append_changes: bool,
@@ -294,6 +294,122 @@ where
             co_path,
         })
     }
+
+    /// Merges given conflict changes into the art.
+    pub(crate) fn merge_all(&mut self, target_changes: &[BranchChange<G>]) -> Result<(), ARTError> {
+        self.merge_with_skip(&[], target_changes)
+    }
+
+    /// Merges given conflict changes into the art. Changes which are already applied (key_update)
+    /// are passed into applied_changes. Other changes are not supported.
+    pub(crate) fn merge_with_skip(
+        &mut self,
+        applied_changes: &[BranchChange<G>],
+        target_changes: &[BranchChange<G>],
+    ) -> Result<(), ARTError> {
+        for change in applied_changes {
+            if let BranchChangeType::AddMember = change.change_type {
+                return Err(ARTError::InvalidMergeInput);
+            }
+        }
+
+        let mut key_update_changes = Vec::new();
+        let mut make_blank_changes = Vec::new();
+        let mut append_member_changes = Vec::new();
+
+        for change in target_changes {
+            match change.change_type {
+                BranchChangeType::UpdateKey | BranchChangeType::Leave => {
+                    key_update_changes.push(change.clone());
+                }
+                BranchChangeType::RemoveMember => {
+                    make_blank_changes.push(change.clone());
+                }
+                BranchChangeType::AddMember => {
+                    append_member_changes.push(change.clone());
+                }
+            }
+        }
+
+        if !append_member_changes.is_empty() {
+            return Err(ARTError::InvalidMergeInput);
+        }
+
+        // merge all key update changes but skip whose from applied_changes
+        let mut iteration_start = applied_changes.len();
+        let mut changes = applied_changes.to_vec();
+        let key_update_changes_len = key_update_changes.len();
+
+        let mut previous_shift = key_update_changes.len();
+        changes.extend(key_update_changes);
+        for i in iteration_start..changes.len() {
+            self.merge_change(&changes[0..i], &changes[i])?;
+        }
+        iteration_start += previous_shift;
+
+        previous_shift = make_blank_changes.len();
+        changes.extend(make_blank_changes);
+        for i in iteration_start..changes.len() {
+            let extend_node = matches!(
+                self.get_node(&changes[i].node_index)?.get_status(),
+                Some(LeafStatus::Active)
+            );
+            if key_update_changes_len == 0 && extend_node {
+                self.update_with_options(&changes[i], false, true)?;
+            } else {
+                self.update_with_options(&changes[i], true, false)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Merge ART changes into self. `merged_changes` are merge conflict changes, which are
+    /// conflicting with `target_change` but are already merged. After calling of this method,
+    /// `target_change` will become merged one. This method doesn't change the the art structure,
+    /// so MakeBlank and AppendNode changes are not fully applied.
+    pub(crate) fn merge_change(
+        &mut self,
+        merged_changes: &[BranchChange<G>],
+        target_change: &BranchChange<G>,
+    ) -> Result<(), ARTError> {
+        let mut shared_paths = Vec::with_capacity(merged_changes.len());
+        for change in merged_changes {
+            shared_paths.push(change.node_index.get_path()?);
+        }
+
+        let target_path = target_change.node_index.get_path()?;
+        for level in 0..=target_path.len() {
+            let node = self.get_mut_node(&NodeIndex::Direction(target_path[0..level].to_vec()))?;
+            if let BranchChangeType::AddMember = target_change.change_type
+                && level < target_path.len()
+            {
+                *node.get_mut_weight()? += 1;
+                // The last node weight will be computed when the structure is updated
+            }
+
+            if shared_paths.is_empty() {
+                // There are no further conflicts so change public key
+                node.set_public_key(target_change.public_keys[level]);
+            } else {
+                // Resolve conflict by adding public keys
+                node.set_public_key(
+                    node.get_public_key()
+                        .add(target_change.public_keys[level])
+                        .into_affine(),
+                );
+            }
+
+            // Remove branches which are not conflicting with target one yet
+            for j in (0..shared_paths.len()).rev() {
+                if shared_paths[j].get(level) != target_path.get(level) {
+                    shared_paths.remove(j);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<G> PrivateArt<G>
@@ -341,102 +457,6 @@ where
             secrets: artefacts.secrets,
             node_index: NodeIndex::from(path),
         })
-    }
-
-    /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
-    /// they are not they can be lifted with `fit_leaves_in_one_level` method.
-    fn compute_root_node(
-        level_nodes: Vec<Box<ArtNode<G>>>,
-        level_secrets: &mut [G::ScalarField],
-    ) -> Result<(Box<ArtNode<G>>, G::ScalarField), ARTError> {
-        let mut stack = Vec::with_capacity(level_nodes.len());
-
-        let mut last_secret = G::ScalarField::zero();
-
-        // stack contains node, and her conditional weight
-        stack.push((level_nodes[0].clone(), 1));
-        for (sk, node) in level_secrets.iter().zip(level_nodes).skip(1) {
-            let mut right_node = node;
-            let mut right_secret = *sk;
-            let mut right_weight = 1;
-
-            while let Some((left_node, left_weight)) = stack.pop() {
-                if left_weight != right_weight {
-                    // return the node bask and wait for it to be the same weight
-                    stack.push((left_node, left_weight));
-                    break;
-                }
-
-                let ark_common_secret =
-                    iota_function(&left_node.get_public_key().mul(right_secret).into_affine())?;
-                right_secret = ark_common_secret;
-                last_secret = ark_common_secret;
-
-                right_node = Box::new(ArtNode::new_internal_node(
-                    G::generator().mul(&ark_common_secret).into_affine(),
-                    left_node,
-                    right_node,
-                ));
-                right_weight += left_weight;
-            }
-
-            // put the node to the end of stack
-            stack.push((right_node, right_weight));
-        }
-
-        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
-
-        Ok((root, last_secret))
-    }
-
-    fn fit_leaves_in_one_level(
-        mut level_nodes: Vec<Box<ArtNode<G>>>,
-        mut level_secrets: Vec<G::ScalarField>,
-    ) -> Result<ArtLevel<G>, ARTError> {
-        let mut level_size = 2;
-        while level_size < level_nodes.len() {
-            level_size <<= 1;
-        }
-
-        if level_size == level_nodes.len() {
-            return Ok((level_nodes, level_secrets));
-        }
-
-        let excess = level_size - level_nodes.len();
-
-        let mut upper_level_nodes = Vec::new();
-        let mut upper_level_secrets = Vec::new();
-        for _ in 0..(level_nodes.len() - excess) >> 1 {
-            let left_node = level_nodes.remove(0);
-            let right_node = level_nodes.remove(0);
-
-            level_secrets.remove(0); // skip the first secret
-
-            let common_secret = iota_function(
-                &left_node
-                    .get_public_key()
-                    .mul(level_secrets.remove(0))
-                    .into_affine(),
-            )?;
-
-            let node = ArtNode::new_internal_node(
-                G::generator().mul(&common_secret).into_affine(),
-                left_node,
-                right_node,
-            );
-
-            upper_level_nodes.push(Box::new(node));
-            upper_level_secrets.push(common_secret);
-        }
-
-        for _ in 0..excess {
-            let first_node = level_nodes.remove(0);
-            upper_level_nodes.push(first_node);
-            let first_secret = level_secrets.remove(0);
-            upper_level_secrets.push(first_secret);
-        }
-
-        Ok((upper_level_nodes, upper_level_secrets))
     }
 
     pub fn new(mut public_art: PublicArt<G>, secret_key: G::ScalarField) -> Result<Self, ARTError> {
@@ -590,7 +610,7 @@ where
         // path secrets at that point.
         if self.get_node_index().is_subpath_of(&change.node_index)? {
             match change.change_type {
-                BranchChangeType::MakeBlank => return Err(ARTError::InapplicableBlanking),
+                BranchChangeType::RemoveMember => return Err(ARTError::InapplicableBlanking),
                 BranchChangeType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
                 BranchChangeType::Leave => return Err(ARTError::InapplicableLeave),
                 BranchChangeType::AddMember => {
@@ -734,6 +754,216 @@ where
         self.zip_update_path_secrets(artefacts.secrets.clone(), &changes.node_index, false)?;
 
         Ok((tk, changes, artefacts))
+    }
+
+    /// Update ART with `target_changes` for the user, which didnt participated it the
+    /// merge conflict.
+    pub(crate) fn merge_for_observer(
+        &mut self,
+        target_changes: &[BranchChange<G>],
+    ) -> Result<(), ARTError> {
+        let mut append_member_count = 0;
+        for change in target_changes {
+            if let BranchChangeType::AddMember = change.change_type {
+                if append_member_count > 1 {
+                    return Err(ARTError::InvalidMergeInput);
+                }
+
+                append_member_count += 1;
+            }
+        }
+
+        self.recompute_path_secrets_for_observer(target_changes)?;
+        self.public_art.merge_all(target_changes)?;
+
+        Ok(())
+    }
+
+    /// Update ART with `target_changes`, if the user contributed to the merge conflict with his
+    /// `applied_change`. Requires `base_fork`, which is the previous state of the ART, with
+    /// unapplied user provided `applied_change`. Currently, it will fail if the first applied
+    /// change is append_member.
+    pub(crate) fn merge_for_participant(
+        &mut self,
+        applied_change: BranchChange<G>,
+        unapplied_changes: &[BranchChange<G>],
+        base_fork: Self,
+    ) -> Result<(), ARTError> {
+        // Currently, it will fail if the first applied change is append_member.
+        if let BranchChangeType::AddMember = applied_change.change_type {
+            return Err(ARTError::InvalidMergeInput);
+        }
+
+        let mut append_member_count = 0;
+        for change in unapplied_changes {
+            if let BranchChangeType::AddMember = change.change_type {
+                if append_member_count > 1 {
+                    return Err(ARTError::InvalidMergeInput);
+                }
+
+                append_member_count += 1;
+            }
+        }
+
+        self.recompute_path_secrets_for_participant(unapplied_changes, base_fork)?;
+        self.public_art
+            .merge_with_skip(&[applied_change], unapplied_changes)?;
+
+        Ok(())
+    }
+
+    /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
+    /// they are not they can be lifted with `fit_leaves_in_one_level` method.
+    fn compute_root_node(
+        level_nodes: Vec<Box<ArtNode<G>>>,
+        level_secrets: &mut [G::ScalarField],
+    ) -> Result<(Box<ArtNode<G>>, G::ScalarField), ARTError> {
+        let mut stack = Vec::with_capacity(level_nodes.len());
+
+        let mut last_secret = G::ScalarField::zero();
+
+        // stack contains node, and her conditional weight
+        stack.push((level_nodes[0].clone(), 1));
+        for (sk, node) in level_secrets.iter().zip(level_nodes).skip(1) {
+            let mut right_node = node;
+            let mut right_secret = *sk;
+            let mut right_weight = 1;
+
+            while let Some((left_node, left_weight)) = stack.pop() {
+                if left_weight != right_weight {
+                    // return the node bask and wait for it to be the same weight
+                    stack.push((left_node, left_weight));
+                    break;
+                }
+
+                let ark_common_secret =
+                    iota_function(&left_node.get_public_key().mul(right_secret).into_affine())?;
+                right_secret = ark_common_secret;
+                last_secret = ark_common_secret;
+
+                right_node = Box::new(ArtNode::new_internal_node(
+                    G::generator().mul(&ark_common_secret).into_affine(),
+                    left_node,
+                    right_node,
+                ));
+                right_weight += left_weight;
+            }
+
+            // put the node to the end of stack
+            stack.push((right_node, right_weight));
+        }
+
+        let (root, _) = stack.pop().ok_or(ARTError::ARTLogicError)?;
+
+        Ok((root, last_secret))
+    }
+
+    fn fit_leaves_in_one_level(
+        mut level_nodes: Vec<Box<ArtNode<G>>>,
+        mut level_secrets: Vec<G::ScalarField>,
+    ) -> Result<ArtLevel<G>, ARTError> {
+        let mut level_size = 2;
+        while level_size < level_nodes.len() {
+            level_size <<= 1;
+        }
+
+        if level_size == level_nodes.len() {
+            return Ok((level_nodes, level_secrets));
+        }
+
+        let excess = level_size - level_nodes.len();
+
+        let mut upper_level_nodes = Vec::new();
+        let mut upper_level_secrets = Vec::new();
+        for _ in 0..(level_nodes.len() - excess) >> 1 {
+            let left_node = level_nodes.remove(0);
+            let right_node = level_nodes.remove(0);
+
+            level_secrets.remove(0); // skip the first secret
+
+            let common_secret = iota_function(
+                &left_node
+                    .get_public_key()
+                    .mul(level_secrets.remove(0))
+                    .into_affine(),
+            )?;
+
+            let node = ArtNode::new_internal_node(
+                G::generator().mul(&common_secret).into_affine(),
+                left_node,
+                right_node,
+            );
+
+            upper_level_nodes.push(Box::new(node));
+            upper_level_secrets.push(common_secret);
+        }
+
+        for _ in 0..excess {
+            let first_node = level_nodes.remove(0);
+            upper_level_nodes.push(first_node);
+            let first_secret = level_secrets.remove(0);
+            upper_level_secrets.push(first_secret);
+        }
+
+        Ok((upper_level_nodes, upper_level_secrets))
+    }
+
+    /// Recomputes path_secrets for conflict changes, which where merged. Applicable if user
+    /// had made change for merge. The state of the ART without that change is the base_fork,
+    /// which is required to properly merge changes. Note, that `target_changes` doesn't contain
+    /// users update, because it merges all path_secrets to the self path_secrets.
+    fn recompute_path_secrets_for_participant(
+        &mut self,
+        target_changes: &[BranchChange<G>],
+        base_fork: PrivateArt<G>,
+    ) -> Result<(), ARTError> {
+        for change in target_changes {
+            if self.get_node_index().is_subpath_of(&change.node_index)? {
+                match change.change_type {
+                    BranchChangeType::RemoveMember => return Err(ARTError::InapplicableBlanking),
+                    BranchChangeType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
+                    BranchChangeType::Leave => return Err(ARTError::InapplicableLeave),
+                    BranchChangeType::AddMember => {
+                        // Extend path_secrets. Append additional leaf secret to the start.
+                        let mut new_path_secrets =
+                            vec![*self.get_secrets().first().ok_or(ARTError::EmptyART)?];
+                        new_path_secrets.append(self.get_secrets().clone().as_mut());
+                        self.secrets = new_path_secrets;
+                    }
+                }
+            }
+
+            let secrets = base_fork.get_artefact_secrets_from_change(change)?;
+
+            self.zip_update_path_secrets(secrets, &change.node_index, true)?;
+        }
+
+        Ok(())
+    }
+
+    /// Recomputes path_secrets for conflict changes, which where merged. Applicable if the user
+    /// didn't make any changes, which where merged. It is a wrapper for
+    /// `recompute_path_secrets_for_participant`. The difference, is then for observer we cant
+    /// merge all secrets, we need to apply one and then append others.
+    fn recompute_path_secrets_for_observer(
+        &mut self,
+        target_changes: &[BranchChange<G>],
+    ) -> Result<(), ARTError> {
+        let old_secrets = self.get_secrets().clone();
+
+        self.recompute_path_secrets_for_participant(target_changes, self.clone())?;
+
+        // subtract default secrets from path_secrets
+        let path_secrets = &mut self.secrets;
+        for i in (0..old_secrets.len()).rev() {
+            if path_secrets[i] != old_secrets[i] {
+                path_secrets[i] -= old_secrets[i];
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns secrets from changes (ordering from leaf to the root).

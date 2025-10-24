@@ -14,6 +14,7 @@ use zrt_art::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use zrt_art::art::applicable_change::ApplicableChange;
 use zrt_art::art::art_advanced_operations::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use zrt_art::art::branch_change::MergeBranchChange;
 use zrt_art::art::tree_methods::TreeMethods;
 use zrt_art::art::verifiable_change::VerifiableChange;
 use zrt_art::node_index::NodeIndex;
@@ -128,59 +129,60 @@ fn general_example() {
     assert!(verification_result.is_ok());
 }
 
-// fn merge_conflict_changes() {
-//     let mut rng = &mut StdRng::seed_from_u64(0);
-//     let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-//
-//     let (art0, _) =
-//         PrivateArt::new_art_from_secrets(&secrets, &CortadoAffine::generator()).unwrap();
-//
-//     // Serialise and deserialize art for the other users.
-//     let public_art_bytes = art0.serialize().unwrap();
-//
-//     // Store the basic art1.
-//     let art1: PrivateArt<CortadoAffine> =
-//         PrivateArt::deserialize(&public_art_bytes, &secrets[1]).unwrap();
-//
-//     // Create new users arts
-//     let mut user0: PrivateArt<CortadoAffine> =
-//         PrivateArt::deserialize(&public_art_bytes, &secrets[0]).unwrap();
-//
-//     let mut user2: PrivateArt<CortadoAffine> =
-//         PrivateArt::deserialize(&public_art_bytes, &secrets[2]).unwrap();
-//
-//     let mut user3: PrivateArt<CortadoAffine> =
-//         PrivateArt::deserialize(&public_art_bytes, &secrets[8]).unwrap();
-//
-//     let sk0 = Fr::rand(&mut rng);
-//     let (_, change0, _) = user0.update_key(&sk0).unwrap();
-//
-//     let sk2 = Fr::rand(&mut rng);
-//     let (_, change2, _) = user2.update_key(&sk2).unwrap();
-//
-//     let sk3 = Fr::rand(&mut rng);
-//     let (_, change3, _) = user3.update_key(&sk3).unwrap();
-//
-//     let applied_change = change0.clone();
-//     let all_but_0_changes = vec![change2.clone(), change3.clone()];
-//     let all_changes = vec![change0, change2, change3];
-//
-//     // Merge for users which participated in the merge
-//     let mut participant = user0.clone();
-//     participant
-//         .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
-//         .unwrap();
-//
-//     // Merge for users which only observed the merge conflict
-//     let mut observer = art1.clone();
-//     observer.merge_for_observer(&all_changes).unwrap();
-//
-//     assert_eq!(
-//         participant, observer,
-//         "Observer and participant have the same view on the state of the art."
-//     );
-// }
-//
+fn merge_conflict_changes() {
+    let mut rng = &mut StdRng::seed_from_u64(0);
+    let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+    let art0 = PrivateArt::setup(&secrets).unwrap();
+
+    // Serialise and deserialize art for the other users.
+    let public_art = art0.get_public_art().clone();
+
+    // Store the basic art1.
+    let art1: PrivateArt<CortadoAffine> = PrivateArt::new(public_art.clone(), secrets[1]).unwrap();
+
+    // Create new users arts
+    let mut user0 = PrivateArt::<CortadoAffine>::new(public_art.clone(), secrets[0]).unwrap();
+    let mut user2 = PrivateArt::<CortadoAffine>::new(public_art.clone(), secrets[2]).unwrap();
+    let mut user3 = PrivateArt::<CortadoAffine>::new(public_art.clone(), secrets[8]).unwrap();
+
+    let sk0 = Fr::rand(&mut rng);
+    let change0 = user0.update_key(sk0, None, &[]).unwrap();
+
+    let sk2 = Fr::rand(&mut rng);
+    let change2 = user2.update_key(sk2, None, &[]).unwrap();
+
+    let sk3 = Fr::rand(&mut rng);
+    let change3 = user3.update_key(sk3, None, &[]).unwrap();
+
+    let applied_change = change0.clone();
+    let all_but_0_changes = vec![change2.clone(), change3.clone()];
+    let all_changes = vec![change0, change2, change3];
+
+    // Merge for users which participated in the merge
+    let mut participant = user0.clone();
+    let participant_merge_change = MergeBranchChange::new_for_participant(
+        art0.clone(),
+        applied_change.clone(),
+        all_but_0_changes.clone(),
+    );
+    participant_merge_change.update(&mut participant).unwrap();
+    // participant
+    //     .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
+    //     .unwrap();
+
+    // Merge for users which only observed the merge conflict
+    let mut observer = art1.clone();
+    let observer_merge_change = MergeBranchChange::new_for_observer(all_changes);
+    observer_merge_change.update(&mut observer).unwrap();
+    // observer.merge_for_observer(&all_changes).unwrap();
+
+    assert_eq!(
+        participant, observer,
+        "Observer and participant have the same view on the state of the art."
+    );
+}
+
 // fn branch_aggregation_proof_verify() {
 //     // Init test context.
 //     let mut rng = StdRng::seed_from_u64(0);

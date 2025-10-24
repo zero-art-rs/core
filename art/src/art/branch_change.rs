@@ -1,9 +1,11 @@
+use crate::errors::ARTError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use cortado::CortadoAffine;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use zrt_zk::art::ARTProof;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -11,7 +13,7 @@ pub enum BranchChangeType {
     #[default]
     UpdateKey,
     AddMember,
-    MakeBlank,
+    RemoveMember,
     Leave,
 }
 
@@ -34,10 +36,20 @@ where
     pub node_index: NodeIndex,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(bound = "")]
 pub struct VerifiableBranchChange {
     pub branch_change: BranchChange<CortadoAffine>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub proof: ARTProof,
+}
+
+impl Debug for VerifiableBranchChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifiableBranchChange")
+            .field("branch_change", &self.branch_change)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -76,10 +88,46 @@ where
 {
     fn from(value: &BranchChangesTypeHint<G>) -> Self {
         match value {
-            BranchChangesTypeHint::MakeBlank { .. } => BranchChangeType::MakeBlank,
+            BranchChangesTypeHint::MakeBlank { .. } => BranchChangeType::RemoveMember,
             BranchChangesTypeHint::AppendNode { .. } => BranchChangeType::AddMember,
             BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
             BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct MergeBranchChange<T, C> {
+    pub(crate) applied_helper_data: Option<(T, C)>,
+    pub(crate) unapplied_changes: Vec<C>,
+}
+
+impl<T, C> MergeBranchChange<T, C> {
+    pub fn new(
+        base_fork: Option<T>,
+        applied_change: Option<C>,
+        unapplied_changes: Vec<C>,
+    ) -> Result<Self, ARTError> {
+        Ok(match (base_fork, applied_change) {
+            (Some(base_fork), Some(applied_change)) => {
+                Self::new_for_participant(base_fork, applied_change, unapplied_changes)
+            }
+            (None, None) => Self::new_for_observer(unapplied_changes),
+            _ => return Err(ARTError::InvalidMergeInput),
+        })
+    }
+
+    pub fn new_for_observer(unapplied_changes: Vec<C>) -> Self {
+        MergeBranchChange {
+            applied_helper_data: None,
+            unapplied_changes,
+        }
+    }
+
+    pub fn new_for_participant(base_fork: T, applied_change: C, unapplied_changes: Vec<C>) -> Self {
+        MergeBranchChange {
+            applied_helper_data: Some((base_fork, applied_change)),
+            unapplied_changes,
         }
     }
 }

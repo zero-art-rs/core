@@ -84,7 +84,7 @@ where
                 ad,
             )
             .map(|mut change| {
-                change.change_type = BranchChangeType::MakeBlank;
+                change.change_type = BranchChangeType::RemoveMember;
                 change
             })?;
 
@@ -174,7 +174,7 @@ where
                 ad,
             )
             .map(|mut change| {
-                change.branch_change.change_type = BranchChangeType::MakeBlank;
+                change.branch_change.change_type = BranchChangeType::RemoveMember;
                 change
             })?;
 
