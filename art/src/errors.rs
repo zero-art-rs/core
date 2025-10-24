@@ -1,14 +1,5 @@
+use bulletproofs::r1cs::R1CSError;
 use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum ARTNodeError {
-    #[error("Given parameters are invalid")]
-    InvalidParameters,
-    #[error("The method is callable only for leaves")]
-    LeafOnly,
-    #[error("The method is callable only for internal nodes")]
-    InternalNodeOnly,
-}
 
 #[derive(Error, Debug)]
 pub enum ARTError {
@@ -16,13 +7,13 @@ pub enum ARTError {
     ARTLogicError,
     #[error("Invalid input provided.")]
     InvalidInput,
+    #[error("Fail to update. Path to user leaf is a subpath of updated path.")]
+    SubPath,
     #[error("Postcard error: {0}")]
     Postcard(#[from] postcard::Error),
     #[error("Serde JSON error: {0}.")]
     SerdeJson(#[from] serde_json::Error),
-    #[error("Node error: {0}.")]
-    Node(#[from] ARTNodeError),
-    #[error("Cant find path to given node.")]
+    #[error("Cant find path to the node.")]
     PathNotExists,
     #[error("Failed to convert &[u8] into &[u8;32] {0}.")]
     ConversionError(#[from] std::array::TryFromSliceError),
@@ -39,7 +30,15 @@ pub enum ARTError {
     #[error("Can't apply leave operation update change to itself.")]
     InapplicableLeave,
     #[error("The method can't be applied to the non leaf node.")]
-    NonLeafNode,
-    #[error("Cant merge given changes.")]
-    MergeInput,
+    LeafOnly,
+    #[error("The method can't be applied to the leaf node.")]
+    InternalNodeOnly,
+    #[error("Can't merge given changes.")]
+    InvalidMergeInput,
+    #[error("Fail to update tree_ds tree.")]
+    TreeDS,
+    #[error("Provided aggregation is invalid.")]
+    InvalidAggregation,
+    #[error("R1CSError: {0}")]
+    R1CSError(#[from] R1CSError),
 }

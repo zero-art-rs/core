@@ -1,7 +1,10 @@
-use ark_ff::{fields::{Fp256, MontBackend, MontConfig}, BigInteger as _, PrimeField as _};
+use ark_ff::{
+    BigInteger as _, PrimeField as _,
+    fields::{Fp256, MontBackend, MontConfig},
+};
 use curve25519_dalek::Scalar;
 
-use crate::fq::{ToScalar, FromScalar};
+use crate::fq::{FromScalar, ToScalar};
 
 #[derive(MontConfig)]
 #[modulus = "7237005577332262213973186563042994240986995387936333955789609363939694262923"]

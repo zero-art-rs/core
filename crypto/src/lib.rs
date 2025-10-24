@@ -1,8 +1,8 @@
 use thiserror::Error;
 use zkp::ProofError;
 
-pub mod x3dh;
 pub mod schnorr;
+pub mod x3dh;
 
 #[derive(Error, Debug)]
 pub enum CryptoError {
