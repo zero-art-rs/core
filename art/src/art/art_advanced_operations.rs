@@ -1,7 +1,7 @@
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::art::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
-use crate::art::tree_methods::TreeMethods;
+use crate::changes::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
+use crate::tree_methods::TreeMethods;
 use crate::art::{ArtBasicOps, EligibilityProofInput};
 use crate::errors::ARTError;
 use crate::node_index::NodeIndex;
@@ -9,7 +9,6 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
-use tracing::debug;
 
 pub trait ArtAdvancedOps<G, R>: ArtBasicOps<G, R>
 where
@@ -222,11 +221,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::art::applicable_change::ApplicableChange;
+    use crate::changes::ApplicableChange;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::LeafStatus;
     use crate::art::art_types::{PrivateArt, PublicArt};
-    use crate::art::tree_methods::TreeMethods;
+    use crate::TreeMethods;
     use crate::errors::ARTError;
     use crate::init_tracing;
     use crate::node_index::{Direction, NodeIndex};

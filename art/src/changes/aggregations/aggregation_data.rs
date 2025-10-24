@@ -1,4 +1,4 @@
-use crate::art::branch_change::{BranchChangeType, BranchChangesTypeHint};
+use crate::changes::branch_change::{BranchChangeType, BranchChangesTypeHint};
 use crate::helper_tools::prepare_short_marker;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;

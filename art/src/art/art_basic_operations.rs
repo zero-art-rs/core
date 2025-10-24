@@ -1,6 +1,6 @@
 use crate::art::EligibilityProofInput;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::art::branch_change::{BranchChange, VerifiableBranchChange};
+use crate::changes::branch_change::{BranchChange, VerifiableBranchChange};
 use crate::errors::ARTError;
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;

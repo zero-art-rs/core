@@ -1,9 +1,9 @@
-use crate::aggregations::{
+use crate::changes::aggregations::{
     ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData, RelatedData,
     VerifierAggregationData,
 };
 use crate::art::artefacts::ProverArtefacts;
-use crate::art::branch_change::{BranchChange, BranchChangesTypeHint};
+use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_node::TreeNode;

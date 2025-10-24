@@ -1,7 +1,7 @@
 use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
-use crate::art::branch_change::{BranchChange, BranchChangeType};
-use crate::art::tree_methods::TreeMethods;
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
+use crate::TreeMethods;
 use crate::art::{ArtLevel, ArtUpdateOutput, EligibilityProofInput, ProverArtefacts};
 use crate::errors::ARTError;
 use crate::helper_tools::{iota_function, recompute_artefacts};

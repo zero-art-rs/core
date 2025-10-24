@@ -1,9 +1,9 @@
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::art::branch_change::{
+use crate::changes::branch_change::{
     BranchChange, BranchChangeType, MergeBranchChange, VerifiableBranchChange,
 };
-use crate::art::tree_methods::TreeMethods;
+use crate::TreeMethods;
 use crate::errors::ARTError;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -120,11 +120,11 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::art::applicable_change::ApplicableChange;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PublicArt};
-    use crate::art::branch_change::MergeBranchChange;
-    use crate::art::tree_methods::TreeMethods;
+    use crate::changes::applicable_change::ApplicableChange;
+    use crate::changes::branch_change::MergeBranchChange;
+    use crate::TreeMethods;
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
     use ark_ec::{AffineRepr, CurveGroup};

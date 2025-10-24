@@ -1,5 +1,5 @@
-use crate::aggregations::{AggregationNode, RelatedData};
 use crate::art::art_node::{ArtNode, LeafStatus};
+use crate::changes::aggregations::{AggregationNode, RelatedData};
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};

@@ -1,7 +1,7 @@
-use crate::aggregations::{
+use crate::changes::aggregations::{
     AggregationData, EmptyData, ProverAggregationData, VerifierAggregationData,
 };
-use crate::art::branch_change::BranchChangesTypeHint;
+use crate::changes::branch_change::BranchChangesTypeHint;
 use ark_ec::AffineRepr;
 use std::mem;
 

@@ -10,13 +10,13 @@ use std::ops::Mul;
 use tracing::debug;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_art::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
-use zrt_art::art::applicable_change::ApplicableChange;
+use zrt_art::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
+use zrt_art::changes::ApplicableChange;
 use zrt_art::art::art_advanced_operations::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::art::branch_change::MergeBranchChange;
-use zrt_art::art::tree_methods::TreeMethods;
-use zrt_art::art::verifiable_change::VerifiableChange;
+use zrt_art::changes::branch_change::MergeBranchChange;
+use zrt_art::TreeMethods;
+use zrt_art::changes::VerifiableChange;
 use zrt_art::node_index::NodeIndex;
 use zrt_zk::aggregated_art::{
     ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,

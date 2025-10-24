@@ -1,6 +1,6 @@
-use crate::art::applicable_change::ApplicableChange;
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
-use crate::art::branch_change::VerifiableBranchChange;
+use crate::changes::applicable_change::ApplicableChange;
+use crate::changes::branch_change::VerifiableBranchChange;
 use crate::errors::ARTError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
@@ -80,11 +80,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::art::applicable_change::ApplicableChange;
+    use crate::changes::ApplicableChange;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::art::tree_methods::TreeMethods;
-    use crate::art::verifiable_change::VerifiableChange;
+    use crate::TreeMethods;
+    use crate::changes::VerifiableChange;
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
     use ark_ec::{AffineRepr, CurveGroup};
