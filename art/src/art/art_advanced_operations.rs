@@ -56,21 +56,12 @@ where
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
-        let change = self
+        self
             .add_node(new_key, eligibility_proof_input, ad)
             .map(|mut change| {
                 change.change_type = BranchChangeType::AddMember;
                 change
-            })?;
-
-        let mut update_path = change.node_index.get_path()?;
-        if let None = update_path.pop() {
-            return Err(ARTError::EmptyART);
-        };
-
-        self.public_art.update_branch_weight(&update_path, true)?;
-
-        Ok(change)
+            })
     }
 
     fn remove_member(
@@ -159,10 +150,6 @@ where
         if let None = update_path.pop() {
             return Err(ARTError::EmptyART);
         };
-
-        self.private_art
-            .public_art
-            .update_branch_weight(&update_path, true)?;
 
         Ok(change)
     }

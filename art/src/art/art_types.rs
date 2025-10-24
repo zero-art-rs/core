@@ -2,7 +2,7 @@ use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::branch_change::{BranchChange, BranchChangeType};
 use crate::art::tree_methods::TreeMethods;
-use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
+use crate::art::{ArtLevel, ArtUpdateOutput, EligibilityProofInput, ProverArtefacts};
 use crate::errors::ARTError;
 use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
@@ -671,6 +671,65 @@ where
         self.node_index = NodeIndex::Direction(path).as_index()?;
 
         Ok(())
+    }
+
+    pub(crate) fn private_update_node_key(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: G::ScalarField,
+        append_changes: bool,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let path = target_leaf.get_path()?;
+        let (tk, changes, artefacts) =
+            self.update_art_branch_with_leaf_secret_key(new_key, &path, append_changes)?;
+
+        self.zip_update_path_secrets(
+            artefacts.secrets.clone(),
+            &changes.node_index,
+            append_changes,
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    pub(crate) fn private_add_node(
+        &mut self,
+        new_key: G::ScalarField,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let mut path = match self.public_art.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.public_art.find_path_to_lowest_leaf()?,
+        };
+
+        let new_leaf = ArtNode::new_leaf(G::generator().mul(new_key).into_affine());
+        let target_leaf = self.get_mut_node_at(&path)?;
+
+        if !target_leaf.is_leaf() {
+            return Err(ARTError::LeafOnly);
+        }
+
+        let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
+        target_leaf.extend_or_replace(new_leaf)?;
+
+        self.public_art.update_branch_weight(&path, true)?;
+
+        if extend_node {
+            path.push(Direction::Right);
+        }
+
+        let (tk, changes, artefacts) =
+            self.update_art_branch_with_leaf_secret_key(new_key, &path, false)?;
+
+        if self.get_node_index().is_subpath_of(&changes.node_index)? {
+            let mut new_path_secrets = vec![*self.secrets.first().ok_or(ARTError::EmptyART)?];
+            new_path_secrets.append(self.secrets.clone().as_mut());
+            self.secrets = new_path_secrets;
+        }
+        self.update_node_index()?;
+
+        self.zip_update_path_secrets(artefacts.secrets.clone(), &changes.node_index, false)?;
+
+        Ok((tk, changes, artefacts))
     }
 
     /// Returns secrets from changes (ordering from leaf to the root).
