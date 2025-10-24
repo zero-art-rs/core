@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum BranchChangesType {
     #[default]
     UpdateKey,
-    AppendNode,
+    AddMember,
     MakeBlank,
     Leave,
 }

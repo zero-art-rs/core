@@ -104,30 +104,30 @@ where
     ///   blanking of some node.
     pub(crate) fn update_with_options(
         &mut self,
-        changes: &BranchChanges<G>,
+        change: &BranchChanges<G>,
         append_changes: bool,
         update_weights: bool,
     ) -> Result<(), ARTError> {
-        match &changes.change_type {
+        match &change.change_type {
             BranchChangesType::UpdateKey => {}
-            BranchChangesType::AppendNode => {
+            BranchChangesType::AddMember => {
                 let leaf =
-                    ArtNode::new_leaf(*changes.public_keys.last().ok_or(ARTError::NoChanges)?);
-                self.append_or_replace_node_without_changes(leaf, &changes.node_index.get_path()?)?;
+                    ArtNode::new_leaf(*change.public_keys.last().ok_or(ARTError::NoChanges)?);
+                self.append_or_replace_node_without_changes(leaf, &change.node_index.get_path()?)?;
             }
             BranchChangesType::MakeBlank => {
                 self.make_blank_without_changes_with_options(
-                    &changes.node_index.get_path()?,
+                    &change.node_index.get_path()?,
                     update_weights,
                 )?;
             }
             BranchChangesType::Leave => {
-                self.get_mut_node(&changes.node_index)?
+                self.get_mut_node(&change.node_index)?
                     .set_status(LeafStatus::PendingRemoval)?;
             }
         }
 
-        self.update_art_with_changes(changes, append_changes)
+        self.update_art_with_changes(change, append_changes)
     }
 
     /// Extends or replaces a leaf on the end of a given path with the given node. This method
@@ -541,18 +541,18 @@ where
     /// Updates art by applying changes. Also updates path_secrets and node_index.
     pub(crate) fn update_private_art_with_options(
         &mut self,
-        changes: &BranchChanges<G>,
+        change: &BranchChanges<G>,
         append_changes: bool,
         update_weights: bool,
     ) -> Result<(), ARTError> {
         // If your node is to be blanked, return error, as it is impossible to update
         // path secrets at that point.
-        if self.get_node_index().is_subpath_of(&changes.node_index)? {
-            match changes.change_type {
+        if self.get_node_index().is_subpath_of(&change.node_index)? {
+            match change.change_type {
                 BranchChangesType::MakeBlank => return Err(ARTError::InapplicableBlanking),
                 BranchChangesType::UpdateKey => return Err(ARTError::InapplicableKeyUpdate),
                 BranchChangesType::Leave => return Err(ARTError::InapplicableLeave),
-                BranchChangesType::AppendNode => {
+                BranchChangesType::AddMember => {
                     // Extend path_secrets. Append additional leaf secret to the start.
                     let mut new_path_secrets =
                         vec![*self.secrets.first().ok_or(ARTError::EmptyART)?];
@@ -563,15 +563,15 @@ where
         }
 
         self.public_art
-            .update_with_options(changes, append_changes, update_weights)?;
+            .update_with_options(change, append_changes, update_weights)?;
 
-        if let BranchChangesType::AppendNode = &changes.change_type {
+        if let BranchChangesType::AddMember = &change.change_type {
             self.update_node_index()?;
         };
 
-        let artefact_secrets = self.get_artefact_secrets_from_change(changes)?;
+        let artefact_secrets = self.get_artefact_secrets_from_change(change)?;
 
-        self.zip_update_path_secrets(artefact_secrets, &changes.node_index, append_changes)?;
+        self.zip_update_path_secrets(artefact_secrets, &change.node_index, append_changes)?;
 
         Ok(())
     }
