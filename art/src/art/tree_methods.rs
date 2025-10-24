@@ -58,6 +58,16 @@ where
         Err(ARTError::PathNotExists)
     }
 
+    fn get_node_with(&self, public_key: G) -> Result<&ArtNode<G>, ARTError> {
+        for (node, _) in NodeIterWithPath::new(self.get_root()) {
+            if node.get_public_key().eq(&public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ARTError::PathNotExists)
+    }
+
     fn get_path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ARTError> {
         for (node, path) in NodeIterWithPath::new(self.get_root()) {
             if node.is_leaf() && node.get_public_key().eq(&public_key) {

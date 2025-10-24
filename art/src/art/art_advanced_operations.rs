@@ -56,8 +56,7 @@ where
         eligibility_proof_input: Option<EligibilityProofInput>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
-        self
-            .add_node(new_key, eligibility_proof_input, ad)
+        self.add_node(new_key, eligibility_proof_input, ad)
             .map(|mut change| {
                 change.change_type = BranchChangeType::AddMember;
                 change
@@ -225,10 +224,12 @@ where
 mod tests {
     use crate::art::applicable_change::ApplicableChange;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
+    use crate::art::art_node::LeafStatus;
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::art::tree_methods::TreeMethods;
     use crate::errors::ARTError;
     use crate::init_tracing;
+    use crate::node_index::{Direction, NodeIndex};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
@@ -635,5 +636,153 @@ mod tests {
             user0, user1,
             "Applying of the same key update twice, will give no affect."
         );
+    }
+
+    #[test]
+    fn test_correctness_for_method_from() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
+
+        let user1_2 = PrivateArt::restore(public_art.clone(), user1.get_secrets().clone()).unwrap();
+
+        assert_eq!(user1, user1_2);
+
+        assert_eq!(user1.get_secrets(), user1_2.get_secrets());
+    }
+
+    #[test]
+    fn test_get_node() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let leaf_secrets = (0..DEFAULT_TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut user0: PrivateArt<CortadoAffine> = PrivateArt::setup(&leaf_secrets).unwrap();
+
+        let random_public_key = CortadoAffine::rand(&mut rng);
+        assert!(user0.get_node_with(random_public_key).is_err());
+        assert!(
+            user0
+                .get_public_art()
+                .get_leaf_with(random_public_key)
+                .is_err()
+        );
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf = user0.get_public_art().get_leaf_with(pk).unwrap();
+            assert_eq!(leaf.get_public_key(), pk);
+            assert!(leaf.is_leaf());
+        }
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf = user0.get_public_art().get_node_with(pk).unwrap();
+            assert_eq!(leaf.get_public_key(), pk);
+        }
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf_path = user0.get_public_art().get_path_to_leaf_with(pk).unwrap();
+            let leaf = user0
+                .get_public_art()
+                .get_node(&NodeIndex::Direction(leaf_path))
+                .unwrap();
+            assert_eq!(leaf.get_public_key(), pk);
+
+            assert!(leaf.is_leaf());
+        }
+    }
+
+    #[test]
+    fn test_apply_key_update_to_itself() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let mut user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
+
+        // User0 updates his key.
+        let new_sk0 = Fr::rand(&mut rng);
+        let key_update_change0 = user0.update_key(new_sk0, None, &[]).unwrap();
+
+        // User1 fails to update his art.
+        assert!(matches!(
+            key_update_change0.update(&mut user1),
+            Err(ARTError::InapplicableKeyUpdate)
+        ));
+    }
+
+    #[test]
+    fn test_art_weights_after_one_add_member() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut tree: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+        let mut rng = &mut StdRng::seed_from_u64(rand::random());
+
+        for _ in 1..DEFAULT_TEST_GROUP_SIZE {
+            let _ = tree.add_member(Fr::rand(&mut rng), None, &[]).unwrap();
+        }
+
+        for node in tree.get_root() {
+            if node.is_leaf() {
+                if !matches!(node.get_status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.get_weight(), 0);
+                } else {
+                    assert_eq!(node.get_weight(), 1);
+                }
+            } else {
+                assert_eq!(
+                    node.get_weight(),
+                    node.get_child(Direction::Left).unwrap().get_weight()
+                        + node.get_child(Direction::Right).unwrap().get_weight()
+                );
+            }
+        }
     }
 }

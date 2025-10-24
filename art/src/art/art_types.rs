@@ -479,6 +479,10 @@ where
         self.secrets.last().copied().ok_or(ARTError::EmptyART)
     }
 
+    pub fn get_secrets(&self) -> &Vec<G::ScalarField> {
+        &self.secrets
+    }
+
     pub fn get_leaf_public_key(&self) -> Result<G, ARTError> {
         Ok(G::generator()
             .mul(self.get_leaf_secret_key()?)
