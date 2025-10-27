@@ -1,9 +1,11 @@
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
+use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::applicable_change::ApplicableChange;
 use crate::changes::branch_change::VerifiableBranchChange;
 use crate::errors::ARTError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
+use zrt_zk::aggregated_art::{VerifierAggregationTree, art_aggregated_verify};
 use zrt_zk::art::art_verify;
 
 pub trait VerifiableChange<T>: ApplicableChange<T> {
@@ -78,12 +80,62 @@ where
     }
 }
 
+impl VerifiableChange<PublicZeroArt> for PlainChangeAggregationWithProof<CortadoAffine> {
+    fn verify(
+        &self,
+        art: &PublicZeroArt,
+        ad: &[u8],
+        aux_public_keys: Vec<CortadoAffine>,
+    ) -> Result<(), ARTError> {
+        let extracted_agg = self.0.add_co_path(&art.public_art)?;
+        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
+
+        // Verify proof
+        art_aggregated_verify(
+            art.proof_basis.clone(),
+            ad,
+            &verifier_tree,
+            aux_public_keys,
+            &self.1,
+        )?;
+
+        Ok(())
+    }
+}
+
+impl<'a, R> VerifiableChange<PrivateZeroArt<'a, R>>
+    for PlainChangeAggregationWithProof<CortadoAffine>
+where
+    R: Rng + ?Sized,
+{
+    fn verify(
+        &self,
+        art: &PrivateZeroArt<'a, R>,
+        ad: &[u8],
+        aux_public_keys: Vec<CortadoAffine>,
+    ) -> Result<(), ARTError> {
+        let extracted_agg = self.0.add_co_path(&art.private_art.public_art)?;
+        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
+
+        // Verify proof
+        art_aggregated_verify(
+            art.proof_basis.clone(),
+            ad,
+            &verifier_tree,
+            aux_public_keys,
+            &self.1,
+        )?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::changes::ApplicableChange;
+    use crate::TreeMethods;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::TreeMethods;
+    use crate::changes::ApplicableChange;
     use crate::changes::VerifiableChange;
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
@@ -109,14 +161,13 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng).unwrap();
+        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
 
         let mut test_rng = StdRng::seed_from_u64(rand::random());
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
             &mut test_rng,
-        )
-        .unwrap();
+        );
 
         let new_secret_key = Fr::rand(&mut rng);
         let associated_data = b"Some data for proof";
@@ -163,14 +214,13 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng).unwrap();
+        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
 
         let mut test_rng = StdRng::seed_from_u64(rand::random());
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
             &mut test_rng,
-        )
-        .unwrap();
+        );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
         let secret_key = art.get_leaf_public_key().unwrap();
@@ -213,14 +263,13 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng).unwrap();
+        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
 
         let mut test_rng = StdRng::seed_from_u64(rand::random());
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
             &mut test_rng,
-        )
-        .unwrap();
+        );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
         let public_key = art.get_leaf_public_key().unwrap();
@@ -259,14 +308,13 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng).unwrap();
+        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
 
         let mut test_rng = StdRng::seed_from_u64(rand::random());
         let mut test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
             &mut test_rng,
-        )
-        .unwrap();
+        );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
         let public_key = art.get_leaf_public_key().unwrap();

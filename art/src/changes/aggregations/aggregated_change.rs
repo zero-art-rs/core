@@ -1,28 +1,34 @@
-use crate::art::ArtUpdateOutput;
 use crate::art::art_advanced_operations::ArtAdvancedOps;
 use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::art::art_types::{PrivateArt, PublicArt};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use crate::art::artefacts::ProverArtefacts;
+use crate::art::{ArtBasicOps, ArtUpdateOutput};
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
 };
-use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangesTypeHint};
 use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_methods::TreeMethods;
 use crate::tree_node::TreeNode;
-use ark_ec::AffineRepr;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
+use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
 use std::fmt::{Display, Formatter};
-use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use std::ops::Mul;
+use zrt_zk::aggregated_art::{
+    ARTAggregatedProof, ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove,
+};
 
-pub type ProverChangeAggregation<'a, G, R> =
-    ChangeAggregationWithRng<'a, ProverAggregationData<G>, R>;
+pub type ProverChangeAggregation<G> = ChangeAggregation<ProverAggregationData<G>>;
 pub type PlainChangeAggregation<G> = ChangeAggregation<AggregationData<G>>;
-pub type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
+pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
+
+pub type PlainChangeAggregationWithProof<G> =
+    (ChangeAggregation<AggregationData<G>>, ARTAggregatedProof);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeAggregation<D>
@@ -49,7 +55,7 @@ where
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
     pub fn add_co_path(
         &self,
-        art: &PrivateArt<G>,
+        art: &PublicArt<G>,
     ) -> Result<VerifierChangeAggregation<G>, ARTError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
@@ -85,7 +91,7 @@ where
                 // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
                 let mut path = parent_path.clone();
                 path.push(last_direction.other());
-                Self::get_last_public_key_on_path(art.get_public_art(), agg_root, &path)?
+                Self::get_last_public_key_on_path(art, agg_root, &path)?
             };
             resulting_target_node.data.co_public_key = Some(pk);
         }
@@ -155,12 +161,13 @@ where
     }
 }
 
-impl<G> ChangeAggregation<VerifierAggregationData<G>>
+// impl<G> ChangeAggregation<VerifierAggregationData<G>>
+impl<G> ChangeAggregation<AggregationData<G>>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
+    pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
             None => return Err(ARTError::NoChanges),
@@ -226,7 +233,7 @@ where
 
     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
     /// and `node_index`.
-    pub fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
+    pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
         self.update_public_art(&mut art.public_art)?;
 
         art.update_node_index()?;
@@ -433,9 +440,345 @@ where
     }
 }
 
-impl<'a, G, R> ChangeAggregationWithRng<'a, ProverAggregationData<G>, R>
+// impl<'a, G, R> ChangeAggregationWithRng<'a, ProverAggregationData<G>, R>
+// where
+//     R: Rng + ?Sized,
+//     G: AffineRepr,
+//     G::BaseField: PrimeField,
+// {
+//     pub fn extend(
+//         &mut self,
+//         changes: &BranchChange<G>,
+//         artefacts: &ProverArtefacts<G>,
+//         change_hint: BranchChangesTypeHint<G>,
+//     ) -> Result<(), ARTError> {
+//         let Self { root, rng } = self;
+//         let root = root.get_or_insert_with(AggregationNode::<ProverAggregationData<G>>::default);
+//
+//         root.extend(rng, changes, artefacts, change_hint)
+//     }
+//
+//     /// Updates art by applying changes. Also updates path_secrets and node_index.
+//     pub fn update_key(
+//         &mut self,
+//         new_secret_key: G::ScalarField,
+//         art: &mut PrivateArt<G>,
+//     ) -> Result<ArtUpdateOutput<G>, ARTError> {
+//
+//         let index = art.get_node_index().clone();
+//         let (tk, change, artefacts) =
+//             art.private_update_node_key(&index, new_secret_key, false)?;
+//
+//         self.extend(
+//             &change,
+//             &artefacts,
+//             BranchChangesTypeHint::UpdateKey {
+//                 pk: G::generator().mul(new_secret_key).into_affine(),
+//             },
+//         )?;
+//
+//         Ok((tk, change, artefacts))
+//     }
+//
+//     pub fn make_blank(
+//         &mut self,
+//         path: &[Direction],
+//         temporary_secret_key: G::ScalarField,
+//         art: &mut PrivateArt<G>,
+//     ) -> Result<ArtUpdateOutput<G>, ARTError> {
+//         let append_changes = matches!(
+//             art.get_node_at(&path)?.get_status(),
+//             Some(LeafStatus::Blank)
+//         );
+//
+//         if append_changes {
+//             return Err(ARTError::InvalidMergeInput);
+//         }
+//
+//         let index = NodeIndex::from(path.to_vec());
+//         let (tk, mut change, artefacts) = art.private_update_node_key(&index, temporary_secret_key, append_changes)?;
+//         change.change_type = BranchChangeType::RemoveMember;
+//
+//         self.extend(
+//             &change,
+//             &artefacts,
+//             BranchChangesTypeHint::MakeBlank {
+//                 pk: G::generator().mul(temporary_secret_key).into_affine(),
+//                 merge: append_changes,
+//             },
+//         )?;
+//
+//         art.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+//
+//         if !append_changes {
+//             art.public_art
+//                 .update_branch_weight(&path, false)?;
+//         }
+//
+//         Ok((tk, change, artefacts))
+//     }
+//
+//     pub fn append_or_replace_node(
+//         &mut self,
+//         secret_key: G::ScalarField,
+//         art: &mut PrivateArt<G>,
+//     ) -> Result<ArtUpdateOutput<G>, ARTError> {
+//         let path = match art.get_public_art().find_path_to_left_most_blank_node() {
+//             Some(path) => path,
+//             None => art.get_public_art().find_path_to_lowest_leaf()?,
+//         };
+//
+//         let hint = matches!(art
+//             .get_public_art()
+//             .get_node(&NodeIndex::Direction(path.to_vec()))?
+//             .get_status(),
+//         Some(LeafStatus::Active));
+//
+//         let (tk, mut changes, artefacts) = art.private_add_node(secret_key)?;
+//         changes.change_type = BranchChangeType::AddMember;
+//
+//         let ext_pk = match hint {
+//             true => Some(
+//                 art.get_public_art()
+//                     .get_node(&NodeIndex::Direction(path.to_vec()))?
+//                     .get_public_key(),
+//             ),
+//             false => None,
+//         };
+//
+//         self.extend(
+//             &changes,
+//             &artefacts,
+//             BranchChangesTypeHint::AppendNode {
+//                 pk: G::generator().mul(secret_key).into_affine(),
+//                 ext_pk,
+//             },
+//         )?;
+//
+//         Ok((tk, changes, artefacts))
+//     }
+//
+//     pub fn leave(
+//         &mut self,
+//         new_secret_key: G::ScalarField,
+//         art: &mut PrivateArt<G>,
+//     ) -> Result<ArtUpdateOutput<G>, ARTError> {
+//         let index = art.get_node_index().clone();
+//         let (tk, mut change, artefacts) = art.private_update_node_key(&index, new_secret_key, false)?;
+//         change.change_type = BranchChangeType::Leave;
+//
+//         self.extend(
+//             &change,
+//             &artefacts,
+//             BranchChangesTypeHint::Leave {
+//                 pk: G::generator().mul(new_secret_key).into_affine(),
+//             },
+//         )?;
+//
+//         art.get_mut_node(&index)?
+//             .set_status(LeafStatus::PendingRemoval)?;
+//
+//         Ok((tk, change, artefacts))
+//     }
+// }
+
+impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
+    pub fn extend<R>(
+        &mut self,
+        rng: &mut R,
+        changes: &BranchChange<CortadoAffine>,
+        artefacts: &ProverArtefacts<CortadoAffine>,
+        change_hint: BranchChangesTypeHint<CortadoAffine>,
+    ) -> Result<(), ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        let root = self.root.get_or_insert_with(AggregationNode::<ProverAggregationData<CortadoAffine>>::default);
+
+        root.extend(rng, changes, artefacts, change_hint)
+    }
+
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    pub fn update_key<'a, R>(
+        &mut self,
+        new_secret_key: Fr,
+        art: &mut PrivateZeroArt<'a, R>,
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        let index = art.get_node_index().clone();
+        let (tk, change, artefacts) =
+            art.private_art
+                .private_update_node_key(&index, new_secret_key, false)?;
+
+        self.extend(
+            &mut art.rng,
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::UpdateKey {
+                pk: CortadoAffine::generator().mul(new_secret_key).into_affine(),
+            },
+        )?;
+
+        Ok((tk, change, artefacts))
+    }
+
+    pub fn remove_member<'a, R>(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: Fr,
+        art: &mut PrivateZeroArt<'a, R>,
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        let append_changes = matches!(
+            art.get_node_at(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+
+        if append_changes {
+            return Err(ARTError::InvalidMergeInput);
+        }
+
+        let index = NodeIndex::from(path.to_vec());
+        let (tk, mut change, artefacts) = art.private_art.private_update_node_key(
+            &index,
+            temporary_secret_key,
+            append_changes,
+        )?;
+        change.change_type = BranchChangeType::RemoveMember;
+
+        self.extend(
+            &mut art.rng,
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::MakeBlank {
+                pk: CortadoAffine::generator()
+                    .mul(temporary_secret_key)
+                    .into_affine(),
+                merge: append_changes,
+            },
+        )?;
+
+        art.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+
+        if !append_changes {
+            art.private_art
+                .public_art
+                .update_branch_weight(&path, false)?;
+        }
+
+        Ok((tk, change, artefacts))
+    }
+
+    pub fn add_member<'a, R>(
+        &mut self,
+        secret_key: Fr,
+        art: &mut PrivateZeroArt<'a, R>,
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        let path = match art.get_public_art().find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => art.get_public_art().find_path_to_lowest_leaf()?,
+        };
+
+        let hint = matches!(
+            art.get_public_art()
+                .get_node(&NodeIndex::Direction(path.to_vec()))?
+                .get_status(),
+            Some(LeafStatus::Active)
+        );
+
+        let (tk, mut changes, artefacts) = art.private_art.private_add_node(secret_key)?;
+        changes.change_type = BranchChangeType::AddMember;
+
+        let ext_pk = match hint {
+            true => Some(
+                art.get_public_art()
+                    .get_node(&NodeIndex::Direction(path.to_vec()))?
+                    .get_public_key(),
+            ),
+            false => None,
+        };
+
+        self.extend(
+            &mut art.rng,
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::AppendNode {
+                pk: CortadoAffine::generator().mul(secret_key).into_affine(),
+                ext_pk,
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    pub fn leave<'a, R>(
+        &mut self,
+        new_secret_key: Fr,
+        art: &mut PrivateZeroArt<'a, R>,
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        let index = art.get_node_index().clone();
+        let (tk, mut change, artefacts) =
+            art.private_art
+                .private_update_node_key(&index, new_secret_key, false)?;
+        change.change_type = BranchChangeType::Leave;
+
+        self.extend(
+            &mut art.rng,
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::Leave {
+                pk: CortadoAffine::generator().mul(new_secret_key).into_affine(),
+            },
+        )?;
+
+        art.get_mut_node(&index)?
+            .set_status(LeafStatus::PendingRemoval)?;
+
+        Ok((tk, change, artefacts))
+    }
+}
+
+impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
+    pub fn prove<'a, R>(
+        &self,
+        art: &PrivateZeroArt<'a, R>,
+        ad: &[u8],
+    ) -> Result<PlainChangeAggregationWithProof<CortadoAffine>, ARTError>
+    where
+        R: Rng + ?Sized,
+    {
+        // Use some auxiliary keys for proof
+        let user_secret_key = art.get_leaf_secret_key()?;
+        let user_public_key = art.get_leaf_public_key()?;
+
+        // Get ProverAggregationTree for proof.
+        let prover_tree = ProverAggregationTree::try_from(self)?;
+
+        // Create proof
+        let proof = art_aggregated_prove(
+            art.proof_basis.clone(),
+            ad,
+            &prover_tree,
+            vec![user_public_key],
+            vec![user_secret_key],
+        )?;
+
+        Ok((PlainChangeAggregation::try_from(self)?, proof))
+    }
+}
+
+impl<G> ChangeAggregation<AggregationData<G>>
 where
-    R: Rng + ?Sized,
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
@@ -445,114 +788,137 @@ where
         artefacts: &ProverArtefacts<G>,
         change_hint: BranchChangesTypeHint<G>,
     ) -> Result<(), ARTError> {
-        let Self { root, rng } = self;
-        let root = root.get_or_insert_with(AggregationNode::<ProverAggregationData<G>>::default);
+        let root = self
+            .root
+            .get_or_insert_with(AggregationNode::<AggregationData<G>>::default);
 
-        root.extend(rng, changes, artefacts, change_hint)
+        root.extend(changes, artefacts, change_hint)
     }
 
-    // /// Updates art by applying changes. Also updates path_secrets and node_index.
-    // pub fn update_key(
-    //     &mut self,
-    //     new_secret_key: &G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ARTError> {
-    //     let (tk, changes, artefacts) = art.update_key(new_secret_key)?;
-    //
-    //     self.extend(
-    //         &changes,
-    //         &artefacts,
-    //         BranchChangesTypeHint::UpdateKey {
-    //             pk: art.get_public_art().public_key_of(new_secret_key),
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
-    //
-    // pub fn make_blank(
-    //     &mut self,
-    //     path: &[Direction],
-    //     temporary_secret_key: &G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ARTError> {
-    //     let merge = matches!(
-    //         art.get_public_art().get_node_at(path)?.get_status(),
-    //         Some(LeafStatus::Blank)
-    //     );
-    //     if merge {
-    //         return Err(ARTError::InvalidMergeInput);
-    //     }
-    //
-    //     let (tk, changes, artefacts) = art.make_blank(path, temporary_secret_key)?;
-    //
-    //     self.extend(
-    //         &changes,
-    //         &artefacts,
-    //         BranchChangesTypeHint::MakeBlank {
-    //             pk: art.get_public_art().public_key_of(temporary_secret_key),
-    //             merge,
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
-    //
-    // pub fn append_or_replace_node(
-    //     &mut self,
-    //     secret_key: &G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ARTError> {
-    //     let path = match art.get_public_art().find_path_to_left_most_blank_node() {
-    //         Some(path) => path,
-    //         None => art.get_public_art().find_path_to_lowest_leaf()?,
-    //     };
-    //
-    //     let hint = art
-    //         .get_public_art()
-    //         .get_node(&NodeIndex::Direction(path.to_vec()))?
-    //         .is_active();
-    //
-    //     let (tk, changes, artefacts) = art.append_or_replace_node(secret_key)?;
-    //
-    //     let ext_pk = match hint {
-    //         true => Some(
-    //             art.get_public_art()
-    //                 .get_node(&NodeIndex::Direction(path.to_vec()))?
-    //                 .get_public_key(),
-    //         ),
-    //         false => None,
-    //     };
-    //
-    //     self.extend(
-    //         &changes,
-    //         &artefacts,
-    //         BranchChangesTypeHint::AppendNode {
-    //             pk: art.get_public_art().public_key_of(secret_key),
-    //             ext_pk,
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
-    //
-    // pub fn leave(
-    //     &mut self,
-    //     new_secret_key: &G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ARTError> {
-    //     let (tk, changes, artefacts) = art.leave(*new_secret_key)?;
-    //
-    //     self.extend(
-    //         &changes,
-    //         &artefacts,
-    //         BranchChangesTypeHint::Leave {
-    //             pk: art.get_public_art().public_key_of(new_secret_key),
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
+    /// Updates art by applying changes. Also updates path_secrets and node_index.
+    pub fn update_key(
+        &mut self,
+        new_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let index = art.get_node_index().clone();
+        let (tk, change, artefacts) = art.private_update_node_key(&index, new_secret_key, false)?;
+
+        self.extend(
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::UpdateKey {
+                pk: G::generator().mul(new_secret_key).into_affine(),
+            },
+        )?;
+
+        Ok((tk, change, artefacts))
+    }
+
+    pub fn remove_member(
+        &mut self,
+        path: &[Direction],
+        temporary_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let append_changes = matches!(
+            art.get_node_at(&path)?.get_status(),
+            Some(LeafStatus::Blank)
+        );
+
+        if append_changes {
+            return Err(ARTError::InvalidMergeInput);
+        }
+
+        let index = NodeIndex::from(path.to_vec());
+        let (tk, mut change, artefacts) = art.private_update_node_key(
+            &index,
+            temporary_secret_key,
+            append_changes,
+        )?;
+        change.change_type = BranchChangeType::RemoveMember;
+
+        self.extend(
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::MakeBlank {
+                pk: G::generator().mul(temporary_secret_key).into_affine(),
+                merge: append_changes,
+            },
+        )?;
+
+        art.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+
+        if !append_changes {
+            art.public_art.update_branch_weight(&path, false)?;
+        }
+
+        Ok((tk, change, artefacts))
+    }
+
+    pub fn add_member(
+        &mut self,
+        secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let path = match art.get_public_art().find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => art.get_public_art().find_path_to_lowest_leaf()?,
+        };
+
+        let hint = matches!(
+            art.get_node(&NodeIndex::Direction(path.to_vec()))?
+                .get_status(),
+            Some(LeafStatus::Active)
+        );
+
+        let (tk, mut changes, artefacts) = art.private_add_node(secret_key)?;
+        changes.change_type = BranchChangeType::AddMember;
+
+        let ext_pk = match hint {
+            true => Some(
+                art.get_public_art()
+                    .get_node(&NodeIndex::Direction(path.to_vec()))?
+                    .get_public_key(),
+            ),
+            false => None,
+        };
+
+        self.extend(
+            &changes,
+            &artefacts,
+            BranchChangesTypeHint::AppendNode {
+                pk: G::generator().mul(secret_key).into_affine(),
+                ext_pk,
+            },
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
+    pub fn leave(
+        &mut self,
+        new_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+        let index = art.get_node_index().clone();
+        let (tk, mut change, artefacts) =
+            art.private_update_node_key(&index, new_secret_key, false)?;
+        change.change_type = BranchChangeType::Leave;
+
+        self.extend(
+            &change,
+            &artefacts,
+            BranchChangesTypeHint::Leave {
+                pk: G::generator().mul(new_secret_key).into_affine(),
+            },
+        )?;
+
+        art.get_mut_node(&index)?
+            .set_status(LeafStatus::PendingRemoval)?;
+
+        Ok((tk, change, artefacts))
+    }
 }
 
 impl<'a, D1, D2, R> TryFrom<&'a ChangeAggregationWithRng<'a, D1, R>> for ChangeAggregation<D2>
@@ -574,16 +940,15 @@ where
     }
 }
 
-impl<'a, D, G, R> TryFrom<&'a ChangeAggregationWithRng<'a, D, R>> for ProverAggregationTree<G>
+impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
     Self: TryFrom<&'a AggregationNode<D>, Error = ARTError>,
-    R: Rng + ?Sized,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 
-    fn try_from(value: &'a ChangeAggregationWithRng<'a, D, R>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
         if let Some(root) = &value.root {
             Self::try_from(root)
         } else {

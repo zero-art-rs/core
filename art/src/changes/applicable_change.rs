@@ -1,9 +1,11 @@
+use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
+use crate::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
+use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::branch_change::{
     BranchChange, BranchChangeType, MergeBranchChange, VerifiableBranchChange,
 };
-use crate::TreeMethods;
 use crate::errors::ARTError;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -118,13 +120,124 @@ where
     }
 }
 
+impl<G> ApplicableChange<PublicArt<G>> for PlainChangeAggregation<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
+        self.update_public_art(art)
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>> for PlainChangeAggregation<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
+        self.update_private_art(art)
+    }
+}
+
+impl ApplicableChange<PublicZeroArt> for PlainChangeAggregation<CortadoAffine> {
+    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ARTError> {
+        self.update_public_art(&mut art.public_art)
+    }
+}
+
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for PlainChangeAggregation<CortadoAffine>
+where
+    R: Rng + ?Sized,
+{
+    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ARTError> {
+        self.update_private_art(&mut art.private_art)
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>> for PlainChangeAggregationWithProof<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
+        self.0.update_public_art(art)
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>> for PlainChangeAggregationWithProof<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
+        self.0.update_private_art(art)
+    }
+}
+
+impl ApplicableChange<PublicZeroArt> for PlainChangeAggregationWithProof<CortadoAffine> {
+    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ARTError> {
+        self.0.update_public_art(&mut art.public_art)
+    }
+}
+
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>>
+    for PlainChangeAggregationWithProof<CortadoAffine>
+where
+    R: ?Sized + Rng,
+{
+    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ARTError> {
+        self.0.update_private_art(&mut art.private_art)
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>> for ProverChangeAggregation<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
+        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        plain_aggregation.update_public_art(art)
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>> for ProverChangeAggregation<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn update(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
+        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        plain_aggregation.update_private_art(art)
+    }
+}
+
+impl ApplicableChange<PublicZeroArt> for ProverChangeAggregation<CortadoAffine> {
+    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ARTError> {
+        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        plain_aggregation.update_public_art(&mut art.public_art)
+    }
+}
+
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>>
+for ProverChangeAggregation<CortadoAffine>
+where
+    R: ?Sized + Rng,
+{
+    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ARTError> {
+        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        plain_aggregation.update_private_art(&mut art.private_art)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use crate::TreeMethods;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::applicable_change::ApplicableChange;
     use crate::changes::branch_change::MergeBranchChange;
-    use crate::TreeMethods;
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
     use ark_ec::{AffineRepr, CurveGroup};

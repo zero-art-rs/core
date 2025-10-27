@@ -5,7 +5,6 @@ pub mod related_data;
 
 pub use aggregated_change::{
     ChangeAggregation, ChangeAggregationWithRng, PlainChangeAggregation, ProverChangeAggregation,
-    VerifierChangeAggregation,
 };
 pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};
 pub use aggregation_data::{

@@ -1,8 +1,8 @@
+use crate::TreeMethods;
 use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
-use crate::changes::branch_change::{BranchChange, BranchChangeType};
-use crate::TreeMethods;
 use crate::art::{ArtLevel, ArtUpdateOutput, EligibilityProofInput, ProverArtefacts};
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ARTError;
 use crate::helper_tools::{iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
@@ -1044,7 +1044,7 @@ impl<'a, R> PrivateZeroArt<'a, R>
 where
     R: Rng + ?Sized,
 {
-    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: &'a mut R) -> Result<Self, ARTError> {
+    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: &'a mut R) -> Self {
         let gens = PedersenGens::default();
         let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
             CortadoAffine::generator(),
@@ -1052,11 +1052,23 @@ where
             ristretto255_to_ark(gens.B).unwrap(),
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
-        Ok(Self {
+
+        Self {
             rng,
             private_art,
             proof_basis,
-        })
+        }
+    }
+
+    pub fn clone_without_rng(&self, rng: &'a mut R) -> Self {
+        Self::new(
+            self.private_art.clone(),
+            rng,
+        )
+    }
+
+    pub fn get_private_art(&self) -> &PrivateArt<CortadoAffine> {
+        &self.private_art
     }
 
     pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {

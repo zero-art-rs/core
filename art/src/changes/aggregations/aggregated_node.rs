@@ -1,8 +1,8 @@
-use crate::changes::aggregations::{
-    ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData, RelatedData,
-    VerifierAggregationData,
-};
 use crate::art::artefacts::ProverArtefacts;
+use crate::changes::aggregations::{
+    AggregationData, ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData,
+    RelatedData, VerifierAggregationData,
+};
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
@@ -192,6 +192,76 @@ where
             if let Some(co_node) = parent.get_mut_child(dir.other()) {
                 co_node.data.co_public_key = Some(child_data.public_key);
             }
+
+            // Update parent
+            parent = parent.get_or_insert_default(*dir);
+            parent.data.aggregate(child_data);
+        }
+
+        Ok(())
+    }
+}
+
+impl<G> AggregationNode<AggregationData<G>>
+where
+    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
+    G::ScalarField: PrimeField,
+{
+    /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
+    /// `change_type_hint` to perform extension correctly
+    pub fn extend(
+        &mut self,
+        change: &BranchChange<G>,
+        prover_artefacts: &ProverArtefacts<G>,
+        change_type_hint: BranchChangesTypeHint<G>,
+    ) -> Result<(), ARTError> {
+        let mut leaf_path = change.node_index.get_path()?;
+
+        if leaf_path.is_empty() {
+            return Err(ARTError::EmptyART);
+        }
+
+        if let BranchChangesTypeHint::AppendNode {
+            ext_pk: Some(_), ..
+        } = change_type_hint
+        {
+            leaf_path.pop();
+        }
+
+        self.extend_tree_with(change, prover_artefacts)?;
+
+        let target_leaf = self.get_mut_node(&leaf_path)?;
+        target_leaf.data.change_type.push(change_type_hint);
+
+        Ok(())
+    }
+
+    fn extend_tree_with(
+        &mut self,
+        change: &BranchChange<G>,
+        prover_artefacts: &ProverArtefacts<G>,
+    ) -> Result<(), ARTError> {
+        let leaf_path = change.node_index.get_path()?;
+
+        if change.public_keys.len() != leaf_path.len() + 1
+            || prover_artefacts.secrets.len() != leaf_path.len() + 1
+            || prover_artefacts.co_path.len() != leaf_path.len()
+        {
+            return Err(ARTError::InvalidInput);
+        }
+
+        // Update root.
+        self.data.public_key = *prover_artefacts.path.last().ok_or(ARTError::EmptyART)?;
+
+        // Update other nodes.
+        let mut parent = &mut *self;
+        for (i, dir) in leaf_path.iter().rev().enumerate().rev() {
+            // compute new child node
+            let child_data = AggregationData::<G> {
+                // public_key: change.public_keys[i + 1],
+                public_key: prover_artefacts.path[i],
+                change_type: vec![],
+            };
 
             // Update parent
             parent = parent.get_or_insert_default(*dir);
