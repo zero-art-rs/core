@@ -1,5 +1,8 @@
 pub mod aggregated_art;
 pub mod art;
 pub mod cred;
-pub mod dh;
-pub mod gadgets;
+mod dh;
+mod eligibility;
+pub mod engine;
+pub mod errors;
+mod gadgets;

@@ -13,9 +13,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use tree_ds::prelude::Node;
-use zrt_zk::aggregated_art::{
-    ProverAggregatedNodeData, ProverAggregationTree, VerifierAggregatedNodeData,
-    VerifierAggregationTree,
+use zrt_zk::{
+    art::{ProverNodeData, VerifierNodeData},
+    aggregated_art::{
+        ProverAggregationTree,
+        VerifierAggregationTree,
+    }
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -356,7 +359,7 @@ where
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
             .add_node(
-                Node::new(1, Some(ProverAggregatedNodeData::from(&root.data))),
+                Node::new(1, Some(ProverNodeData::from(&root.data))),
                 None,
             )
             .unwrap();
@@ -370,7 +373,7 @@ where
                 .add_node(
                     Node::new(
                         node_id,
-                        Some(ProverAggregatedNodeData::from(&agg_node.data)),
+                        Some(ProverNodeData::from(&agg_node.data)),
                     ),
                     Some(&parent_id),
                 )
@@ -395,7 +398,7 @@ where
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
             .add_node(
-                Node::new(1, Some(VerifierAggregatedNodeData::from(&root.data))),
+                Node::new(1, Some(VerifierNodeData::from(&root.data))),
                 None,
             )
             .unwrap();
@@ -409,7 +412,7 @@ where
                 .add_node(
                     Node::new(
                         node_id,
-                        Some(VerifierAggregatedNodeData::from(&agg_node.data)),
+                        Some(VerifierNodeData::from(&agg_node.data)),
                     ),
                     Some(&parent_id),
                 )

@@ -2,6 +2,7 @@
 
 use std::time::{self, Instant, SystemTime};
 
+use crate::art::{CompressedRistretto, R1CSProof};
 use crate::dh::{bin_equality_gadget, scalar_mul_gadget};
 use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
@@ -11,11 +12,11 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use bulletproofs::{
     ProofError,
-    r1cs::{self, *},
+    r1cs::{self, ConstraintSystem, LinearCombination, Prover, R1CSError, Variable, Verifier},
 };
 use chrono::{DateTime, Utc};
 use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use curve25519_dalek::ristretto::{self, CompressedRistretto};
+use curve25519_dalek::ristretto::{self};
 use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 use rand::{Rng, thread_rng};
@@ -50,18 +51,17 @@ pub struct Credential {
 }
 
 // TODO: implement FromBytes and ToBytes for CredentialPresentationProof
-#[derive(Clone)]
+#[derive(Clone, CanonicalDeserialize, CanonicalSerialize)]
 pub struct CredentialPresentationProof {
     pub proof: R1CSProof,
     pub id_comm: CompressedRistretto,
     pub Q_holder_comm: (CompressedRistretto, CompressedRistretto),
-    pub claimed_time: DateTime<Utc>,
+    pub claimed_time: u64,
     pub exp_comm: CompressedRistretto,
     pub k_comm: CompressedRistretto,
     pub c_comm: CompressedRistretto,
     pub R_comm: (CompressedRistretto, CompressedRistretto),
     pub s_comm: CompressedRistretto,
-    pub Q_issuer: CortadoAffine, // issuer public key
 }
 
 impl Credential {
@@ -119,7 +119,7 @@ impl Credential {
             Q: holder,
             expiration: (Utc::now().timestamp() as u64) + validity_period, // expiration time in seconds
         };
-        let (Q, R, s) = Self::sign_claims(&claims, issuer).map_err(|_| R1CSError::FormatError)?;
+        let (Q, R, s) = Self::sign_claims(&claims, issuer)?;
 
         Ok(Self {
             claims,
@@ -216,11 +216,13 @@ impl Credential {
     /// create credential presentation proof
     pub fn present(
         &self,
+        ad: &[u8],
         k: cortado::Fr,
         revocation_list: Vec<Scalar>,
     ) -> Result<CredentialPresentationProof, R1CSError> {
         let start = Instant::now();
         let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
+        transcript.append_message(b"ad", ad);
         let pc_gens = PedersenGens::default();
         let mut prover = r1cs::Prover::new(&pc_gens, &mut transcript);
         let (id_var, id_comm) = prover.allocate_scalar(self.claims.id.into_scalar())?;
@@ -267,40 +269,45 @@ impl Credential {
         );
 
         Ok(CredentialPresentationProof {
-            proof,
-            id_comm,
-            Q_holder_comm,
-            claimed_time,
-            exp_comm,
-            k_comm,
-            c_comm,
-            R_comm,
-            s_comm,
-            Q_issuer: self.issuer,
+            proof: R1CSProof(proof),
+            id_comm: CompressedRistretto(id_comm),
+            Q_holder_comm: (
+                CompressedRistretto(Q_holder_comm.0),
+                CompressedRistretto(Q_holder_comm.1),
+            ),
+            claimed_time: claimed_time.timestamp() as u64,
+            exp_comm: CompressedRistretto(exp_comm),
+            k_comm: CompressedRistretto(k_comm),
+            c_comm: CompressedRistretto(c_comm),
+            R_comm: (CompressedRistretto(R_comm.0), CompressedRistretto(R_comm.1)),
+            s_comm: CompressedRistretto(s_comm),
         })
     }
 
     pub fn verify_presentation(
+        ad: &[u8],
         proof: &CredentialPresentationProof,
+        issuer_pk: CortadoAffine,
         revocation_list: Vec<Scalar>,
     ) -> Result<(), R1CSError> {
         let start = Instant::now();
         let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
+        transcript.append_message(b"ad", ad);
         let pc_gens = PedersenGens::default();
         let mut verifier = r1cs::Verifier::new(&mut transcript);
 
-        let id_var = verifier.allocate_scalar(proof.id_comm)?;
-        let Q_holder = verifier.allocate_point(proof.Q_holder_comm.0, proof.Q_holder_comm.1)?;
-        let exp_var = verifier.allocate_scalar(proof.exp_comm)?;
-        let k_var = verifier.allocate_scalar(proof.k_comm)?;
-        let c_var = verifier.allocate_scalar(proof.c_comm)?;
-        let R = verifier.allocate_point(proof.R_comm.0, proof.R_comm.1)?;
-        let s_var = verifier.allocate_scalar(proof.s_comm)?;
+        let id_var = verifier.allocate_scalar(proof.id_comm.0)?;
+        let Q_holder = verifier.allocate_point(proof.Q_holder_comm.0.0, proof.Q_holder_comm.1.0)?;
+        let exp_var = verifier.allocate_scalar(proof.exp_comm.0)?;
+        let k_var = verifier.allocate_scalar(proof.k_comm.0)?;
+        let c_var = verifier.allocate_scalar(proof.c_comm.0)?;
+        let R = verifier.allocate_point(proof.R_comm.0.0, proof.R_comm.1.0)?;
+        let s_var = verifier.allocate_scalar(proof.s_comm.0)?;
 
         Self::credential_presentation_gadget(
             &mut verifier,
-            proof.claimed_time.timestamp() as u64,
-            proof.Q_issuer,
+            proof.claimed_time,
+            issuer_pk,
             revocation_list,
             id_var,
             Q_holder,
@@ -310,17 +317,21 @@ impl Credential {
             R,
             s_var,
         )?;
-        if Utc::now() - proof.claimed_time
+
+        if Utc::now()
+            - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0).unwrap_or_default()
             > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64)
         {
             debug!(
                 "Credential presentation proof claimed time is within tolerance {:?}",
-                Utc::now() - proof.claimed_time
+                Utc::now()
+                    - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0)
+                        .unwrap_or_default()
             );
             return Err(R1CSError::VerificationError);
         }
 
-        verifier.verify(&proof.proof, &pc_gens, &BulletproofGens::new(8192, 1))?;
+        verifier.verify(&proof.proof.0, &pc_gens, &BulletproofGens::new(8192, 1))?;
         debug!(
             "Credential presentation proof verified in {:?}",
             start.elapsed()
@@ -344,6 +355,7 @@ mod tests {
 
         let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
         let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_public_key = (CortadoAffine::generator() * issuer_secret_key).into_affine();
         let validity_period = 3600; // 1 hour validity
         let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
         let revocation_list = vec![
@@ -362,11 +374,14 @@ mod tests {
 
         // Create a credential presentation proof
         let proof = credential
-            .present(holder_secret_key, revocation_list.clone())
+            .present(b"cred", holder_secret_key, revocation_list.clone())
             .unwrap();
 
         // Verify the credential presentation proof
-        assert!(Credential::verify_presentation(&proof, revocation_list).is_ok());
+        assert!(
+            Credential::verify_presentation(b"cred", &proof, issuer_public_key, revocation_list)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -380,6 +395,7 @@ mod tests {
 
         let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
         let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_public_key = (CortadoAffine::generator() * issuer_secret_key).into_affine();
         let validity_period = 3600; // 1 hour validity
         let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
 
@@ -393,10 +409,13 @@ mod tests {
         // Create a credential presentation proof
         let revocation_list = vec![credential.claims.id.into_scalar()]; // Revoking the issued credential
         let proof = credential
-            .present(holder_secret_key, revocation_list.clone())
+            .present(b"cred", holder_secret_key, revocation_list.clone())
             .unwrap();
 
         // Verify the credential presentation proof should fail due to revocation
-        assert!(Credential::verify_presentation(&proof, revocation_list).is_err());
+        assert!(
+            Credential::verify_presentation(b"cred", &proof, issuer_public_key, revocation_list)
+                .is_err()
+        );
     }
 }

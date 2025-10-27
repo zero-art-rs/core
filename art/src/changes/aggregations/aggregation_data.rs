@@ -4,7 +4,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use std::fmt::{Display, Formatter};
-use zrt_zk::aggregated_art::{ProverAggregatedNodeData, VerifierAggregatedNodeData};
+use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProverAggregationData<G>
@@ -150,7 +150,7 @@ where
     }
 }
 
-impl<G> From<&ProverAggregationData<G>> for ProverAggregatedNodeData<G>
+impl<G> From<&ProverAggregationData<G>> for ProverNodeData<G>
 where
     G: AffineRepr,
 {
@@ -164,7 +164,7 @@ where
     }
 }
 
-impl<G> From<&VerifierAggregationData<G>> for VerifierAggregatedNodeData<G>
+impl<G> From<&VerifierAggregationData<G>> for VerifierNodeData<G>
 where
     G: AffineRepr,
 {

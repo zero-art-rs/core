@@ -1,119 +1,42 @@
 #![allow(non_snake_case)]
-use std::fmt::{Display, Formatter};
+use ark_ec::{AffineRepr, CurveGroup, scalar_mul};
+use serde::de;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
-use crate::art::{CompressedRistretto, R1CSProof, estimate_bp_gens};
+use crate::art::{
+    ArtProof, CompressedRistretto, ProverNodeData, R1CSProof, UpdateProof, VerifierNodeData,
+    estimate_bp_gens,
+};
 use crate::dh::art_level_gadget;
+use crate::eligibility::EligibilityRequirement;
+use crate::engine::{
+    ZeroArtEngineOptions, ZeroArtProverContext, ZeroArtProverEngine, ZeroArtVerifierContext,
+    ZeroArtVerifierEngine,
+};
+use crate::errors::ZKError;
 use crate::gadgets::r1cs_utils::AllocatedScalar;
 
-use ark_ec::VariableBaseMSM;
-use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
-use ark_ff::{BigInt, BigInteger, Field, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
-use ark_std::log2;
-use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof as BPR1CSProof, Verifier};
+use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use cortado::{self, CortadoAffine, FromScalar, Parameters, ToScalar};
-use curve25519_dalek::scalar::Scalar;
+use cortado::{self, CortadoAffine, ToScalar};
 use merlin::Transcript;
-use rand::thread_rng;
-use rand_core::{OsRng, le};
-use serde::Serialize;
-use tracing::{debug, info, instrument};
+use tracing::debug;
 
 use tree_ds::{prelude::Node, prelude::TraversalStrategy, prelude::Tree};
 use zkp::CompactProof;
 use zkp::toolbox::{
-    FromBytes, SchnorrCS, ToBytes,
-    cross_dleq::{CrossDLEQProof, CrossDleqProver, CrossDleqVerifier, PedersenBasis},
-    dalek_ark::{ark_to_ristretto255, ristretto255_to_ark, scalar_to_ark},
-    prover::Prover as SigmaProver,
-    verifier::Verifier as SigmaVerifier,
+    SchnorrCS, cross_dleq::PedersenBasis, dalek_ark::ark_to_ristretto255,
+    prover::Prover as SigmaProver, verifier::Verifier as SigmaVerifier,
 };
 
 /// aggregation tree for the prover
-pub type ProverAggregationTree<G> = Tree<u64, ProverAggregatedNodeData<G>>;
+pub type ProverAggregationTree<G> = Tree<u64, ProverNodeData<G>>;
 
 /// aggregation tree for the verifier
-pub type VerifierAggregationTree<G> = Tree<u64, VerifierAggregatedNodeData<G>>;
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
-pub struct ProverAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    pub public_key: G,
-    pub co_public_key: Option<G>,
-    pub secret_key: G::ScalarField,
-    pub blinding_factor: G::ScalarField,
-}
-
-impl<G> Display for ProverAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-            None => "None".to_string(),
-        };
-
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
-
-        let sk_marker = self
-            .secret_key
-            .to_string()
-            .chars()
-            .take(8)
-            .collect::<String>()
-            + "...";
-
-        write!(
-            f,
-            "pk: {}, co_pk: {}, sk: {}",
-            pk_marker, co_pk_marker, sk_marker
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
-pub struct VerifierAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    pub public_key: G,
-    pub co_public_key: Option<G>,
-}
-
-impl<G> Display for VerifierAggregatedNodeData<G>
-where
-    G: AffineRepr,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-            None => "None".to_string(),
-        };
-
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => x.to_string().chars().take(8).collect::<String>() + "...",
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
-
-        write!(f, "pk: {}, co_pk: {}", pk_marker, co_pk_marker)
-    }
-}
+pub type VerifierAggregationTree<G> = Tree<u64, VerifierNodeData<G>>;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregatedTreeProof(Tree<u64, (Option<R1CSProof>, CompressedRistretto)>);
@@ -146,12 +69,6 @@ impl From<&AggregatedTreeProof> for VerifierAggregationTree<CortadoAffine> {
         }
         new_tree
     }
-}
-
-#[derive(Clone, CanonicalDeserialize, CanonicalSerialize)]
-pub struct ARTAggregatedProof {
-    pub Rδ: AggregatedTreeProof,       // Rδ gadget proofs
-    pub Rσ: CompactProof<cortado::Fr>, // sigma part of the proof
 }
 
 impl CanonicalSerialize for AggregatedTreeProof {
@@ -193,131 +110,48 @@ impl CanonicalDeserialize for AggregatedTreeProof {
     }
 }
 
-fn Rδ_prove(
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    aggregated_tree: &ProverAggregationTree<CortadoAffine>,
-) -> Result<AggregatedTreeProof, R1CSError> {
-    let start = Instant::now();
-
-    #[cfg(feature = "multi_thread_prover")]
-    {
-        let pc_gens = Arc::new(pc_gens.clone());
-        let bp_gens = Arc::new(bp_gens.clone());
-        let aggregated_proof = Arc::new(Mutex::new(AggregatedTreeProof::from(
-            &aggregated_tree.clone(),
-        )));
-        let mut handles = Vec::new();
-        let root_id = aggregated_tree
-            .get_root_node()
-            .ok_or(R1CSError::FormatError)?
-            .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
-        let k = aggregated_tree.get_nodes().len() - 1; // number of edges
-
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
-            let parent = parent_id.map(|x| aggregated_tree.get_node_by_id(&x).unwrap());
-
-            if let Some(parent) = parent {
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-                let aggregated_proof = aggregated_proof.clone();
-                let pc_gens = pc_gens.clone();
-                let bp_gens = bp_gens.clone();
-
-                let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor.into_scalar();
-                let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor.into_scalar();
-                let Q_a_i = node_data.public_key.clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let level = node.get_children_ids().unwrap().len(); // for leaves level is 0
-                handles.push(std::thread::spawn(move || {
-                    let mut transcript = Transcript::new(b"ARTGadget");
-                    let mut prover = Prover::new(&pc_gens, &mut transcript);
-                    let (a_commitment, var_a) = prover.commit(λ_a_i, b_i);
-                    let (ab_commitment, var_ab) = prover.commit(λ_a_next, b_next);
-                    let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
-                    let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
-
-                    art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)
-                        .unwrap();
-
-                    let proof = prover.prove(&bp_gens).unwrap();
-                    let lock = aggregated_proof.lock().unwrap();
-                    let proof_node = lock.0.get_node_by_id(&node_id).unwrap();
-                    let proof_parent = lock.0.get_node_by_id(&parent_id.unwrap()).unwrap();
-                    if parent_id.unwrap() == root_id {
-                        proof_parent
-                            .update_value(|x| *x = Some((None, CompressedRistretto(ab_commitment))))
-                            .unwrap();
-                    }
-                    proof_node
-                        .update_value(|x| {
-                            *x = Some((Some(R1CSProof(proof)), CompressedRistretto(a_commitment)))
-                        })
-                        .unwrap();
-                }));
-            }
-
-            /*node.update_value(|x| if let Some(x) = x.as_mut() {
-                x.marker = true;
-            }).map_err(|_| R1CSError::FormatError)?;*/
-        }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        let proof_len = aggregated_proof
-            .lock()
-            .unwrap()
-            .serialized_size(Compress::Yes);
-        debug!(
-            "aggregated Rδ_prove (parallel) for depth {k} proving time: {:?}, proof_len: {proof_len}",
-            start.elapsed()
+impl<'a> ZeroArtProverContext<'a> {
+    pub(crate) fn prove_tree_single_threaded(
+        &self,
+        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+    ) -> Result<AggregatedTreeProof, ZKError> {
+        let start = Instant::now();
+        let bp_gens = BulletproofGens::new(
+            estimate_bp_gens(
+                aggregated_tree.get_nodes().len() - 1,       // number of edges
+                (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
         );
-        Ok((*aggregated_proof.lock().unwrap()).clone())
-    }
-    #[cfg(not(feature = "multi_thread_prover"))]
-    {
-        let mut aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
+        let aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
         let root_id = aggregated_tree
             .get_root_node()
-            .ok_or(R1CSError::FormatError)?
+            .ok_or(ZKError::InvalidAggregation)?
             .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
+            .map_err(|_| ZKError::InvalidAggregation)?;
 
         let mut transcript = Transcript::new(b"ARTGadget");
-        let mut prover = Prover::new(pc_gens, &mut transcript);
+        transcript.append_message(b"ad", self.ad);
+        let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
         for node_id in aggregated_tree
             .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
+            .map_err(|_| ZKError::InvalidAggregation)?
         {
             let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+            let parent_id = node
+                .get_parent_id()
+                .map_err(|_| ZKError::InvalidAggregation)?;
 
             if let Some(parent_id) = parent_id {
                 let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
                 let node_data = node
                     .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
+                    .map_err(|_| ZKError::InvalidAggregation)?
                     .unwrap();
                 let parent_data = parent
                     .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
+                    .map_err(|_| ZKError::InvalidAggregation)?
                     .unwrap();
 
                 let λ_a_i = node_data.secret_key.into_scalar();
@@ -334,7 +168,16 @@ fn Rδ_prove(
                 let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
                 let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
 
-                art_level_gadget(2, &mut prover, level, λ_a_i, λ_a_next, Q_a_i, Q_ab_i, Q_b_i)?;
+                art_level_gadget(
+                    self.engine.options.scalar_mul_gadget_ver,
+                    &mut prover,
+                    level,
+                    λ_a_i,
+                    λ_a_next,
+                    Q_a_i,
+                    Q_ab_i,
+                    Q_b_i,
+                )?;
 
                 if parent_id == root_id {
                     aggregated_proof
@@ -342,17 +185,17 @@ fn Rδ_prove(
                         .get_node_by_id(&parent_id)
                         .unwrap()
                         .update_value(|x| *x = Some((None, CompressedRistretto(ab_commitment))))
-                        .unwrap();
+                        .map_err(|_| ZKError::InvalidAggregation)?;
                 }
                 aggregated_proof
                     .0
                     .get_node_by_id(&node_id)
                     .unwrap()
                     .update_value(|x| *x = Some((None, CompressedRistretto(a_commitment))))
-                    .unwrap();
+                    .map_err(|_| ZKError::InvalidAggregation)?;
             }
         }
-        let proof = prover.prove(bp_gens)?;
+        let proof = prover.prove(&bp_gens)?;
         aggregated_proof
             .0
             .get_node_by_id(&root_id)
@@ -365,139 +208,195 @@ fn Rδ_prove(
             .unwrap(); // place whole proof in the root node
         let proof_len = aggregated_proof.serialized_size(Compress::Yes);
         debug!(
-            "aggregated Rδ_prove (sequential) for depth {} proving time: {:?}, proof_len: {}",
-            aggregated_tree.get_nodes().len() - 1,
+            "prove_tree_single_threaded for {} tree nodes proving time: {:?}, proof_len: {}",
+            aggregated_tree.get_nodes().len(),
             start.elapsed(),
             proof_len
         );
         Ok(aggregated_proof)
     }
-}
 
-fn Rδ_verify(
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
-    proof_tree: &AggregatedTreeProof,
-) -> Result<(), R1CSError> {
-    let start = Instant::now();
+    pub(crate) fn prove_tree_multi_threaded(
+        &self,
+        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+    ) -> Result<AggregatedTreeProof, ZKError> {
+        let start = Instant::now();
+        let bp_gens = Arc::new(BulletproofGens::new(
+            estimate_bp_gens(
+                1, // number of edges
+                1, // number of leaves (presuming binary tree)
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
+        ));
+        let aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
 
-    #[cfg(feature = "multi_thread_verifier")]
-    {
-        let pc_gens = Arc::new(pc_gens.clone());
-        let bp_gens = Arc::new(bp_gens.clone());
-        let (tx, rx) = mpsc::channel();
-        let mut handles = Vec::new();
         let root_id = aggregated_tree
             .get_root_node()
-            .ok_or(R1CSError::FormatError)?
+            .ok_or(ZKError::InvalidAggregation)?
             .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
+            .map_err(|_| ZKError::InvalidAggregation)?;
+        let k = aggregated_tree.get_nodes().len() - 1; // number of edges
 
-        for node_id in aggregated_tree
-            .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
-        {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+        // Using scope to ensure all threads complete before function returns
+        std::thread::scope(|s| {
+            let proofs =
+                aggregated_tree
+                    .traverse(&root_id, TraversalStrategy::PreOrder)
+                    .map_err(|_| ZKError::InvalidAggregation)?
+                    .iter()
+                    .skip(1) // skip root node
+                    .map(|node_id| {
+                        let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+                        let parent = node
+                            .get_parent_id()?
+                            .map(|x| aggregated_tree.get_node_by_id(&x).unwrap())
+                            .unwrap();
 
-            if let Some(parent_id) = parent_id {
-                let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
+                        let node_data = node.get_value()?.unwrap();
+                        let parent_data = parent.get_value()?.unwrap();
+                        let level = node.get_children_ids()?.len(); // for leaves level is 0
+                        let bp_gens = bp_gens.clone();
+
+                        Ok(s.spawn(move || {
+                            self.prove_level(&bp_gens, level, &node_data, &parent_data)
+                        }))
+                    })
+                    .collect::<tree_ds::prelude::Result<Vec<_>>>()
+                    .map_err(|_| ZKError::InvalidAggregation)?
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap())
+                    .collect::<Result<Vec<_>, R1CSError>>()?;
+
+            for (node_id, (proof, (comm, comm_next))) in aggregated_proof
+                .0
+                .traverse(&root_id, TraversalStrategy::PreOrder)
+                .map_err(|_| ZKError::InvalidAggregation)?
+                .iter()
+                .skip(1)
+                .zip(proofs)
+            {
+                let node = aggregated_proof.0.get_node_by_id(&node_id).unwrap();
+                let parent = node
+                    .get_parent_id()
+                    .map_err(|_| ZKError::InvalidAggregation)?
+                    .map(|x| aggregated_proof.0.get_node_by_id(&x).unwrap())
                     .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
-                    .unwrap();
-
-                let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
-                let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-                let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
-                let proof_parent_data = proof_parent
-                    .get_value()
-                    .map_err(|_| R1CSError::FormatError)?;
-
-                let tx = tx.clone();
-                let pc_gens = pc_gens.clone();
-                let bp_gens = bp_gens.clone();
-                let Q_a_i = node_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let (proof, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
-                let proof = proof.ok_or(R1CSError::FormatError)?;
-                let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
-                let level = node.get_children_ids().unwrap().len();
-
-                handles.push(std::thread::spawn(move || {
-                    let mut transcript = Transcript::new(b"ARTGadget");
-                    let mut verifier = Verifier::new(&mut transcript);
-                    let var_a = verifier.commit(commitment_i.0);
-                    let var_ab = verifier.commit(commitment_next.0);
-                    let λ_a_i = AllocatedScalar::new(var_a, None);
-                    let λ_a_next = AllocatedScalar::new(var_ab, None);
-                    let _ = tx.send(
-                        art_level_gadget(
-                            2,
-                            &mut verifier,
-                            level,
-                            λ_a_i,
-                            λ_a_next,
-                            Q_a_i,
-                            Q_ab_i,
-                            Q_b_i,
-                        )
-                        .and_then(|_| verifier.verify(&proof.0, &pc_gens, &bp_gens)),
-                    );
-                }));
+                node.update_value(|x| *x = Some((Some(proof), comm)))
+                    .map_err(|_| ZKError::InvalidAggregation)?;
+                if parent
+                    .get_node_id()
+                    .map_err(|_| ZKError::InvalidAggregation)?
+                    == root_id
+                {
+                    parent
+                        .update_value(|x| *x = Some((None, comm_next)))
+                        .map_err(|_| ZKError::InvalidAggregation)?;
+                }
             }
-        }
+            debug!(
+                "prove_tree_multi_threaded for depth {k} proving time: {:?}, proof_len: {}",
+                start.elapsed(),
+                aggregated_proof.serialized_size(Compress::Yes)
+            );
+            Ok(aggregated_proof)
+        })
+    }
 
-        for _ in handles {
-            rx.recv().unwrap()?;
+    pub(crate) fn prove_tree(
+        &self,
+        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+    ) -> Result<AggregatedTreeProof, ZKError> {
+        match self.engine.options.multi_threaded {
+            true => self.prove_tree_multi_threaded(aggregated_tree),
+            false => self.prove_tree_single_threaded(aggregated_tree),
         }
     }
-    #[cfg(not(feature = "multi_thread_verifier"))]
-    {
+
+    /// Prove the aggregated operations
+    pub fn prove_aggregated(
+        &self,
+        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+    ) -> Result<ArtProof, ZKError> {
+        match self.engine.options.multi_threaded {
+            false => Ok(ArtProof {
+                update_proof: UpdateProof::AggregatedProof(self.prove_tree(aggregated_tree)?),
+                eligibility_proof: self.prove_eligibility()?,
+            }),
+            true => std::thread::scope(|s| {
+                let branch_handle = s.spawn(|| self.prove_tree(aggregated_tree));
+                let eligibility_handle = s.spawn(|| self.prove_eligibility());
+
+                let update_proof = branch_handle.join().unwrap()?;
+                let eligibility_proof = eligibility_handle.join().unwrap()?;
+
+                Ok(ArtProof {
+                    update_proof: UpdateProof::AggregatedProof(update_proof),
+                    eligibility_proof,
+                })
+            }),
+        }
+    }
+}
+
+impl<'a> ZeroArtVerifierContext<'a> {
+    pub(crate) fn verify_tree_single_threaded(
+        &self,
+        aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+        proof_tree: &AggregatedTreeProof,
+    ) -> Result<(), ZKError> {
+        let start = Instant::now();
+        let bp_gens = BulletproofGens::new(
+            estimate_bp_gens(
+                aggregated_tree.get_nodes().len() - 1,       // number of edges
+                (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
+        );
         let mut transcript = Transcript::new(b"ARTGadget");
+        transcript.append_message(b"ad", self.ad);
         let mut verifier = Verifier::new(&mut transcript);
         let root_id = aggregated_tree
             .get_root_node()
-            .ok_or(R1CSError::FormatError)?
+            .ok_or(ZKError::InvalidAggregation)?
             .get_node_id()
-            .map_err(|_| R1CSError::FormatError)?;
+            .map_err(|_| ZKError::InvalidAggregation)?;
 
         for node_id in aggregated_tree
             .traverse(&root_id, TraversalStrategy::PreOrder)
-            .map_err(|_| R1CSError::FormatError)?
+            .map_err(|_| ZKError::InvalidAggregation)?
         {
             let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node.get_parent_id().map_err(|_| R1CSError::FormatError)?;
+            let parent_id = node
+                .get_parent_id()
+                .map_err(|_| ZKError::InvalidAggregation)?;
 
             if let Some(parent_id) = parent_id {
                 let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
                 let node_data = node
                     .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
+                    .map_err(|_| ZKError::InvalidAggregation)?
                     .unwrap();
                 let parent_data = parent
                     .get_value()
-                    .map_err(|_| R1CSError::FormatError)?
+                    .map_err(|_| ZKError::InvalidAggregation)?
                     .unwrap();
 
                 let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
                 let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-                let proof_node_data = proof_node.get_value().map_err(|_| R1CSError::FormatError)?;
+                let proof_node_data = proof_node
+                    .get_value()
+                    .map_err(|_| ZKError::InvalidAggregation)?;
                 let proof_parent_data = proof_parent
                     .get_value()
-                    .map_err(|_| R1CSError::FormatError)?;
+                    .map_err(|_| ZKError::InvalidAggregation)?;
 
                 let Q_a_i = node_data.public_key.clone();
                 let Q_b_i = node_data.co_public_key.unwrap().clone();
                 let Q_ab_i = parent_data.public_key.clone();
-                let (_, commitment_i) = proof_node_data.ok_or(R1CSError::FormatError)?;
-                let (_, commitment_next) = proof_parent_data.ok_or(R1CSError::FormatError)?;
+                let (_, commitment_i) = proof_node_data.ok_or(ZKError::InvalidAggregation)?;
+                let (_, commitment_next) = proof_parent_data.ok_or(ZKError::InvalidAggregation)?;
                 let level = node.get_children_ids().unwrap().len();
 
                 let var_a = verifier.commit(commitment_i.0);
@@ -506,7 +405,7 @@ fn Rδ_verify(
                 let λ_a_next = AllocatedScalar::new(var_ab, None);
 
                 art_level_gadget(
-                    2,
+                    self.engine.options.scalar_mul_gadget_ver,
                     &mut verifier,
                     level,
                     λ_a_i,
@@ -522,21 +421,135 @@ fn Rδ_verify(
             .get_node_by_id(&root_id)
             .unwrap()
             .get_value()
-            .map_err(|_| R1CSError::FormatError)?
-            .ok_or(R1CSError::FormatError)?
+            .map_err(|_| ZKError::InvalidAggregation)?
+            .ok_or(ZKError::InvalidAggregation)?
             .0
-            .ok_or(R1CSError::FormatError)?;
-        verifier.verify(&proof.0, &pc_gens, &bp_gens)?;
+            .ok_or(ZKError::InvalidAggregation)?;
+        verifier.verify(&proof.0, &self.engine.pc_gens, &bp_gens)?;
+
+        debug!(
+            "verify_tree_single_threaded for {} tree nodes verification time: {:?}",
+            aggregated_tree.get_nodes().len(),
+            start.elapsed()
+        );
+        Ok(())
     }
 
-    debug!(
-        "aggregated Rδ_verify for depth {} verification time: {:?}",
-        aggregated_tree.get_nodes().len() - 1,
-        start.elapsed()
-    );
-    Ok(())
-}
+    pub(crate) fn verify_tree_multi_threaded(
+        &self,
+        aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+        proof_tree: &AggregatedTreeProof,
+    ) -> Result<(), ZKError> {
+        let start = Instant::now();
 
+        let bp_gens = Arc::new(BulletproofGens::new(
+            estimate_bp_gens(
+                1, // number of edges
+                1, // number of leaves (presuming binary tree)
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
+        ));
+
+        let root_id = aggregated_tree
+            .get_root_node()
+            .ok_or(ZKError::InvalidAggregation)?
+            .get_node_id()
+            .map_err(|_| ZKError::InvalidAggregation)?;
+
+        // Using scope to ensure all threads complete before function returns
+        std::thread::scope(|s| {
+            aggregated_tree
+                .traverse(&root_id, TraversalStrategy::PreOrder)
+                .map_err(|_| ZKError::InvalidAggregation)?
+                .iter()
+                .skip(1) // Skip the root node
+                .map(|node_id| {
+                    let node = aggregated_tree.get_node_by_id(node_id).unwrap();
+                    let parent_id = node.get_parent_id()?.unwrap();
+                    let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
+                    let node_data = node.get_value()?.unwrap();
+                    let parent_data = parent.get_value()?.unwrap();
+
+                    let proof_node = proof_tree.0.get_node_by_id(node_id).unwrap();
+                    let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
+
+                    let (proof, commitment_i) = proof_node.get_value()?.unwrap();
+                    let (_, commitment_next) = proof_parent.get_value()?.unwrap();
+
+                    let level = node.get_children_ids()?.len();
+                    let bp_gens = bp_gens.clone();
+
+                    Ok(s.spawn(move || {
+                        self.verify_level(
+                            &bp_gens,
+                            level,
+                            &node_data,
+                            &parent_data,
+                            (
+                                proof.ok_or(R1CSError::VerificationError)?,
+                                (commitment_i.clone(), commitment_next.clone()),
+                            ),
+                        )
+                    }))
+                })
+                .collect::<tree_ds::prelude::Result<Vec<_>>>()
+                .map_err(|_| ZKError::InvalidAggregation)?
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Result<Vec<_>, R1CSError>>()?;
+
+            debug!(
+                "verify_tree_multi_threaded for depth {} verification time: {:?}",
+                aggregated_tree.get_nodes().len() - 1,
+                start.elapsed()
+            );
+            Ok(())
+        })
+    }
+
+    pub(crate) fn verify_tree(
+        &self,
+        aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+        proof_tree: &AggregatedTreeProof,
+    ) -> Result<(), ZKError> {
+        match self.engine.options.multi_threaded {
+            true => self.verify_tree_multi_threaded(aggregated_tree, proof_tree),
+            false => self.verify_tree_single_threaded(aggregated_tree, proof_tree),
+        }
+    }
+
+    /// Verify the proof of an operation
+    pub fn verify_aggregated(
+        &self,
+        aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+        proof: &ArtProof,
+    ) -> Result<(), ZKError> {
+        let aggregated_proof =
+            if let UpdateProof::AggregatedProof(ref aggregated_proof) = proof.update_proof {
+                aggregated_proof
+            } else {
+                return Err(ZKError::InvalidProofType);
+            };
+        match self.engine.options.multi_threaded {
+            false => {
+                self.verify_tree(aggregated_tree, aggregated_proof)?;
+                self.verify_eligibility(&proof.eligibility_proof)?;
+                Ok(())
+            }
+            true => std::thread::scope(|s| {
+                let update_handle = s.spawn(|| self.verify_tree(aggregated_tree, aggregated_proof));
+                let eligibility_handle =
+                    s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
+
+                update_handle.join().unwrap()?;
+                eligibility_handle.join().unwrap()?;
+
+                Ok(())
+            }),
+        }
+    }
+}
 /// generate an aggregated ART update proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself), additional public keys R,
 /// path public keys Q_a, reciprocal co-path public keys Q_b, ART path secrets λ_a, auxiliary 𝔾_1 secrets s, and blinding factors for λ_a
 pub fn art_aggregated_prove(
@@ -545,48 +558,16 @@ pub fn art_aggregated_prove(
     aggregated_tree: &ProverAggregationTree<CortadoAffine>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     s: Vec<cortado::Fr>,   // auxiliary 𝔾_1 secrets
-) -> Result<ARTAggregatedProof, R1CSError> {
+) -> Result<ArtProof, ZKError> {
     let start = Instant::now();
-    let pc_gens = PedersenGens {
-        B: ark_to_ristretto255(basis.G_2).unwrap(),
-        B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
-    };
-    let bp_gens = BulletproofGens::new(
-        estimate_bp_gens(
-            aggregated_tree.get_nodes().len() - 1,       // number of edges
-            (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
-            2,
-        ),
-        1,
+    let engine = ZeroArtProverEngine::new(basis, ZeroArtEngineOptions::default());
+    let context = engine.new_context(
+        ad,
+        crate::eligibility::EligibilityArtefact::Member((s[0], R[0])),
     );
-
-    #[cfg(feature = "cross_sigma")]
-    {
-        unimplemented!()
-    }
-    #[cfg(not(feature = "cross_sigma"))]
-    {
-        let levels_proof = Rδ_prove(&pc_gens, &bp_gens, aggregated_tree)?;
-
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        let mut prover: SigmaProver<CortadoAffine, Transcript, &mut Transcript> =
-            SigmaProver::new(b"R_sigma", &mut transcript);
-
-        let (var_P, _) = prover.allocate_point(b"P", basis.G_1);
-        for (i, s) in s.iter().enumerate() {
-            let var_s = prover.allocate_scalar(b"s", *s);
-            let (var_R, _) = prover.allocate_point(b"R", R[i]);
-            prover.constrain(var_R, vec![(var_s, var_P)]);
-        }
-        let sigma_proof = prover.prove_compact();
-
-        debug!("ART proof generation time: {:?}", start.elapsed());
-        Ok(ARTAggregatedProof {
-            Rδ: levels_proof,
-            Rσ: sigma_proof,
-        })
-    }
+    let proof = context.prove_aggregated(aggregated_tree);
+    debug!("art_aggregated_prove time: {:?}", start.elapsed());
+    proof
 }
 
 /// verify an ART proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
@@ -596,74 +577,29 @@ pub fn art_aggregated_verify(
     ad: &[u8], // auxiliary data
     aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
     R: Vec<CortadoAffine>, // auxiliary public keys
-    proof: &ARTAggregatedProof,
-) -> Result<(), R1CSError> {
+    proof: &ArtProof,
+) -> Result<(), ZKError> {
     let start = Instant::now();
-
-    let pc_gens = PedersenGens {
-        B: ark_to_ristretto255(basis.G_2).unwrap(),
-        B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
-    };
-    let bp_gens = BulletproofGens::new(
-        estimate_bp_gens(
-            aggregated_tree.get_nodes().len() - 1,       // number of edges
-            (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
-            2,
-        ),
-        1,
-    );
-
-    #[cfg(feature = "cross_sigma")]
-    {
-        unimplemented!()
-    }
-    #[cfg(not(feature = "cross_sigma"))]
-    {
-        Rδ_verify(&pc_gens, &bp_gens, aggregated_tree, &proof.Rδ)?;
-
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        let mut verifier: SigmaVerifier<CortadoAffine, Transcript, &mut Transcript> =
-            SigmaVerifier::new(b"R_sigma", &mut transcript);
-
-        let var_P =
-            verifier
-                .allocate_point(b"P", basis.G_1)
-                .map_err(|_| R1CSError::GadgetError {
-                    description: "Failed to allocate point P".to_string(),
-                })?;
-
-        for (i, R) in R.iter().enumerate() {
-            let var_s = verifier.allocate_scalar(b"s");
-            let var_R =
-                verifier
-                    .allocate_point(b"R", R.clone())
-                    .map_err(|_| R1CSError::GadgetError {
-                        description: "Failed to allocate point R".to_string(),
-                    })?;
-            verifier.constrain(var_R, vec![(var_s, var_P)]);
-        }
-        verifier
-            .verify_compact(&proof.Rσ)
-            .map_err(|e| R1CSError::GadgetError {
-                description: format!("Rσ_verify failed: {e:?}"),
-            })?;
-
-        debug!("ART proof verification time: {:?}", start.elapsed());
-        Ok(())
-    }
+    let engine = ZeroArtVerifierEngine::new(basis, ZeroArtEngineOptions::default());
+    let context = engine.new_context(ad, EligibilityRequirement::Member(R[0]));
+    let res = context.verify_aggregated(aggregated_tree, proof);
+    debug!("art_aggregated_verify time: {:?}", start.elapsed());
+    res
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::gadgets::poseidon_gadget::PADDING_CONST;
-    use rand::Rng;
+    use ark_ff::{PrimeField, UniformRand};
+    use rand::{Rng, thread_rng};
     use serde::de;
     use std::fmt::Display;
     use std::hash::Hash;
+    use tracing::trace;
     use tracing_subscriber::field::debug;
     use zkp::ProofError;
+    use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 
     fn convert_to_verifier_tree(
         tree: &ProverAggregationTree<CortadoAffine>,
@@ -678,7 +614,7 @@ mod tests {
                 .add_node(
                     Node::new(
                         node_id,
-                        Some(VerifierAggregatedNodeData {
+                        Some(VerifierNodeData {
                             public_key: node_data.public_key,
                             co_public_key: node_data.co_public_key,
                         }),
@@ -735,7 +671,7 @@ mod tests {
                     }
                 })
                 .unwrap();
-            debug!("tree state for leaf {leaf_id}: {}", tree);
+            trace!("tree state for leaf {leaf_id}: {}", tree);
         }
     }
 
@@ -747,7 +683,7 @@ mod tests {
         let root_id = 0;
         let root_node = Node::new(
             root_id,
-            Some(ProverAggregatedNodeData {
+            Some(ProverNodeData {
                 public_key: root_pk,
                 co_public_key: None,
                 secret_key: root_sk,
@@ -779,7 +715,7 @@ mod tests {
                             // current node becomes a left child, add the new node to the right child
                             let left_child_node = Node::new(
                                 node_count,
-                                Some(ProverAggregatedNodeData {
+                                Some(ProverNodeData {
                                     secret_key: node_value.secret_key,
                                     public_key: node_value.public_key,
                                     co_public_key: Some(right_child_pk),
@@ -791,7 +727,7 @@ mod tests {
 
                             let right_child_node = Node::new(
                                 node_count,
-                                Some(ProverAggregatedNodeData {
+                                Some(ProverNodeData {
                                     public_key: right_child_pk,
                                     co_public_key: Some(node_value.public_key),
                                     secret_key: right_child_sk,
@@ -836,7 +772,7 @@ mod tests {
 
         // Generate random tree with k nodes
         let prover_tree = generate_random_tree(k);
-        debug!("Prover tree: {prover_tree}");
+        trace!("Prover tree: {prover_tree}");
 
         // Generate auxiliary values
         let s = (0..2)
@@ -849,7 +785,7 @@ mod tests {
 
         // Get verifier tree from prover tree (only for test, for real use case should use VerifierAggregationTree::from(&proof.Rδ)) and populating the tree from the current ART state
         let verifier_tree = convert_to_verifier_tree(&prover_tree);
-        debug!("Verifier tree: {verifier_tree}");
+        trace!("Verifier tree: {verifier_tree}");
 
         // Create proof
         let proof = art_aggregated_prove(basis.clone(), &ad, &prover_tree, R.clone(), s.clone())
