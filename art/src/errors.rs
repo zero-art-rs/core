@@ -1,5 +1,6 @@
 use bulletproofs::r1cs::R1CSError;
 use thiserror::Error;
+use zrt_zk::errors::ZKError;
 
 #[derive(Error, Debug)]
 pub enum ARTError {
@@ -41,4 +42,6 @@ pub enum ARTError {
     InvalidAggregation,
     #[error("R1CSError: {0}")]
     R1CSError(#[from] R1CSError),
+    #[error("ZKError: {0}")]
+    ZKError(#[from] ZKError),
 }

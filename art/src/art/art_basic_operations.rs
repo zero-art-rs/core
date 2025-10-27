@@ -1,4 +1,3 @@
-use crate::art::EligibilityProofInput;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
 use crate::changes::branch_change::{BranchChange, VerifiableBranchChange};
 use crate::errors::ARTError;
@@ -7,7 +6,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
-use zrt_zk::art::art_prove;
+use zrt_zk::EligibilityArtefact;
 
 pub trait ArtBasicOps<G, R>
 where
@@ -18,14 +17,14 @@ where
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
         append_changes: bool,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 
     fn add_node(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 }
@@ -40,8 +39,8 @@ where
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
         append_changes: bool,
-        eligibility_proof_input: Option<EligibilityProofInput>,
-        ad: &[u8],
+        _: Option<EligibilityArtefact>,
+        _: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
         self.private_update_node_key(target_leaf, new_key, append_changes)
             .map(|(_, change, _)| change)
@@ -50,8 +49,8 @@ where
     fn add_node(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
-        ad: &[u8],
+        _: Option<EligibilityArtefact>,
+        _: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
         self.private_add_node(new_key).map(|(_, change, _)| change)
     }
@@ -66,23 +65,20 @@ where
         target_leaf: &NodeIndex,
         new_key: Fr,
         append_changes: bool,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
-        let user_secret_key = self.private_art.get_leaf_secret_key()?;
-        let user_public_key = self.private_art.get_leaf_public_key()?;
+        let eligibility = match eligibility {
+            Some(eligibility) => eligibility,
+            None => self.get_member_current_eligibility()?,
+        };
 
         let (_, change, artefacts) =
             self.private_art
                 .private_update_node_key(target_leaf, new_key, append_changes)?;
 
-        let proof = art_prove(
-            self.proof_basis.clone(),
-            ad,
-            &artefacts.to_prover_branch(self.rng)?,
-            vec![user_public_key],
-            vec![user_secret_key],
-        )?;
+        let prover_context = self.prover_engine.new_context(ad, eligibility);
+        let proof = prover_context.prove(&artefacts.to_prover_branch(self.rng)?)?;
 
         Ok(VerifiableBranchChange {
             branch_change: change,
@@ -93,27 +89,22 @@ where
     fn add_node(
         &mut self,
         new_key: Fr,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
-        let user_secret_key = self.private_art.get_leaf_secret_key()?;
-        let user_public_key = self.private_art.get_leaf_public_key()?;
+        let eligibility = match eligibility {
+            Some(eligibility) => eligibility,
+            None => self.get_member_current_eligibility()?,
+        };
 
         let (_, change, artefacts) = self.private_art.private_add_node(new_key)?;
 
-        let proof = art_prove(
-            self.proof_basis.clone(),
-            ad,
-            &artefacts.to_prover_branch(self.rng)?,
-            vec![user_public_key],
-            vec![user_secret_key],
-        )?;
+        let prover_context = self.prover_engine.new_context(ad, eligibility);
+        let proof = prover_context.prove(&artefacts.to_prover_branch(self.rng)?)?;
 
-        Ok({
-            VerifiableBranchChange {
-                branch_change: change,
-                proof,
-            }
+        Ok(VerifiableBranchChange {
+            branch_change: change,
+            proof,
         })
     }
 }

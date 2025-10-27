@@ -1,10 +1,11 @@
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::applicable_change::ApplicableChange;
-use crate::changes::branch_change::VerifiableBranchChange;
+use crate::changes::branch_change::{BranchChangeType, VerifiableBranchChange};
 use crate::errors::ARTError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
+use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::{VerifierAggregationTree, art_aggregated_verify};
 use zrt_zk::art::art_verify;
 
@@ -13,16 +14,16 @@ pub trait VerifiableChange<T>: ApplicableChange<T> {
         &self,
         art: &T,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError>;
 
     fn verify_then_update(
         &self,
         art: &mut T,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError> {
-        self.verify(&*art, ad, aux_public_keys)?;
+        self.verify(&*art, ad, eligibility_requirement)?;
         self.update(art)?;
 
         Ok(())
@@ -34,20 +35,15 @@ impl VerifiableChange<PublicZeroArt> for VerifiableBranchChange {
         &self,
         art: &PublicZeroArt,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError> {
         let verification_branch = art
             .get_public_art()
             .compute_artefacts_for_verification(&self.branch_change)?
             .to_verifier_branch()?;
 
-        art_verify(
-            art.proof_basis.clone(),
-            ad,
-            &verification_branch,
-            aux_public_keys,
-            self.proof.clone(),
-        )?;
+        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+        verifier_context.verify(&self.proof, &verification_branch)?;
 
         Ok(())
     }
@@ -61,20 +57,15 @@ where
         &self,
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError> {
         let verification_branch = art
             .get_public_art()
             .compute_artefacts_for_verification(&self.branch_change)?
             .to_verifier_branch()?;
 
-        art_verify(
-            art.proof_basis.clone(),
-            ad,
-            &verification_branch,
-            aux_public_keys,
-            self.proof.clone(),
-        )?;
+        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+        verifier_context.verify(&self.proof, &verification_branch)?;
 
         Ok(())
     }
@@ -85,19 +76,13 @@ impl VerifiableChange<PublicZeroArt> for PlainChangeAggregationWithProof<Cortado
         &self,
         art: &PublicZeroArt,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError> {
         let extracted_agg = self.0.add_co_path(&art.public_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 
-        // Verify proof
-        art_aggregated_verify(
-            art.proof_basis.clone(),
-            ad,
-            &verifier_tree,
-            aux_public_keys,
-            &self.1,
-        )?;
+        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+        verifier_context.verify_aggregated(&verifier_tree, &self.1)?;
 
         Ok(())
     }
@@ -112,19 +97,13 @@ where
         &self,
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
-        aux_public_keys: Vec<CortadoAffine>,
+        eligibility_requirement: EligibilityRequirement,
     ) -> Result<(), ARTError> {
         let extracted_agg = self.0.add_co_path(&art.private_art.public_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 
-        // Verify proof
-        art_aggregated_verify(
-            art.proof_basis.clone(),
-            ad,
-            &verifier_tree,
-            aux_public_keys,
-            &self.1,
-        )?;
+        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+        verifier_context.verify_aggregated(&verifier_tree, &self.1)?;
 
         Ok(())
     }
@@ -145,6 +124,7 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
+    use zrt_zk::EligibilityRequirement;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
 
@@ -183,16 +163,14 @@ mod tests {
                 .into_affine()
         );
 
-        let verification_result = key_update_change.verify(
-            &test_art,
-            associated_data,
-            vec![
-                test_art
-                    .get_node(&key_update_change.branch_change.node_index)
-                    .unwrap()
-                    .get_public_key(),
-            ],
+        let eligibility_requirement = EligibilityRequirement::Member(
+            test_art
+                .get_node(&key_update_change.branch_change.node_index)
+                .unwrap()
+                .get_public_key(),
         );
+        let verification_result =
+            key_update_change.verify(&test_art, associated_data, eligibility_requirement);
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -237,11 +215,10 @@ mod tests {
             .unwrap();
         let tk = art.get_root_secret_key().unwrap();
 
-        let verification_result = make_blank_change.verify(
-            &test_art,
-            associated_data,
-            vec![art.get_leaf_public_key().unwrap()],
-        );
+        let eligibility_requirement =
+            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+        let verification_result =
+            make_blank_change.verify(&test_art, associated_data, eligibility_requirement);
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -281,11 +258,10 @@ mod tests {
             .add_member(new_secret_key, None, associated_data)
             .unwrap();
 
-        let verification_result = append_node_changes.verify(
-            &test_art,
-            associated_data,
-            vec![art.get_leaf_public_key().unwrap()],
-        );
+        let eligibility_requirement =
+            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+        let verification_result =
+            append_node_changes.verify(&test_art, associated_data, eligibility_requirement);
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -331,11 +307,10 @@ mod tests {
             .remove_member(&target_node_index, new_secret_key, None, associated_data1)
             .unwrap();
 
-        let verification_result = make_blank_changes.verify(
-            &test_art,
-            associated_data1,
-            vec![art.get_leaf_public_key().unwrap()],
-        );
+        let eligibility_requirement =
+            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+        let verification_result =
+            make_blank_changes.verify(&test_art, associated_data1, eligibility_requirement);
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -349,11 +324,10 @@ mod tests {
             .add_member(new_secret_key, None, associated_data2)
             .unwrap();
 
-        let verification_result = append_node_changes.verify(
-            &test_art,
-            associated_data2,
-            vec![art.get_leaf_public_key().unwrap()],
-        );
+        let eligibility_requirement =
+            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+        let verification_result =
+            append_node_changes.verify(&test_art, associated_data2, eligibility_requirement);
 
         assert!(
             matches!(verification_result, Ok(())),

@@ -16,19 +16,18 @@ use crate::tree_node::TreeNode;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
+use cortado::{CortadoAffine, Fr};
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
-use zrt_zk::aggregated_art::{
-    ARTAggregatedProof, ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove,
-};
+use zrt_zk::EligibilityArtefact;
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use zrt_zk::art::ArtProof;
 
 pub type ProverChangeAggregation<G> = ChangeAggregation<ProverAggregationData<G>>;
 pub type PlainChangeAggregation<G> = ChangeAggregation<AggregationData<G>>;
 pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
 
-pub type PlainChangeAggregationWithProof<G> =
-    (ChangeAggregation<AggregationData<G>>, ARTAggregatedProof);
+pub type PlainChangeAggregationWithProof<G> = (ChangeAggregation<AggregationData<G>>, ArtProof);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeAggregation<D>
@@ -593,7 +592,9 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     where
         R: Rng + ?Sized,
     {
-        let root = self.root.get_or_insert_with(AggregationNode::<ProverAggregationData<CortadoAffine>>::default);
+        let root = self
+            .root
+            .get_or_insert_with(AggregationNode::<ProverAggregationData<CortadoAffine>>::default);
 
         root.extend(rng, changes, artefacts, change_hint)
     }
@@ -753,25 +754,22 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         &self,
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
+        eligibility: Option<EligibilityArtefact>,
     ) -> Result<PlainChangeAggregationWithProof<CortadoAffine>, ARTError>
     where
         R: Rng + ?Sized,
     {
         // Use some auxiliary keys for proof
-        let user_secret_key = art.get_leaf_secret_key()?;
-        let user_public_key = art.get_leaf_public_key()?;
+        let eligibility = match eligibility {
+            Some(eligibility) => eligibility,
+            None => art.get_member_current_eligibility()?,
+        };
 
         // Get ProverAggregationTree for proof.
         let prover_tree = ProverAggregationTree::try_from(self)?;
 
-        // Create proof
-        let proof = art_aggregated_prove(
-            art.proof_basis.clone(),
-            ad,
-            &prover_tree,
-            vec![user_public_key],
-            vec![user_secret_key],
-        )?;
+        let context = art.prover_engine.new_context(ad, eligibility);
+        let proof = context.prove_aggregated(&prover_tree)?;
 
         Ok((PlainChangeAggregation::try_from(self)?, proof))
     }
@@ -831,11 +829,8 @@ where
         }
 
         let index = NodeIndex::from(path.to_vec());
-        let (tk, mut change, artefacts) = art.private_update_node_key(
-            &index,
-            temporary_secret_key,
-            append_changes,
-        )?;
+        let (tk, mut change, artefacts) =
+            art.private_update_node_key(&index, temporary_secret_key, append_changes)?;
         change.change_type = BranchChangeType::RemoveMember;
 
         self.extend(

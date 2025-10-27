@@ -6,3 +6,5 @@ mod eligibility;
 pub mod engine;
 pub mod errors;
 mod gadgets;
+
+pub use eligibility::{EligibilityArtefact, EligibilityRequirement};

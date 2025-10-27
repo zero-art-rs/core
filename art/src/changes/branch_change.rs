@@ -6,7 +6,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use cortado::CortadoAffine;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use zrt_zk::art::ARTProof;
+use zrt_zk::art::ArtProof;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -41,7 +41,7 @@ where
 pub struct VerifiableBranchChange {
     pub branch_change: BranchChange<CortadoAffine>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub proof: ARTProof,
+    pub proof: ArtProof,
 }
 
 impl Debug for VerifiableBranchChange {

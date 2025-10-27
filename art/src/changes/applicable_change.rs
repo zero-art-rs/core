@@ -1,8 +1,8 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
+use crate::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use crate::changes::branch_change::{
     BranchChange, BranchChangeType, MergeBranchChange, VerifiableBranchChange,
 };
@@ -220,8 +220,7 @@ impl ApplicableChange<PublicZeroArt> for ProverChangeAggregation<CortadoAffine> 
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>>
-for ProverChangeAggregation<CortadoAffine>
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for ProverChangeAggregation<CortadoAffine>
 where
     R: ?Sized + Rng,
 {

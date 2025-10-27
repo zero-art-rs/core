@@ -1,15 +1,10 @@
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_std::UniformRand;
 use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
-use bulletproofs::PedersenGens;
-use cortado::{ALT_GENERATOR_X, ALT_GENERATOR_Y, CortadoAffine, Fr};
+use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
-use tracing::debug;
-use zkp::toolbox::cross_dleq::PedersenBasis;
-use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_art::TreeMethods;
 use zrt_art::art::art_advanced_operations::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
@@ -18,10 +13,7 @@ use zrt_art::changes::VerifiableChange;
 use zrt_art::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use zrt_art::changes::branch_change::MergeBranchChange;
 use zrt_art::node_index::NodeIndex;
-use zrt_zk::aggregated_art::{
-    ProverAggregationTree, VerifierAggregationTree, art_aggregated_prove, art_aggregated_verify,
-};
-use zrt_zk::art::{art_prove, art_verify};
+use zrt_zk::EligibilityRequirement;
 
 /// PrivateArt usage example. PrivateArt contain handle key management, while ART isn't.
 fn general_example() {
@@ -75,8 +67,8 @@ fn general_example() {
     change_1.update(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
-    // To get common secret, user can call the next method.
-    let retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
+    // To get common secret, user should use the next method.
+    let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
 
     // Other art modifications include addition and blanking.
     // Addition of a new node can be done as next:
@@ -107,16 +99,13 @@ fn general_example() {
         .update_key(some_secret_key4, None, associated_data)
         .unwrap();
 
-    let verification_result = changes_4.verify(
-        &art_0,
-        associated_data,
-        vec![
-            art_0
-                .get_node(art_1.get_node_index())
-                .unwrap()
-                .get_public_key(),
-        ],
+    let eligibility_requirement = EligibilityRequirement::Member(
+        art_0
+            .get_node(art_1.get_node_index())
+            .unwrap()
+            .get_public_key(),
     );
+    let verification_result = changes_4.verify(&art_0, associated_data, eligibility_requirement);
 
     assert!(
         matches!(verification_result, Ok(())),
@@ -187,7 +176,7 @@ fn branch_aggregation_proof_verify() {
 
     let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
-    let mut art0 = PrivateArt::setup(&secrets).unwrap();
+    let art0 = PrivateArt::setup(&secrets).unwrap();
 
     let mut art1 =
         PrivateArt::<CortadoAffine>::new(art0.get_public_art().clone(), secrets[1]).unwrap();
@@ -212,11 +201,12 @@ fn branch_aggregation_proof_verify() {
     // Gather associated data
     let associated_data = b"associated data";
 
-    let verifiable_agg = agg.prove(&zero_art0, associated_data).unwrap();
+    let verifiable_agg = agg.prove(&zero_art0, associated_data, None).unwrap();
 
     let aux_pk = zero_art0.get_leaf_public_key().unwrap();
+    let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
     verifiable_agg
-        .verify(&zero_art0, associated_data, vec![aux_pk])
+        .verify(&zero_art0, associated_data, eligibility_requirement)
         .unwrap();
 
     // Finally update private art with the `extracted_agg` aggregation.

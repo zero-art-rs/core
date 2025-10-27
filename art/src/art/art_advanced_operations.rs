@@ -1,6 +1,6 @@
+use crate::art::ArtBasicOps;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::art::{ArtBasicOps, EligibilityProofInput};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
 use crate::errors::ARTError;
 use crate::node_index::NodeIndex;
@@ -9,6 +9,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
+use zrt_zk::EligibilityArtefact;
 
 pub trait ArtAdvancedOps<G, R>: ArtBasicOps<G, R>
 where
@@ -17,7 +18,7 @@ where
     fn add_member(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 
@@ -25,21 +26,21 @@ where
         &mut self,
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 
     fn leave_group(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 
     fn update_key(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<R, ARTError>;
 }
@@ -52,21 +53,20 @@ where
     fn add_member(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
-        self.add_node(new_key, eligibility_proof_input, ad)
-            .map(|mut change| {
-                change.change_type = BranchChangeType::AddMember;
-                change
-            })
+        self.add_node(new_key, eligibility, ad).map(|mut change| {
+            change.change_type = BranchChangeType::AddMember;
+            change
+        })
     }
 
     fn remove_member(
         &mut self,
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
         let path = target_leaf.get_path()?;
@@ -75,13 +75,7 @@ where
             Some(LeafStatus::Blank)
         );
         let change = self
-            .update_node_key(
-                target_leaf,
-                new_key,
-                append_changes,
-                eligibility_proof_input,
-                ad,
-            )
+            .update_node_key(target_leaf, new_key, append_changes, eligibility, ad)
             .map(|mut change| {
                 change.change_type = BranchChangeType::RemoveMember;
                 change
@@ -99,12 +93,12 @@ where
     fn leave_group(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
         let index = self.get_node_index().clone();
         let change = self
-            .update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+            .update_node_key(&index, new_key, false, eligibility, ad)
             .map(|mut change| {
                 change.change_type = BranchChangeType::Leave;
                 change
@@ -119,11 +113,11 @@ where
     fn update_key(
         &mut self,
         new_key: G::ScalarField,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<BranchChange<G>, ARTError> {
         let index = self.get_node_index().clone();
-        self.update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+        self.update_node_key(&index, new_key, false, eligibility, ad)
     }
 }
 
@@ -134,15 +128,13 @@ where
     fn add_member(
         &mut self,
         new_key: Fr,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
-        let change = self
-            .add_node(new_key, eligibility_proof_input, ad)
-            .map(|mut change| {
-                change.branch_change.change_type = BranchChangeType::AddMember;
-                change
-            })?;
+        let change = self.add_node(new_key, eligibility, ad).map(|mut change| {
+            change.branch_change.change_type = BranchChangeType::AddMember;
+            change
+        })?;
 
         let mut update_path = change.branch_change.node_index.get_path()?;
         if let None = update_path.pop() {
@@ -156,7 +148,7 @@ where
         &mut self,
         target_leaf: &NodeIndex,
         new_key: Fr,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
         let path = target_leaf.get_path()?;
@@ -165,13 +157,7 @@ where
             Some(LeafStatus::Blank)
         );
         let change = self
-            .update_node_key(
-                target_leaf,
-                new_key,
-                append_changes,
-                eligibility_proof_input,
-                ad,
-            )
+            .update_node_key(target_leaf, new_key, append_changes, eligibility, ad)
             .map(|mut change| {
                 change.branch_change.change_type = BranchChangeType::RemoveMember;
                 change
@@ -191,12 +177,12 @@ where
     fn leave_group(
         &mut self,
         new_key: Fr,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
         let index = self.private_art.get_node_index().clone();
         let change = self
-            .update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+            .update_node_key(&index, new_key, false, eligibility, ad)
             .map(|mut change| {
                 change.branch_change.change_type = BranchChangeType::Leave;
                 change
@@ -211,11 +197,11 @@ where
     fn update_key(
         &mut self,
         new_key: Fr,
-        eligibility_proof_input: Option<EligibilityProofInput>,
+        eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
     ) -> Result<VerifiableBranchChange, ARTError> {
         let index = self.private_art.get_node_index().clone();
-        self.update_node_key(&index, new_key, false, eligibility_proof_input, ad)
+        self.update_node_key(&index, new_key, false, eligibility, ad)
     }
 }
 
@@ -225,8 +211,13 @@ mod tests {
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+    use crate::changes::aggregations::{
+        AggregationData, AggregationNodeIterWithPath, ChangeAggregation, PlainChangeAggregation,
+        ProverChangeAggregation, VerifierAggregationData,
+    };
     use crate::changes::{ApplicableChange, VerifiableChange};
     use crate::errors::ARTError;
+    use crate::helper_tools::iota_function;
     use crate::init_tracing;
     use crate::node_index::{Direction, NodeIndex};
     use ark_ec::{AffineRepr, CurveGroup};
@@ -236,11 +227,9 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::ops::Mul;
-    use tracing::debug;
     use zkp::rand::thread_rng;
+    use zrt_zk::EligibilityRequirement;
     use zrt_zk::aggregated_art::ProverAggregationTree;
-    use crate::changes::aggregations::{AggregationData, AggregationNodeIterWithPath, ChangeAggregation, PlainChangeAggregation, ProverChangeAggregation, VerifierAggregationData};
-    use crate::helper_tools::iota_function;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 100;
 
@@ -837,18 +826,10 @@ mod tests {
         let sk3 = Fr::rand(&mut rng);
         let sk4 = Fr::rand(&mut rng);
 
-        agg.remove_member(
-            &user3.get_node_index().get_path().unwrap(),
-            sk1,
-            &mut user1,
-        )
+        agg.remove_member(&user3.get_node_index().get_path().unwrap(), sk1, &mut user1)
             .unwrap();
 
-        agg.remove_member(
-            &user4.get_node_index().get_path().unwrap(),
-            sk1,
-            &mut user1,
-        )
+        agg.remove_member(&user4.get_node_index().get_path().unwrap(), sk1, &mut user1)
             .unwrap();
 
         agg.add_member(sk2, &mut user1).unwrap();
@@ -869,9 +850,7 @@ mod tests {
 
             let mut user2_clone_rng = thread_rng();
             let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
-            aggregation
-                .update(&mut user2_clone)
-                .unwrap();
+            aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -894,9 +873,7 @@ mod tests {
 
             let mut user2_clone_rng = thread_rng();
             let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
-            aggregation
-                .update(&mut user2_clone)
-                .unwrap();
+            aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -915,9 +892,7 @@ mod tests {
 
             let mut user2_clone_rng = thread_rng();
             let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
-            aggregation
-                .update(&mut user2_clone)
-                .unwrap();
+            aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -931,7 +906,9 @@ mod tests {
         // Verify structure correctness
         for (node, path) in AggregationNodeIterWithPath::from(&agg) {
             assert_eq!(
-                CortadoAffine::generator().mul(node.data.secret_key).into_affine(),
+                CortadoAffine::generator()
+                    .mul(node.data.secret_key)
+                    .into_affine(),
                 node.data.public_key
             );
             if let Some((parent, _)) = path.last()
@@ -962,7 +939,9 @@ mod tests {
             "Aggregations are equal from both sources."
         );
 
-        let extracted_verifier_aggregation = aggregation_from_prover.add_co_path(user2.get_public_art()).unwrap();
+        let extracted_verifier_aggregation = aggregation_from_prover
+            .add_co_path(user2.get_public_art())
+            .unwrap();
 
         assert_eq!(
             verifier_aggregation, extracted_verifier_aggregation,
@@ -972,9 +951,7 @@ mod tests {
 
         let mut user1_2_rng = thread_rng();
         let mut user1_clone = user1_2.clone_without_rng(&mut user1_2_rng);
-        agg
-            .update(&mut user1_clone)
-            .unwrap();
+        agg.update(&mut user1_clone).unwrap();
         agg.update(&mut user2).unwrap();
 
         assert_eq!(
@@ -1001,21 +978,23 @@ mod tests {
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
         let group_length = 7;
-        let secrets = (0..group_length).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let secrets = (0..group_length)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
 
-        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets)
-            .unwrap();
+        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(
-            user0,
-            &mut user0_rng,
-        );
+        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
 
-        let user3_path = NodeIndex::from(user0
-            .get_public_art()
-            .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[4]).into_affine())
-            .unwrap());
-        user0.remove_member(&user3_path, Fr::rand(&mut rng), None, &[]).unwrap();
+        let user3_path = NodeIndex::from(
+            user0
+                .get_public_art()
+                .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[4]).into_affine())
+                .unwrap(),
+        );
+        user0
+            .remove_member(&user3_path, Fr::rand(&mut rng), None, &[])
+            .unwrap();
 
         // Create aggregation
         let mut agg = ProverChangeAggregation::default();
@@ -1038,16 +1017,15 @@ mod tests {
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
         let group_length = 7;
-        let secrets = (0..group_length).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let secrets = (0..group_length)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
 
         let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0_rng = thread_rng();
         let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
-        let mut user1 = PrivateArt::<CortadoAffine>::new(
-            user0.get_public_art().clone(),
-            secrets[1],
-        )
-            .unwrap();
+        let mut user1 =
+            PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
 
         let target_3 = user0
             .get_public_art()
@@ -1056,20 +1034,14 @@ mod tests {
         // Create aggregation
         let mut agg = ProverChangeAggregation::default();
 
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         agg.remove_member(&target_3, Fr::rand(&mut rng), &mut user0)
             .unwrap();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         agg.leave(Fr::rand(&mut rng), &mut user0).unwrap();
 
         let plain_agg =
@@ -1087,20 +1059,15 @@ mod tests {
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
         let group_length = 7;
-        let secrets = (0..group_length).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let secrets = (0..group_length)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
 
-        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets)
-            .unwrap();
+        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(
-            user0,
-            &mut user0_rng,
-        );
-        let mut user1 = PrivateArt::<CortadoAffine>::new(
-            user0.get_public_art().clone(),
-            secrets[1],
-        )
-            .unwrap();
+        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user1 =
+            PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
 
         let target_3 = user0
             .get_public_art()
@@ -1110,17 +1077,17 @@ mod tests {
         let mut agg = ProverChangeAggregation::default();
 
         for i in 0..4 {
-            agg.add_member(Fr::rand(&mut rng), &mut user0)
-                .unwrap();
+            agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         }
 
         let associated_data = b"data";
 
-        let verifiable_agg = agg.prove(&user0, associated_data).unwrap();
+        let verifiable_agg = agg.prove(&user0, associated_data, None).unwrap();
 
         let aux_pk = user0.get_leaf_public_key().unwrap();
+        let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
         verifiable_agg
-            .verify(&user0, associated_data, vec![aux_pk])
+            .verify(&user0, associated_data, eligibility_requirement)
             .unwrap();
 
         let plain_agg =
@@ -1149,17 +1116,13 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let user0 = PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap();
         let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(
-            user0,
-            &mut user0_rng,
-        );
+        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
 
         let mut pub_art = user0.get_public_art().clone();
 
         let mut prover_rng = thread_rng();
         let mut agg = ProverChangeAggregation::default();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
 
@@ -1167,8 +1130,7 @@ mod tests {
 
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
 
-        let plain_agg =
-            PlainChangeAggregation::<CortadoAffine>::try_from(&agg).unwrap();
+        let plain_agg = PlainChangeAggregation::<CortadoAffine>::try_from(&agg).unwrap();
         plain_agg.update(&mut pub_art).unwrap();
 
         assert_eq!(&pub_art, user0.get_public_art())
@@ -1183,14 +1145,13 @@ mod tests {
         let mut user0_rng = thread_rng();
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
-            &mut user0_rng
+            &mut user0_rng,
         );
 
         let mut pub_art = user0.get_public_art().clone();
 
         let mut agg = ProverChangeAggregation::default();
-        agg.add_member(Fr::rand(&mut rng), &mut user0)
-            .unwrap();
+        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
         let plain_agg = PlainChangeAggregation::<CortadoAffine>::try_from(&agg).unwrap();
 

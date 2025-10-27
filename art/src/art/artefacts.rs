@@ -5,8 +5,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
-use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 use tracing::debug;
+use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
 pub struct ProverArtefacts<G>

@@ -14,11 +14,8 @@ use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use tree_ds::prelude::Node;
 use zrt_zk::{
+    aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
     art::{ProverNodeData, VerifierNodeData},
-    aggregated_art::{
-        ProverAggregationTree,
-        VerifierAggregationTree,
-    }
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -358,10 +355,7 @@ where
 
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
-            .add_node(
-                Node::new(1, Some(ProverNodeData::from(&root.data))),
-                None,
-            )
+            .add_node(Node::new(1, Some(ProverNodeData::from(&root.data))), None)
             .unwrap();
 
         for (agg_node, path) in node_iter {
@@ -371,10 +365,7 @@ where
             let parent_id = node_id / 2;
             resulting_tree
                 .add_node(
-                    Node::new(
-                        node_id,
-                        Some(ProverNodeData::from(&agg_node.data)),
-                    ),
+                    Node::new(node_id, Some(ProverNodeData::from(&agg_node.data))),
                     Some(&parent_id),
                 )
                 .map_err(|_| ARTError::TreeDS)?;
@@ -397,10 +388,7 @@ where
 
         let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
         resulting_tree
-            .add_node(
-                Node::new(1, Some(VerifierNodeData::from(&root.data))),
-                None,
-            )
+            .add_node(Node::new(1, Some(VerifierNodeData::from(&root.data))), None)
             .unwrap();
 
         for (agg_node, path) in node_iter {
@@ -410,10 +398,7 @@ where
             let parent_id = node_id / 2;
             resulting_tree
                 .add_node(
-                    Node::new(
-                        node_id,
-                        Some(VerifierNodeData::from(&agg_node.data)),
-                    ),
+                    Node::new(node_id, Some(VerifierNodeData::from(&agg_node.data))),
                     Some(&parent_id),
                 )
                 .map_err(|_| ARTError::TreeDS)?;

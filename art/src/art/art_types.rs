@@ -1,7 +1,7 @@
 use crate::TreeMethods;
 use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
-use crate::art::{ArtLevel, ArtUpdateOutput, EligibilityProofInput, ProverArtefacts};
+use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ARTError;
 use crate::helper_tools::{iota_function, recompute_artefacts};
@@ -17,6 +17,8 @@ use std::fmt::Debug;
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+use zrt_zk::EligibilityArtefact;
+use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
@@ -37,10 +39,9 @@ where
     pub(crate) node_index: NodeIndex,
 }
 
-#[derive(Clone)]
 pub struct PublicZeroArt {
     pub(crate) public_art: PublicArt<CortadoAffine>,
-    pub(crate) proof_basis: PedersenBasis<CortadoAffine, EdwardsAffine>,
+    pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
 pub struct PrivateZeroArt<'a, R>
@@ -49,7 +50,8 @@ where
 {
     pub(crate) rng: &'a mut R,
     pub(crate) private_art: PrivateArt<CortadoAffine>,
-    pub(crate) proof_basis: PedersenBasis<CortadoAffine, EdwardsAffine>,
+    pub(crate) prover_engine: ZeroArtProverEngine,
+    pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
 impl<G> PublicArt<G>
@@ -1020,6 +1022,15 @@ where
     }
 }
 
+impl PrivateArt<CortadoAffine> {
+    pub(crate) fn get_member_current_eligibility(&self) -> Result<EligibilityArtefact, ARTError> {
+        Ok(EligibilityArtefact::Member((
+            self.get_leaf_secret_key()?,
+            self.get_leaf_public_key()?,
+        )))
+    }
+}
+
 impl PublicZeroArt {
     pub fn new(public_art: PublicArt<CortadoAffine>) -> Result<Self, ARTError> {
         let gens = PedersenGens::default();
@@ -1029,9 +1040,13 @@ impl PublicZeroArt {
             ristretto255_to_ark(gens.B).unwrap(),
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
+
         Ok(Self {
             public_art,
-            proof_basis,
+            verifier_engine: ZeroArtVerifierEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            ),
         })
     }
 
@@ -1056,15 +1071,19 @@ where
         Self {
             rng,
             private_art,
-            proof_basis,
+            prover_engine: ZeroArtProverEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            ),
+            verifier_engine: ZeroArtVerifierEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            ),
         }
     }
 
     pub fn clone_without_rng(&self, rng: &'a mut R) -> Self {
-        Self::new(
-            self.private_art.clone(),
-            rng,
-        )
+        Self::new(self.private_art.clone(), rng)
     }
 
     pub fn get_private_art(&self) -> &PrivateArt<CortadoAffine> {
@@ -1099,6 +1118,10 @@ where
         Ok(CortadoAffine::generator()
             .mul(self.get_leaf_secret_key()?)
             .into_affine())
+    }
+
+    pub(crate) fn get_member_current_eligibility(&self) -> Result<EligibilityArtefact, ARTError> {
+        self.private_art.get_member_current_eligibility()
     }
 }
 
