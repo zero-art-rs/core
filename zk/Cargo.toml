@@ -24,6 +24,7 @@ once_cell = { workspace = true }
 tree-ds = { workspace = true, features = ["auto_id", "serde", "async"] }
 serde = {workspace = true, features = ["derive"]}
 postcard = {workspace = true, features = ["alloc"]}
+thiserror = { workspace = true }
 
 [profile.test]
 inherits = "release"

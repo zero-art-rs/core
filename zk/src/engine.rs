@@ -1,16 +1,13 @@
 use crate::cred::Credential;
+use crate::eligibility::*;
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use bulletproofs::PedersenGens;
 use cortado::{CortadoAffine, Fr};
+use curve25519_dalek::Scalar;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ark_to_ristretto255;
 
-pub enum ZeroArtEligibility {
-    Owner(Fr),                    // owner of the group, could perform AddMember, RemoveMember
-    Member(Fr), // just normal member of the group, needed for UpdateKey & ConfirmRemove ops.
-    CredentialHolder(Credential), // holder of a credential, needed for anonymous AddMember & RemoveMember ops.
-}
-
+/// Engine options for ZeroArt proof system, currently supports setting of multi-threaded mode and scalar multiplication gadget version (1 or 2)
 pub struct ZeroArtEngineOptions {
     pub multi_threaded: bool, // turn on multi-threaded mode, reducing proof generation time but increasing proof size, verifier must use the same mode
     pub scalar_mul_gadget_ver: u8,
@@ -25,17 +22,21 @@ impl Default for ZeroArtEngineOptions {
     }
 }
 
-pub struct ZeroArtProverEngine<'a> {
+pub struct ZeroArtProverEngine {
     pub(crate) basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     pub(crate) pc_gens: PedersenGens,
     pub(crate) options: ZeroArtEngineOptions,
-    pub(crate) old_leaf_secret: Option<Fr>,
-    pub(crate) ad: &'a [u8],
 }
 
-impl<'a> ZeroArtProverEngine<'a> {
+pub struct ZeroArtProverContext<'a> {
+    pub(crate) engine: &'a ZeroArtProverEngine,
+    pub(crate) ad: &'a [u8],
+    pub(crate) eligibility: EligibilityArtefact,
+}
+
+impl ZeroArtProverEngine {
+    /// Creates a new prover engine, could be stored in the global state
     pub fn new(
-        ad: &'a [u8],
         basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
         options: ZeroArtEngineOptions,
     ) -> Self {
@@ -44,29 +45,35 @@ impl<'a> ZeroArtProverEngine<'a> {
             B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
         };
         Self {
-            ad,
             basis,
             pc_gens,
-            old_leaf_secret: None,
             options,
         }
     }
 
-    pub fn set_old_leaf_secret(&mut self, secret: Fr) {
-        self.old_leaf_secret = Some(secret);
+    /// Starts a new proof context, takes associated data `ad` and eligibility options `eligibility`
+    pub fn new_context<'a>(
+        &'a self,
+        ad: &'a [u8],
+        eligibility: EligibilityArtefact,
+    ) -> ZeroArtProverContext<'a> {
+        ZeroArtProverContext {
+            engine: self,
+            ad,
+            eligibility,
+        }
     }
 }
 
-pub struct ZeroArtVerifierEngine<'a> {
+pub struct ZeroArtVerifierEngine {
     pub(crate) basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     pub(crate) pc_gens: PedersenGens,
     pub(crate) options: ZeroArtEngineOptions,
-    pub(crate) ad: &'a [u8],
 }
 
-impl<'a> ZeroArtVerifierEngine<'a> {
+impl ZeroArtVerifierEngine {
+    /// Creates a new verifier engine, could be stored in the global state
     pub fn new(
-        ad: &'a [u8],
         basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
         options: ZeroArtEngineOptions,
     ) -> Self {
@@ -75,10 +82,28 @@ impl<'a> ZeroArtVerifierEngine<'a> {
             B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
         };
         Self {
-            ad,
             basis,
             pc_gens,
             options,
         }
     }
+
+    /// Creates a new verification context
+    pub fn new_context<'a>(
+        &'a self,
+        ad: &'a [u8],
+        eligibility: EligibilityRequirement,
+    ) -> ZeroArtVerifierContext<'a> {
+        ZeroArtVerifierContext {
+            engine: self,
+            ad,
+            eligibility,
+        }
+    }
+}
+
+pub struct ZeroArtVerifierContext<'a> {
+    pub(crate) engine: &'a ZeroArtVerifierEngine,
+    pub(crate) ad: &'a [u8],
+    pub(crate) eligibility: EligibilityRequirement,
 }

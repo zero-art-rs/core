@@ -1,7 +1,12 @@
 #![allow(non_snake_case)]
-use crate::cred::CredentialPresentationProof;
+use crate::aggregated_art::AggregatedTreeProof;
 use crate::dh::art_level_gadget;
-use crate::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
+use crate::eligibility::*;
+use crate::engine::{
+    ZeroArtEngineOptions, ZeroArtProverContext, ZeroArtProverEngine, ZeroArtVerifierContext,
+    ZeroArtVerifierEngine,
+};
+use crate::errors::ZKError;
 use crate::gadgets::r1cs_utils::AllocatedScalar;
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ed25519::EdwardsAffine as Ed25519Affine;
@@ -20,13 +25,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 use tracing::debug;
-use zkp::CompactProof;
-use zkp::toolbox::SchnorrCS;
 use zkp::toolbox::cross_dleq::PedersenBasis;
-use zkp::toolbox::dalek_ark::ark_to_ristretto255;
-use zkp::toolbox::{
-    FromBytes, ToBytes, prover::Prover as SigmaProver, verifier::Verifier as SigmaVerifier,
-};
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ProverNodeData<G>
@@ -107,24 +106,6 @@ where
 #[derive(Clone, Serialize, Deserialize)]
 pub struct R1CSProof(pub BPR1CSProof);
 
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct CompressedRistretto(pub DalekCompressedRistretto);
-
-#[cfg(feature = "cross_sigma")]
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct ARTProof {
-    pub Rι: Vec<R1CSProof>,                // Rι gadget proofs
-    pub Rσ: CrossDLEQProof<CortadoAffine>, // cross-group relation proof
-}
-
-#[cfg(not(feature = "cross_sigma"))]
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct ARTProof {
-    branch_proof: (Vec<R1CSProof>, Vec<CompressedRistretto>), // Rδ gadget proofs
-    sigma_proof: CompactProof<cortado::Fr>,                   // sigma part of the proof
-    credential_proof: Option<CredentialPresentationProof>,
-}
-
 impl PartialEq for R1CSProof {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_bytes() == other.0.to_bytes()
@@ -174,6 +155,86 @@ impl CanonicalDeserialize for R1CSProof {
 
         Ok(R1CSProof(proof))
     }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct CompressedRistretto(pub DalekCompressedRistretto);
+
+#[derive(Clone)]
+pub enum UpdateProof {
+    BranchProof((Vec<R1CSProof>, Vec<CompressedRistretto>)),
+    AggregatedProof(AggregatedTreeProof),
+}
+
+impl CanonicalSerialize for UpdateProof {
+    fn serialize_with_mode<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        match self {
+            UpdateProof::BranchProof(branch_proof) => {
+                0u8.serialize_with_mode(&mut writer, compress)?;
+                branch_proof.serialize_with_mode(&mut writer, compress)?;
+            }
+            UpdateProof::AggregatedProof(tree_proof) => {
+                1u8.serialize_with_mode(&mut writer, compress)?;
+                tree_proof.serialize_with_mode(&mut writer, compress)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn serialized_size(&self, compress: Compress) -> usize {
+        match self {
+            UpdateProof::BranchProof(branch_proof) => 1 + branch_proof.serialized_size(compress),
+            UpdateProof::AggregatedProof(tree_proof) => 1 + tree_proof.serialized_size(compress),
+        }
+    }
+}
+
+impl ark_serialize::Valid for UpdateProof {
+    fn check(&self) -> Result<(), SerializationError> {
+        // Validity check is performed during deserialization
+        Ok(())
+    }
+}
+
+impl CanonicalDeserialize for UpdateProof {
+    fn deserialize_with_mode<R: std::io::Read>(
+        mut reader: R,
+        compress: Compress,
+        validate: ark_serialize::Validate,
+    ) -> Result<Self, SerializationError> {
+        // Read variant tag
+        let variant = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+
+        match variant {
+            0 => {
+                let proof: (Vec<R1CSProof>, Vec<CompressedRistretto>) =
+                    <(Vec<R1CSProof>, Vec<CompressedRistretto>)>::deserialize_with_mode(
+                        &mut reader,
+                        compress,
+                        validate,
+                    )?;
+                Ok(UpdateProof::BranchProof(proof))
+            }
+            1 => {
+                // Member variant
+                let proof =
+                    AggregatedTreeProof::deserialize_with_mode(&mut reader, compress, validate)?;
+                Ok(UpdateProof::AggregatedProof(proof))
+            }
+            _ => Err(SerializationError::InvalidData),
+        }
+    }
+}
+
+#[derive(Clone, CanonicalDeserialize, CanonicalSerialize)]
+pub struct ArtProof {
+    pub(crate) update_proof: UpdateProof,
+    pub(crate) eligibility_proof: EligibilityProof,
 }
 
 impl PartialEq for CompressedRistretto {
@@ -228,7 +289,7 @@ impl CanonicalDeserialize for CompressedRistretto {
 }
 
 /// Estimate the number of generators needed for the given depth
-pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u32) -> usize {
+pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u8) -> usize {
     let eps = 5;
 
     let scalar_mul_complexity = match dh_ver {
@@ -252,242 +313,67 @@ pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u32) -> usi
     1 << log2(leaves * scalar_mul_complexity + height * (level_complexity + eps))
 }
 
-/// Prove the cross-group relation Rσ for a given basis:
-/// Rσ = { (λ_a, r; Q ∈ 𝔾_1^k, Com ∈ 𝔾_2^k) | ∀i ∈ [0, k-1], Q[i] = λ_a[i] * H_1, Com(λ_a[i]) = λ_a[i] * G_2 + r[i] * H_2 }
-#[cfg(feature = "cross_sigma")]
-fn Rσ_prove(
-    transcript: &mut Transcript,
-    basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
-    s: Vec<cortado::Fr>,   // auxiliary 𝔾_1 secrets
-    λ_a: Vec<cortado::Fr>, // cross-group secrets
-    blindings: Vec<Scalar>,
-) -> Result<(CrossDLEQProof<CortadoAffine>, Vec<CortadoAffine>), zkp::ProofError> {
-    let start = Instant::now();
-    let mut prover: CrossDleqProver<CortadoAffine> = CrossDleqProver::new(basis, transcript);
-
-    let mut R = vec![];
-    for s in s {
-        R.push(prover.add_dl_statement(s));
-    }
-    for i in 0..λ_a.len() {
-        let λ = λ_a[i];
-        let r = scalar_to_ark(&blindings[i]);
-
-        prover.add_dleq_statement(λ.into(), r);
-    }
-    let proof = prover.prove_cross()?;
-    let b = proof.to_bytes()?.len();
-    debug!("Rσ_prove time: {:?}, proof len: {b}", start.elapsed());
-    Ok((proof, R))
-}
-
-#[cfg(feature = "cross_sigma")]
-fn Rσ_verify(
-    transcript: &mut Transcript,
-    basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
-    Q_a: Vec<CortadoAffine>,
-    R: Vec<CortadoAffine>, // auxiliary public keys
-    proof: CrossDLEQProof<CortadoAffine>,
-) -> Result<(), zkp::ProofError> {
-    let start = Instant::now();
-    let mut verifier: CrossDleqVerifier<CortadoAffine> = CrossDleqVerifier::new(basis, transcript);
-    for R in R {
-        verifier.add_dl_statement(R);
-    }
-    for (i, c) in proof.commitments.iter().enumerate() {
-        let mut c = c.clone();
-        c.Q = Q_a[i].clone();
-        verifier.add_dleq_statement(c);
-    }
-    verifier.verify_cross(&proof.proof)?;
-    debug!("Rσ_verify time: {:?}", start.elapsed());
-    Ok(())
-}
-
-/// Prove the Rι gadget for a given depth k:
-/// Rι = { (λ_a; Q_b) | ∀i ∈ [0, k-1], λ_a[i+1] = Q_b[i] * λ_a[i] }
-#[cfg(feature = "cross_sigma")]
-fn Rι_prove(
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    Q_b: Vec<CortadoAffine>, // reciprocal public keys
-    λ_a: Vec<Scalar>,        // secrets
-    blindings: Vec<Scalar>,  // blinding factors for λ_a
-) -> Result<(Vec<R1CSProof>, Vec<DalekCompressedRistretto>), R1CSError> {
-    let start = Instant::now();
-    let k = Q_b.len();
-    assert!(k == λ_a.len() - 1, "length mismatch");
-
-    #[cfg(feature = "multi_thread_prover")]
-    {
-        let commitments = Arc::new(Mutex::new(vec![DalekCompressedRistretto::default(); k + 1]));
-        let proofs = Arc::new(Mutex::new(vec![None; k]));
-        let mut handles = Vec::new();
-        for i in 0..k {
-            let proofs = proofs.clone();
-            let commitments = commitments.clone();
-            let pc_gens = pc_gens.clone();
-            let bp_gens = bp_gens.clone();
-            let Q_b_i = Q_b[i].clone();
-            let λ_a_i = λ_a[i];
-            let λ_a_next = λ_a[i + 1];
-            let blindings_i = (blindings[i], blindings[i + 1]);
-
-            handles.push(std::thread::spawn(move || {
-                let mut transcript = Transcript::new(b"ARTGadget");
-                let mut prover = Prover::new(&pc_gens, &mut transcript);
-                let (a_commitment, var_a) = prover.commit(λ_a_i, blindings_i.0);
-                let (ab_commitment, var_ab) = prover.commit(λ_a_next, blindings_i.1);
-                let λ_a_i = AllocatedScalar::new(var_a, Some(λ_a_i));
-                let λ_a_next = AllocatedScalar::new(var_ab, Some(λ_a_next));
-                {
-                    let mut commitments = commitments.lock().unwrap();
-                    commitments[i] = a_commitment;
-                    if i == k - 1 {
-                        commitments[i + 1] = ab_commitment;
-                    }
-                }
-
-                dh_gadget(2, &mut prover, λ_a_i, λ_a_next, Q_b_i).unwrap();
-
-                let proof = prover.prove(&bp_gens).unwrap();
-                {
-                    let mut proofs = proofs.lock().unwrap();
-                    proofs[i] = Some(proof);
-                }
-            }));
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        let proof_len = proofs
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|x| x.as_ref())
-            .map(|x| x.to_bytes().len())
-            .sum::<usize>();
-        debug!(
-            "Rι_prove (parallel) for depth {k} proving time: {:?}, proof_len: {proof_len}",
-            start.elapsed()
+impl<'a> ZeroArtProverContext<'a> {
+    pub(crate) fn prove_level(
+        &self,
+        bp_gens: &BulletproofGens,
+        level: usize,
+        node: &ProverNodeData<CortadoAffine>,
+        next_node: &ProverNodeData<CortadoAffine>,
+    ) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
+        let mut transcript = Transcript::new(b"ARTGadget");
+        transcript.append_message(b"ad", self.ad);
+        let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
+        let (a_commitment, var_a) = prover.commit(
+            node.secret_key.into_scalar(),
+            node.blinding_factor.into_scalar(),
         );
+        let (ab_commitment, var_ab) = prover.commit(
+            next_node.secret_key.into_scalar(),
+            next_node.blinding_factor.into_scalar(),
+        );
+        let λ_a_i = AllocatedScalar::new(var_a, Some(node.secret_key.into_scalar()));
+        let λ_a_next = AllocatedScalar::new(var_ab, Some(next_node.secret_key.into_scalar()));
+
+        art_level_gadget(
+            self.engine.options.scalar_mul_gadget_ver,
+            &mut prover,
+            level,
+            λ_a_i,
+            λ_a_next,
+            node.public_key,
+            next_node.public_key,
+            node.co_public_key.unwrap(),
+        )?;
+
         Ok((
-            proofs
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|x| R1CSProof(x.as_ref().unwrap().clone()))
-                .collect(),
-            commitments.lock().unwrap().clone(),
+            R1CSProof(prover.prove(&bp_gens)?),
+            (
+                CompressedRistretto(a_commitment),
+                CompressedRistretto(ab_commitment),
+            ),
         ))
     }
-    #[cfg(not(feature = "multi_thread_prover"))]
-    {
-        let mut commitments = Vec::new();
-        let mut vars = Vec::new();
-        let mut transcript = Transcript::new(b"ARTGadget");
-        let mut prover = Prover::new(&pc_gens, &mut transcript);
 
-        for i in 0..k + 1 {
-            let (a_commitment, var_a) = prover.commit(λ_a[i], blindings[i]);
-            commitments.push(a_commitment);
-            vars.push(AllocatedScalar::new(var_a, Some(λ_a[i])));
-        }
-        for i in 0..k {
-            dh_gadget(2, &mut prover, vars[i], vars[i + 1], Q_b[i])?;
-        }
-        let proof = prover.prove(&bp_gens)?;
-
-        debug!(
-            "Rι_prove (integral) for depth {} proving time: {:?}, proof_len: {}",
-            k,
-            start.elapsed(),
-            proof.to_bytes().len()
-        );
-        Ok((vec![R1CSProof(proof)], commitments))
-    }
-}
-
-#[cfg(feature = "cross_sigma")]
-fn Rι_verify(
-    pc_gens: &PedersenGens,
-    bp_gens: &BulletproofGens,
-    proofs: Vec<R1CSProof>,
-    Q_b: Vec<CortadoAffine>,                    // k
-    commitments: Vec<DalekCompressedRistretto>, // k+1
-) -> Result<(), R1CSError> {
-    let start = Instant::now();
-    assert!(Q_b.len() == commitments.len() - 1, "length mismatch");
-    let k = Q_b.len();
-
-    #[cfg(feature = "multi_thread_verifier")]
-    {
-        let (tx, rx) = mpsc::channel();
-        let mut handles = Vec::new();
-        for i in 0..k {
-            let tx = tx.clone();
-            let pc_gens = pc_gens.clone();
-            let bp_gens = bp_gens.clone();
-            let Q_b_i = Q_b[i].clone();
-            let proof_i = proofs[i].clone();
-            let commitment_i = commitments[i];
-            let commitment_next = commitments[i + 1];
-
-            handles.push(std::thread::spawn(move || {
-                let mut transcript = Transcript::new(b"ARTGadget");
-                let mut verifier = Verifier::new(&mut transcript);
-                let var_a = verifier.commit(commitment_i);
-                let var_ab = verifier.commit(commitment_next);
-                let λ_a_i = AllocatedScalar::new(var_a, None);
-                let λ_a_next = AllocatedScalar::new(var_ab, None);
-                let _ = tx.send(
-                    dh_gadget(2, &mut verifier, λ_a_i, λ_a_next, Q_b_i)
-                        .and_then(|_| verifier.verify(&proof_i.0, &pc_gens, &bp_gens)),
-                );
-            }));
-        }
-        for _ in handles {
-            rx.recv().unwrap()?;
-        }
-    }
-    #[cfg(not(feature = "multi_thread_verifier"))]
-    {
-        let mut transcript = Transcript::new(b"ARTGadget");
-        let mut verifier = Verifier::new(&mut transcript);
-        let mut vars = Vec::new();
-        for i in 0..k + 1 {
-            let var_a = verifier.commit(commitments[i]);
-            vars.push(AllocatedScalar::new(var_a, None));
-        }
-
-        for i in 0..k {
-            dh_gadget(2, &mut verifier, vars[i], vars[i + 1], Q_b[i])?;
-        }
-        verifier.verify(&proofs[0].0, &pc_gens, &bp_gens)?;
-    }
-    debug!(
-        "Rι_verify for depth {} verification time: {:?}",
-        Q_b.len(),
-        start.elapsed()
-    );
-
-    Ok(())
-}
-
-impl<'a> ZeroArtProverEngine<'a> {
     pub(crate) fn prove_branch_single_threaded(
         &self,
         branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
-        let bp_gens = BulletproofGens::new(estimate_bp_gens(branch_nodes.len() - 1, 1, 2), 1);
+        let bp_gens = BulletproofGens::new(
+            estimate_bp_gens(
+                branch_nodes.len() - 1,
+                1,
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
+        );
         let mut commitments = Vec::new();
         let mut vars = Vec::new();
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad);
-        let mut prover = Prover::new(&self.pc_gens, &mut transcript);
+        let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
 
         for i in 0..k + 1 {
             let node = &branch_nodes[i];
@@ -506,7 +392,7 @@ impl<'a> ZeroArtProverEngine<'a> {
             let node = &branch_nodes[i];
             let next_node = &branch_nodes[i + 1];
             art_level_gadget(
-                self.options.scalar_mul_gadget_ver,
+                self.engine.options.scalar_mul_gadget_ver,
                 &mut prover,
                 i,
                 vars[i],
@@ -540,58 +426,23 @@ impl<'a> ZeroArtProverEngine<'a> {
         branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
-        let scalar_mul_gadget_ver = self.options.scalar_mul_gadget_ver;
         let k = branch_nodes.len() - 1;
-        let bp_gens = Arc::new(BulletproofGens::new(estimate_bp_gens(1, 1, 2), 1));
+        let bp_gens = Arc::new(BulletproofGens::new(
+            estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
+            1,
+        ));
 
-        let ad = self.ad;
         let (proofs, commitments): (
             Vec<R1CSProof>,
             Vec<(CompressedRistretto, CompressedRistretto)>,
         ) = std::thread::scope(|s| {
             (0..k)
                 .map(|i| {
-                    let pc_gens = self.pc_gens.clone();
                     let bp_gens = bp_gens.clone();
                     let node = branch_nodes[i].clone();
                     let next_node = branch_nodes[i + 1].clone();
 
-                    s.spawn(move || {
-                        let mut transcript = Transcript::new(b"ARTGadget");
-                        transcript.append_message(b"ad", ad);
-                        let mut prover = Prover::new(&pc_gens, &mut transcript);
-                        let (a_commitment, var_a) = prover.commit(
-                            node.secret_key.into_scalar(),
-                            node.blinding_factor.into_scalar(),
-                        );
-                        let (ab_commitment, var_ab) = prover.commit(
-                            next_node.secret_key.into_scalar(),
-                            next_node.blinding_factor.into_scalar(),
-                        );
-                        let λ_a_i =
-                            AllocatedScalar::new(var_a, Some(node.secret_key.into_scalar()));
-                        let λ_a_next =
-                            AllocatedScalar::new(var_ab, Some(next_node.secret_key.into_scalar()));
-
-                        art_level_gadget(
-                            scalar_mul_gadget_ver,
-                            &mut prover,
-                            i,
-                            λ_a_i,
-                            λ_a_next,
-                            node.public_key,
-                            next_node.public_key,
-                            node.co_public_key.unwrap(),
-                        )?;
-
-                        Ok((
-                            R1CSProof(prover.prove(&bp_gens)?),
-                            (
-                                CompressedRistretto(a_commitment),
-                                CompressedRistretto(ab_commitment),
-                            ),
-                        ))
-                    })
+                    s.spawn(move || self.prove_level(&bp_gens, i, &node, &next_node))
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
@@ -619,23 +470,86 @@ impl<'a> ZeroArtProverEngine<'a> {
         &self,
         branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
-        match self.options.multi_threaded {
+        match self.engine.options.multi_threaded {
             true => self.prove_branch_multi_threaded(branch_nodes),
             false => self.prove_branch_single_threaded(branch_nodes),
         }
     }
+
+    /// Prove the operation
+    pub fn prove(
+        &self,
+        branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
+    ) -> Result<ArtProof, ZKError> {
+        match self.engine.options.multi_threaded {
+            false => Ok(ArtProof {
+                update_proof: UpdateProof::BranchProof(self.prove_branch(branch_nodes)?),
+                eligibility_proof: self.prove_eligibility()?,
+            }),
+            true => std::thread::scope(|s| {
+                let branch_handle = s.spawn(|| self.prove_branch(branch_nodes));
+                let eligibility_handle = s.spawn(|| self.prove_eligibility());
+
+                let branch_proof = branch_handle.join().unwrap()?;
+                let eligibility_proof = eligibility_handle.join().unwrap()?;
+
+                Ok(ArtProof {
+                    update_proof: UpdateProof::BranchProof(branch_proof),
+                    eligibility_proof,
+                })
+            }),
+        }
+    }
 }
 
-impl<'a> ZeroArtVerifierEngine<'a> {
+impl<'a> ZeroArtVerifierContext<'a> {
+    pub(crate) fn verify_level(
+        &self,
+        bp_gens: &BulletproofGens,
+        level: usize,
+        node: &VerifierNodeData<CortadoAffine>,
+        next_node: &VerifierNodeData<CortadoAffine>,
+        (proof, (commitment_i, commitment_next)): (
+            R1CSProof,
+            (CompressedRistretto, CompressedRistretto),
+        ),
+    ) -> Result<(), R1CSError> {
+        let mut transcript = Transcript::new(b"ARTGadget");
+        transcript.append_message(b"ad", self.ad);
+        let mut verifier = Verifier::new(&mut transcript);
+        let var_a = verifier.commit(commitment_i.0);
+        let var_ab = verifier.commit(commitment_next.0);
+        let λ_a_i = AllocatedScalar::new(var_a, None);
+        let λ_a_next = AllocatedScalar::new(var_ab, None);
+
+        art_level_gadget(
+            self.engine.options.scalar_mul_gadget_ver,
+            &mut verifier,
+            level,
+            λ_a_i,
+            λ_a_next,
+            node.public_key,
+            next_node.public_key,
+            node.co_public_key.unwrap(),
+        )
+        .and_then(|_| verifier.verify(&proof.0, &self.engine.pc_gens, &bp_gens))
+    }
+
     pub(crate) fn verify_branch_single_threaded(
         &self,
-        proofs: Vec<R1CSProof>,
+        (proofs, commitments): &(Vec<R1CSProof>, Vec<CompressedRistretto>),
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
-        commitments: Vec<CompressedRistretto>, // k+1
     ) -> Result<(), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
-        let bp_gens = BulletproofGens::new(estimate_bp_gens(branch_nodes.len() - 1, 1, 2), 1);
+        let bp_gens = BulletproofGens::new(
+            estimate_bp_gens(
+                branch_nodes.len() - 1,
+                1,
+                self.engine.options.scalar_mul_gadget_ver,
+            ),
+            1,
+        );
 
         assert!(k == commitments.len() - 1, "length mismatch");
         let mut transcript = Transcript::new(b"ARTGadget");
@@ -651,7 +565,7 @@ impl<'a> ZeroArtVerifierEngine<'a> {
             let node = &branch_nodes[i];
             let next_node = &branch_nodes[i + 1];
             art_level_gadget(
-                self.options.scalar_mul_gadget_ver,
+                self.engine.options.scalar_mul_gadget_ver,
                 &mut verifier,
                 i,
                 vars[i],
@@ -661,7 +575,7 @@ impl<'a> ZeroArtVerifierEngine<'a> {
                 node.co_public_key.unwrap(),
             )?;
         }
-        verifier.verify(&proofs[0].0, &self.pc_gens, &bp_gens)?;
+        verifier.verify(&proofs[0].0, &self.engine.pc_gens, &bp_gens)?;
 
         debug!(
             "verify_branch_single_threaded for depth {} verification time: {:?}",
@@ -674,51 +588,38 @@ impl<'a> ZeroArtVerifierEngine<'a> {
 
     pub(crate) fn verify_branch_multi_threaded(
         &self,
-        proofs: Vec<R1CSProof>,
+        (proofs, commitments): &(Vec<R1CSProof>, Vec<CompressedRistretto>),
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
-        commitments: Vec<CompressedRistretto>, // k+1
     ) -> Result<(), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
-        let bp_gens = BulletproofGens::new(estimate_bp_gens(1, 1, 2), 1);
-        let scalar_mul_gadget_ver = self.options.scalar_mul_gadget_ver;
+        let bp_gens = BulletproofGens::new(
+            estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
+            1,
+        );
         assert!(k == commitments.len() - 1, "length mismatch");
 
         let bp_gens = Arc::new(bp_gens.clone());
         let bp_gens = Arc::clone(&bp_gens);
 
-        let ad = self.ad;
         std::thread::scope(|s| {
             (0..k)
                 .map(|i| {
-                    let pc_gens = self.pc_gens.clone();
                     let bp_gens = bp_gens.clone();
                     let node = branch_nodes[i].clone();
                     let next_node = branch_nodes[i + 1].clone();
                     let proof_i = proofs[i].clone();
-                    let commitment_i = commitments[i].0;
-                    let commitment_next = commitments[i + 1].0;
+                    let commitment_i = commitments[i].clone();
+                    let commitment_next = commitments[i + 1].clone();
 
                     s.spawn(move || {
-                        let mut transcript = Transcript::new(b"ARTGadget");
-                        transcript.append_message(b"ad", ad);
-                        let mut verifier = Verifier::new(&mut transcript);
-                        let var_a = verifier.commit(commitment_i);
-                        let var_ab = verifier.commit(commitment_next);
-                        let λ_a_i = AllocatedScalar::new(var_a, None);
-                        let λ_a_next = AllocatedScalar::new(var_ab, None);
-
-                        art_level_gadget(
-                            scalar_mul_gadget_ver,
-                            &mut verifier,
+                        self.verify_level(
+                            &bp_gens,
                             i,
-                            λ_a_i,
-                            λ_a_next,
-                            node.public_key,
-                            next_node.public_key,
-                            node.co_public_key.unwrap(),
+                            &node,
+                            &next_node,
+                            (proof_i, (commitment_i, commitment_next)),
                         )
-                        .and_then(|_| verifier.verify(&proof_i.0, &pc_gens, &bp_gens))
                     })
                 })
                 .collect::<Vec<_>>()
@@ -739,13 +640,42 @@ impl<'a> ZeroArtVerifierEngine<'a> {
 
     pub(crate) fn verify_branch(
         &self,
-        proofs: Vec<R1CSProof>,
+        branch_proof: &(Vec<R1CSProof>, Vec<CompressedRistretto>),
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
-        commitments: Vec<CompressedRistretto>, // k+1
     ) -> Result<(), R1CSError> {
-        match self.options.multi_threaded {
-            true => self.verify_branch_multi_threaded(proofs, branch_nodes, commitments),
-            false => self.verify_branch_single_threaded(proofs, branch_nodes, commitments),
+        match self.engine.options.multi_threaded {
+            true => self.verify_branch_multi_threaded(branch_proof, branch_nodes),
+            false => self.verify_branch_single_threaded(branch_proof, branch_nodes),
+        }
+    }
+
+    /// Verify the proof of an operation
+    pub fn verify(
+        &self,
+        proof: &ArtProof,
+        branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
+    ) -> Result<(), ZKError> {
+        let branch_proof = if let UpdateProof::BranchProof(ref branch_proof) = proof.update_proof {
+            branch_proof
+        } else {
+            return Err(ZKError::InvalidProofType);
+        };
+        match self.engine.options.multi_threaded {
+            false => {
+                self.verify_branch(branch_proof, branch_nodes)?;
+                self.verify_eligibility(&proof.eligibility_proof)?;
+                Ok(())
+            }
+            true => std::thread::scope(|s| {
+                let branch_handle = s.spawn(|| self.verify_branch(branch_proof, branch_nodes));
+                let eligibility_handle =
+                    s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
+
+                branch_handle.join().unwrap()?;
+                eligibility_handle.join().unwrap()?;
+
+                Ok(())
+            }),
         }
     }
 }
@@ -759,64 +689,24 @@ pub fn art_prove(
     branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
     R: Vec<CortadoAffine>, // auxiliary public keys
     s: Vec<cortado::Fr>,   // auxiliary 𝔾_1 secrets
-) -> Result<ARTProof, R1CSError> {
+) -> Result<ArtProof, ZKError> {
     let start = Instant::now();
-    let pc_gens = PedersenGens {
-        B: ark_to_ristretto255(basis.G_2).unwrap(),
-        B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
-    };
 
-    #[cfg(feature = "cross_sigma")]
-    {
-        let λ_a_scalars = λ_a.clone();
-        let (Rι_proofs, _) = Rι_prove(
-            &pc_gens,
-            &bp_gens,
-            Q_b.clone(),
-            λ_a.clone(),
-            blindings.clone(),
-        )?;
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        let (Rσ_proof, _) =
-            Rσ_prove(&mut transcript, basis, s, λ_a_scalars, blindings).map_err(|e| {
-                R1CSError::GadgetError {
-                    description: format!("Rσ_prove failed: {e:?}"),
-                }
-            })?;
+    // Create prover and verifier engines
+    let prover_engine = ZeroArtProverEngine::new(basis.clone(), ZeroArtEngineOptions::default());
 
-        debug!(
-            "ART proof(with cross-Σ) generation time: {:?}",
-            start.elapsed()
-        );
-        Ok(ARTProof {
-            Rι: Rι_proofs,
-            Rσ: Rσ_proof,
-        })
-    }
-    #[cfg(not(feature = "cross_sigma"))]
-    {
-        let levels_proof = prove_branch_multi_threaded(&pc_gens, branch_nodes)?;
+    // Set up eligibility artefact for prover
+    let eligibility = EligibilityArtefact::Member((s[0], R[0]));
 
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        let mut prover: SigmaProver<CortadoAffine, Transcript, &mut Transcript> =
-            SigmaProver::new(b"R_sigma", &mut transcript);
+    // Create prover context
+    let prover_context = prover_engine.new_context(ad, eligibility);
 
-        let (var_P, _) = prover.allocate_point(b"P", basis.G_1);
-        for (i, s) in s.iter().enumerate() {
-            let var_s = prover.allocate_scalar(b"s", *s);
-            let (var_R, _) = prover.allocate_point(b"R", R[i]);
-            prover.constrain(var_R, vec![(var_s, var_P)]);
-        }
-        let sigma_proof = prover.prove_compact();
+    // Generate proof
+    let proof = prover_context.prove(&branch_nodes)?;
 
-        debug!("ART proof generation time: {:?}", start.elapsed());
-        Ok(ARTProof {
-            branch_proof: levels_proof,
-            sigma_proof,
-        })
-    }
+    debug!("art_prove time: {:?}", start.elapsed());
+
+    Ok(proof)
 }
 
 /// verify an ART proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
@@ -827,97 +717,31 @@ pub fn art_verify(
 
     branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
     R: Vec<CortadoAffine>, // auxiliary public keys
-    proof: ARTProof,
-) -> Result<(), R1CSError> {
+    proof: ArtProof,
+) -> Result<(), ZKError> {
     let start = Instant::now();
 
-    let pc_gens = PedersenGens {
-        B: ark_to_ristretto255(basis.G_2).unwrap(),
-        B_blinding: ark_to_ristretto255(basis.H_2).unwrap(),
-    };
-    #[cfg(feature = "cross_sigma")]
-    {
-        let B: Vec<BigInt<4>> = (0..4)
-            .map(|x| BigInt::<4>::from(1u64) << (x * 64))
-            .collect();
-        let commitments = proof
-            .Rσ
-            .commitments
-            .iter()
-            .map(|c| {
-                ark_to_ristretto255(
-                    <Ed25519Affine as AffineRepr>::Group::msm(
-                        &[c.Com_x0, c.Com_x1, c.Com_x2, c.Com_x3],
-                        B.iter()
-                            .map(|&x| ark_ed25519::Fr::from(x))
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                    )
-                    .unwrap()
-                    .into_affine(),
-                )
-                .unwrap()
-                .compress()
-            })
-            .collect::<Vec<_>>();
-        Rι_verify(&pc_gens, &bp_gens, proof.Rι, Q_b, commitments)?;
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        Rσ_verify(&mut transcript, basis, Q_a, R, proof.Rσ).map_err(|e| {
-            R1CSError::GadgetError {
-                description: format!("Rσ_verify failed: {e:?}"),
-            }
-        })?;
+    let verifier_engine = ZeroArtVerifierEngine::new(basis, ZeroArtEngineOptions::default());
 
-        debug!(
-            "ART proof(with cross-Σ) verification time: {:?}",
-            start.elapsed()
-        );
-    }
-    #[cfg(not(feature = "cross_sigma"))]
-    {
-        verify_branch_multi_threaded(
-            &pc_gens,
-            proof.branch_proof.0,
-            branch_nodes,
-            proof.branch_proof.1,
-        )?;
-        let mut transcript = Transcript::new(b"R_sigma");
-        transcript.append_message(b"ad", ad);
-        let mut verifier: SigmaVerifier<CortadoAffine, Transcript, &mut Transcript> =
-            SigmaVerifier::new(b"R_sigma", &mut transcript);
+    // Set up eligibility requirement for verifier
+    let eligibility_req = EligibilityRequirement::Member(R[0]);
 
-        let var_P =
-            verifier
-                .allocate_point(b"P", basis.G_1)
-                .map_err(|_| R1CSError::GadgetError {
-                    description: "Failed to allocate point P".to_string(),
-                })?;
+    // Create verifier context
+    let verifier_context = verifier_engine.new_context(ad, eligibility_req);
 
-        for (i, R) in R.iter().enumerate() {
-            let var_s = verifier.allocate_scalar(b"s");
-            let var_R =
-                verifier
-                    .allocate_point(b"R", R.clone())
-                    .map_err(|_| R1CSError::GadgetError {
-                        description: "Failed to allocate point R".to_string(),
-                    })?;
-            verifier.constrain(var_R, vec![(var_s, var_P)]);
-        }
-        verifier
-            .verify_compact(&proof.sigma_proof)
-            .map_err(|e| R1CSError::GadgetError {
-                description: format!("Rσ_verify failed: {e:?}"),
-            })?;
+    // Verify proof
+    verifier_context.verify(&proof, &branch_nodes)?;
 
-        debug!("ART proof verification time: {:?}", start.elapsed());
-    }
+    debug!("art_verify time: {:?}", start.elapsed());
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use zkp::{ProofError, toolbox::dalek_ark::ristretto255_to_ark};
+
+    use crate::engine::ZeroArtEngineOptions;
 
     use super::*;
 
@@ -954,87 +778,14 @@ mod tests {
         }
 
         debug!(
-            "Witness generation for Rι with depth {} took {:?}",
+            "random_witness_gen for depth {} took {:?}",
             k,
             start.elapsed()
         );
         nodes
     }
-    /*fn Rι_roundtrip(k: u32) -> Result<(), R1CSError> {
-        let mut blinding_rng = rand::thread_rng();
-        let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(1<<16, 1);
-        let blindings: Vec<_> = (0..k+1).map(|_| Scalar::random(&mut blinding_rng)).collect();
-        let (λ, Q_a, Q_b) = random_witness_gen(k);
-        let (proofs, commitments) = Rι_prove(
-            &pc_gens,
-            &bp_gens,
-            Q_b.clone(),
-            λ,
-            blindings
-        )?;
 
-        Rι_verify(&pc_gens, &bp_gens, proofs, Q_b, commitments)
-    }
-
-    #[test]
-    fn test_Rι_roundtrip() {
-        let log_level = std::env::var("PROOF_LOG").unwrap_or_else(|_| "debug".to_string());
-
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(log_level)
-            .with_target(false)
-            .try_init();
-        assert!(Rι_roundtrip(1).is_ok());
-        assert!(Rι_roundtrip(4).is_ok());
-        assert!(Rι_roundtrip(7).is_ok());
-        assert!(Rι_roundtrip(10).is_ok());
-        assert!(Rι_roundtrip(15).is_ok());
-    }*/
-
-    #[cfg(feature = "cross_sigma")]
-    fn Rσ_roundtrip(k: u32) -> Result<(), ProofError> {
-        let G_1 = CortadoAffine::generator();
-        let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
-
-        let gens = PedersenGens::default();
-        let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
-            G_1,
-            H_1,
-            ristretto255_to_ark(gens.B).unwrap(),
-            ristretto255_to_ark(gens.B_blinding).unwrap(),
-        );
-
-        let (λ, Q_a, Q_b) = random_witness_gen(k);
-        let s = (0..2)
-            .map(|_| cortado::Fr::rand(&mut thread_rng()))
-            .collect::<Vec<_>>();
-        let blindings: Vec<_> = (0..k + 1)
-            .map(|_| Scalar::random(&mut thread_rng()))
-            .collect();
-        let mut prover_transcript = Transcript::new(b"Test");
-        let (proof, R) = Rσ_prove(
-            &mut prover_transcript,
-            basis.clone(),
-            s,
-            λ.clone(),
-            blindings,
-        )?;
-        let mut verifier_transcript = Transcript::new(b"Test");
-        Rσ_verify(&mut verifier_transcript, basis, Q_a, R, proof)
-    }
-
-    #[cfg(feature = "cross_sigma")]
-    #[test]
-    fn test_Rσ_roundtrip() {
-        assert!(Rσ_roundtrip(1).is_ok());
-        assert!(Rσ_roundtrip(4).is_ok());
-        assert!(Rσ_roundtrip(7).is_ok());
-        assert!(Rσ_roundtrip(10).is_ok());
-        assert!(Rσ_roundtrip(15).is_ok());
-    }
-
-    fn art_roundtrip(k: u32) -> Result<(), R1CSError> {
+    fn art_roundtrip(k: u32) -> Result<(), ZKError> {
         let G_1 = CortadoAffine::generator();
         let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
 
@@ -1047,13 +798,10 @@ mod tests {
         );
 
         let branch_nodes = random_witness_gen(k);
-        let s = (0..2)
-            .map(|_| cortado::Fr::rand(&mut thread_rng()))
-            .collect::<Vec<_>>();
-        let R = s
-            .iter()
-            .map(|&x| (G_1 * x).into_affine())
-            .collect::<Vec<_>>();
+
+        // Create prover's secrets for eligibility
+        let s = cortado::Fr::rand(&mut thread_rng());
+        let R = (G_1 * s).into_affine();
 
         // important: in real app verifier nodes should be generated from the current state of ART(co_public_keys) and the updating branch
         let verifier_nodes: Vec<VerifierNodeData<CortadoAffine>> = branch_nodes
@@ -1064,21 +812,31 @@ mod tests {
             })
             .collect();
 
-        let proof = art_prove(
-            basis.clone(),
-            &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-            &branch_nodes,
-            R.clone(),
-            s,
-        )?;
+        // Set up test data
+        let ad = &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65];
 
-        art_verify(
-            basis,
-            &[0x72, 0x75, 0x73, 0x73, 0x69, 0x61, 0x64, 0x69, 0x65],
-            &verifier_nodes,
-            R,
-            proof,
-        )
+        // Create prover and verifier engines
+        let prover_engine =
+            ZeroArtProverEngine::new(basis.clone(), ZeroArtEngineOptions::default());
+        let verifier_engine = ZeroArtVerifierEngine::new(basis, ZeroArtEngineOptions::default());
+
+        // Set up eligibility artefact for prover
+        let eligibility = EligibilityArtefact::Owner((s, R));
+
+        // Create prover context
+        let prover_context = prover_engine.new_context(ad, eligibility);
+
+        // Generate proof
+        let proof = prover_context.prove(&branch_nodes)?;
+
+        // Set up eligibility requirement for verifier
+        let eligibility_req = EligibilityRequirement::Previleged((R, vec![]));
+
+        // Create verifier context
+        let verifier_context = verifier_engine.new_context(ad, eligibility_req);
+
+        // Verify proof
+        verifier_context.verify(&proof, &verifier_nodes)
     }
 
     #[test]
