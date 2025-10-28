@@ -244,7 +244,11 @@ mod tests {
         let secret_key_0 = Fr::rand(&mut rng);
 
         let mut user0 = PrivateArt::setup(&vec![secret_key_0]).unwrap();
-        // debug!("user0\n{}", user0.get_root());
+        assert_eq!(
+            user0.get_leaf_public_key().unwrap(),
+            CortadoAffine::generator().mul(secret_key_0).into_affine(),
+            "New node is in the art, and it is on the correct path.",
+        );
 
         // Add member with user0
         let secret_key_1 = Fr::rand(&mut rng);
@@ -314,8 +318,16 @@ mod tests {
             user0, user1,
             "Both users have different view on the state of the art, as they are not synced yet"
         );
+        assert_eq!(
+            user1.get_leaf_secret_key().unwrap(),
+            secret_key_3,
+        );
 
         change_key_update.update(&mut user0).unwrap();
+        assert_eq!(
+            user0.get_node(&changes.node_index).unwrap().get_public_key(),
+            user1.get_leaf_public_key().unwrap(),
+        );
 
         assert_eq!(
             user0, user1,
@@ -1336,7 +1348,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(ArtError::InvalidMergeInput)),
-            "Fail to get Error ARTError::InvalidMergeInput. Instead got {:?}.",
+            "Fail to get Error ArtError::InvalidMergeInput. Instead got {:?}.",
             result
         );
     }

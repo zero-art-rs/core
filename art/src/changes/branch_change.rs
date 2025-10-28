@@ -44,6 +44,12 @@ pub struct VerifiableBranchChange {
     pub proof: ArtProof,
 }
 
+impl VerifiableBranchChange {
+    pub fn new(branch_change: BranchChange<CortadoAffine>, proof: ArtProof) -> Self {
+        Self { branch_change, proof }
+    }
+}
+
 impl Debug for VerifiableBranchChange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VerifiableBranchChange")

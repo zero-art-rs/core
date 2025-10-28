@@ -515,23 +515,6 @@ where
         &self.public_art
     }
 
-    // /// Changes old_secret_key of a user leaf to the new_secret_key and update path_secrets.
-    // pub(crate) fn update_key(
-    //     &mut self,
-    //     new_secret_key: G::ScalarField,
-    // ) -> Result<ArtUpdateOutput<G>, ARTError> {
-    //     // self.set_secret_key(new_secret_key);
-    //
-    //     let path = self.get_node_index().get_path()?;
-    //     let (tk, changes, artefacts) =
-    //         self.update_art_branch_with_leaf_secret_key(new_secret_key, &path, false)?;
-    //
-    //     self.secrets = artefacts.secrets.clone();
-    //     self.update_node_index()?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
-
     /// This method will update all public keys on a path from the root to node. Using provided
     /// secret key, it will recompute all the public keys and change old ones. It is used
     /// internally in algorithms for art updateCan be used to update art after applied changes.
@@ -655,7 +638,7 @@ where
         }
 
         // if self.get_node_index().is_subpath_of(other)? {
-        //     return Err(ARTError::SubPath);
+        //     return Err(ArtError::SubPath);
         // }
 
         // It is a partial update of the path.
