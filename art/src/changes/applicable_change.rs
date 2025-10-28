@@ -233,7 +233,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::TreeMethods;
-    use crate::art::art_advanced_operations::ArtAdvancedOps;
+    use crate::art::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::applicable_change::ApplicableChange;
     use crate::changes::branch_change::MergeBranchChange;

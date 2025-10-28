@@ -6,7 +6,7 @@ use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
 use zrt_art::TreeMethods;
-use zrt_art::art::art_advanced_operations::ArtAdvancedOps;
+use zrt_art::art::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use zrt_art::changes::ApplicableChange;
 use zrt_art::changes::VerifiableChange;

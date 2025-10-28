@@ -1,4 +1,4 @@
-use crate::art::artefacts::ProverArtefacts;
+use crate::art::ProverArtefacts;
 use crate::changes::aggregations::{
     AggregationData, ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData,
     RelatedData, VerifierAggregationData,

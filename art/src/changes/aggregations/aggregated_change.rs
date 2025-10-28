@@ -1,7 +1,7 @@
 use crate::art::ArtUpdateOutput;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use crate::art::artefacts::ProverArtefacts;
+use crate::art::ProverArtefacts;
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,

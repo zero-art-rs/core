@@ -1,8 +1,8 @@
-pub mod art_advanced_operations;
-pub mod art_basic_operations;
+mod art_advanced_operations;
+mod art_basic_operations;
 pub mod art_node;
 pub mod art_types;
-pub mod artefacts;
+mod artefacts;
 
 pub use art_advanced_operations::ArtAdvancedOps;
 pub use art_basic_operations::ArtBasicOps;

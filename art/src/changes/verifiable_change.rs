@@ -111,7 +111,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
-    use crate::art::art_advanced_operations::ArtAdvancedOps;
+    use crate::art::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
     use crate::changes::ApplicableChange;
     use crate::changes::VerifiableChange;
