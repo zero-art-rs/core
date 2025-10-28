@@ -2,7 +2,7 @@ use crate::art::ArtBasicOps;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use crate::tree_methods::TreeMethods;
 use ark_ec::AffineRepr;
@@ -20,7 +20,7 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 
     fn remove_member(
         &mut self,
@@ -28,21 +28,21 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 
     fn leave_group(
         &mut self,
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 
     fn update_key(
         &mut self,
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 }
 
 impl<G> ArtAdvancedOps<G, BranchChange<G>> for PrivateArt<G>
@@ -55,7 +55,7 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         self.add_node(new_key, eligibility, ad).map(|mut change| {
             change.change_type = BranchChangeType::AddMember;
             change
@@ -68,7 +68,7 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
             self.get_node_at(&path)?.get_status(),
@@ -95,7 +95,7 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
         let change = self
             .update_node_key(&index, new_key, false, eligibility, ad)
@@ -115,7 +115,7 @@ where
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
         self.update_node_key(&index, new_key, false, eligibility, ad)
     }
@@ -130,7 +130,7 @@ where
         new_key: Fr,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let change = self.add_node(new_key, eligibility, ad).map(|mut change| {
             change.branch_change.change_type = BranchChangeType::AddMember;
             change
@@ -138,7 +138,7 @@ where
 
         let mut update_path = change.branch_change.node_index.get_path()?;
         if update_path.pop().is_none() {
-            return Err(ARTError::EmptyART);
+            return Err(ArtError::EmptyArt);
         };
 
         Ok(change)
@@ -150,7 +150,7 @@ where
         new_key: Fr,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
             self.get_node_at(&path)?.get_status(),
@@ -179,7 +179,7 @@ where
         new_key: Fr,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let index = self.private_art.get_node_index().clone();
         let change = self
             .update_node_key(&index, new_key, false, eligibility, ad)
@@ -199,7 +199,7 @@ where
         new_key: Fr,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let index = self.private_art.get_node_index().clone();
         self.update_node_key(&index, new_key, false, eligibility, ad)
     }
@@ -217,7 +217,7 @@ mod tests {
     };
     use crate::changes::branch_change::MergeBranchChange;
     use crate::changes::{ApplicableChange, VerifiableChange};
-    use crate::errors::ARTError;
+    use crate::errors::ArtError;
     use crate::helper_tools::iota_function;
     use crate::init_tracing;
     use crate::node_index::{Direction, NodeIndex};
@@ -409,7 +409,7 @@ mod tests {
 
         let err = remove_member_change1.update(&mut user2).err();
         assert!(
-            matches!(err, Some(ARTError::InapplicableBlanking)),
+            matches!(err, Some(ArtError::InapplicableBlanking)),
             "Must fail to perform art update using blank leaf, but got {:?}.",
             err
         );
@@ -818,7 +818,7 @@ mod tests {
         // User1 fails to update his art.
         assert!(matches!(
             key_update_change0.update(&mut user1),
-            Err(ARTError::InapplicableKeyUpdate)
+            Err(ArtError::InapplicableKeyUpdate)
         ));
     }
 
@@ -1335,7 +1335,7 @@ mod tests {
         let result = agg.remove_member(&user3_path.get_path().unwrap(), sk1, &mut user0);
 
         assert!(
-            matches!(result, Err(ARTError::InvalidMergeInput)),
+            matches!(result, Err(ArtError::InvalidMergeInput)),
             "Fail to get Error ARTError::InvalidMergeInput. Instead got {:?}.",
             result
         );

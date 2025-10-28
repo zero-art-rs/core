@@ -7,7 +7,7 @@ use crate::changes::aggregations::{
     RelatedData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangesTypeHint};
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_methods::TreeMethods;
@@ -53,10 +53,10 @@ where
     pub fn add_co_path(
         &self,
         art: &PublicArt<G>,
-    ) -> Result<VerifierChangeAggregation<G>, ARTError> {
+    ) -> Result<VerifierChangeAggregation<G>, ArtError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
-            None => return Err(ARTError::NoChanges),
+            None => return Err(ArtError::NoChanges),
         };
 
         let mut resulting_aggregation_root =
@@ -64,11 +64,11 @@ where
 
         for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let last_direction = parent_path.pop().ok_or(ARTError::NoChanges)?;
+            let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
 
             let aggregation_parent = path
                 .last()
-                .ok_or(ARTError::NoChanges)
+                .ok_or(ArtError::NoChanges)
                 .map(|(node, _)| *node)?;
 
             let resulting_target_node = resulting_aggregation_root
@@ -104,7 +104,7 @@ where
         art: &PublicArt<G>,
         aggregation: &AggregationNode<AggregationData<G>>,
         path: &[Direction],
-    ) -> Result<G, ARTError> {
+    ) -> Result<G, ArtError> {
         let mut leaf_public_key = art.get_root().get_public_key();
 
         let mut current_art_node = Some(art.get_root());
@@ -164,10 +164,10 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
+    pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
-            None => return Err(ARTError::NoChanges),
+            None => return Err(ArtError::NoChanges),
         };
 
         for (item, path) in AggregationNodeIterWithPath::new(agg_root) {
@@ -230,7 +230,7 @@ where
 
     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
     /// and `node_index`.
-    pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ARTError> {
+    pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.public_art)?;
 
         art.update_node_index()?;
@@ -247,10 +247,10 @@ where
         art: &mut PublicArt<G>,
         append_changes: bool,
         skip: usize,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let mut current_agg_node = match self.get_root() {
             Some(root) => root,
-            None => return Err(ARTError::NoChanges),
+            None => return Err(ArtError::NoChanges),
         };
 
         // Update root
@@ -268,13 +268,13 @@ where
         for i in 1..skip {
             current_agg_node = current_agg_node
                 .get_child(path[i])
-                .ok_or(ARTError::InvalidAggregation)?;
+                .ok_or(ArtError::InvalidAggregation)?;
         }
 
         for i in skip..path.len() {
             current_agg_node = current_agg_node
                 .get_child(path[i + skip])
-                .ok_or(ARTError::InvalidAggregation)?;
+                .ok_or(ArtError::InvalidAggregation)?;
             let target_node = art.get_mut_node_at(&path[0..i + 1])?;
 
             match append_changes {
@@ -291,20 +291,20 @@ where
     fn update_path_secrets_with_aggregation_tree(
         &self,
         art: &mut PrivateArt<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let path_secrets = art.secrets.clone();
 
         let agg_root = match self.get_root() {
             Some(root) => root,
-            None => return Err(ARTError::NoChanges),
+            None => return Err(ArtError::NoChanges),
         };
 
         if path_secrets.is_empty() {
-            return Err(ARTError::EmptyART);
+            return Err(ArtError::EmptyArt);
         }
 
         if agg_root.contains(&art.get_node_index().get_path()?) {
-            return Err(ARTError::InvalidInput);
+            return Err(ArtError::InvalidInput);
         }
 
         // It is a partial update of the path.
@@ -324,16 +324,16 @@ where
             partial_co_path.push(
                 current_art_node
                     .get_child(dir.other())
-                    .ok_or(ARTError::InvalidInput)?
+                    .ok_or(ArtError::InvalidInput)?
                     .get_public_key(),
             );
 
             current_art_node = current_art_node
                 .get_child(*dir)
-                .ok_or(ARTError::InvalidInput)?;
+                .ok_or(ArtError::InvalidInput)?;
             current_agg_node = current_agg_node
                 .get_child(*dir)
-                .ok_or(ARTError::PathNotExists)?;
+                .ok_or(ArtError::PathNotExists)?;
 
             add_member_counter += current_agg_node
                 .data
@@ -370,9 +370,9 @@ impl<'a, D1, D2> TryFrom<&'a ChangeAggregation<D1>> for ChangeAggregation<D2>
 where
     D1: RelatedData + Clone + Default,
     D2: From<D1> + RelatedData + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ARTError>,
+    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error =ArtError>,
 {
-    type Error = ARTError;
+    type Error = ArtError;
 
     fn try_from(value: &'a ChangeAggregation<D1>) -> Result<Self, Self::Error> {
         match &value.root {
@@ -388,7 +388,7 @@ impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error = ARTError>,
+    Self: TryFrom<&'a AggregationNode<D>, Error =ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 
@@ -586,7 +586,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         changes: &BranchChange<CortadoAffine>,
         artefacts: &ProverArtefacts<CortadoAffine>,
         change_hint: BranchChangesTypeHint<CortadoAffine>,
-    ) -> Result<(), ARTError>
+    ) -> Result<(), ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -602,7 +602,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         &mut self,
         new_secret_key: Fr,
         art: &mut PrivateZeroArt<'a, R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -628,7 +628,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         path: &[Direction],
         temporary_secret_key: Fr,
         art: &mut PrivateZeroArt<'a, R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -638,7 +638,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         );
 
         if append_changes {
-            return Err(ARTError::InvalidMergeInput);
+            return Err(ArtError::InvalidMergeInput);
         }
 
         let index = NodeIndex::from(path.to_vec());
@@ -676,7 +676,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         &mut self,
         secret_key: Fr,
         art: &mut PrivateZeroArt<'a, R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -721,7 +721,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         &mut self,
         new_secret_key: Fr,
         art: &mut PrivateZeroArt<'a, R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ARTError>
+    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -753,7 +753,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
-    ) -> Result<PlainChangeAggregationWithProof<CortadoAffine>, ARTError>
+    ) -> Result<PlainChangeAggregationWithProof<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -783,7 +783,7 @@ where
         changes: &BranchChange<G>,
         artefacts: &ProverArtefacts<G>,
         change_hint: BranchChangesTypeHint<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let root = self
             .root
             .get_or_insert_with(AggregationNode::<AggregationData<G>>::default);
@@ -796,7 +796,7 @@ where
         &mut self,
         new_secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
         let index = art.get_node_index().clone();
         let (tk, change, artefacts) = art.private_update_node_key(&index, new_secret_key, false)?;
 
@@ -816,14 +816,14 @@ where
         path: &[Direction],
         temporary_secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
         let append_changes = matches!(
             art.get_node_at(path)?.get_status(),
             Some(LeafStatus::Blank)
         );
 
         if append_changes {
-            return Err(ARTError::InvalidMergeInput);
+            return Err(ArtError::InvalidMergeInput);
         }
 
         let index = NodeIndex::from(path.to_vec());
@@ -853,7 +853,7 @@ where
         &mut self,
         secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
         let path = match art.get_public_art().find_path_to_left_most_blank_node() {
             Some(path) => path,
             None => art.get_public_art().find_path_to_lowest_leaf()?,
@@ -893,7 +893,7 @@ where
         &mut self,
         new_secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ARTError> {
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
         let index = art.get_node_index().clone();
         let (tk, mut change, artefacts) =
             art.private_update_node_key(&index, new_secret_key, false)?;
@@ -918,10 +918,10 @@ impl<'a, D1, D2, R> TryFrom<&'a ChangeAggregationWithRng<'a, D1, R>> for ChangeA
 where
     D1: RelatedData + Clone + Default,
     D2: From<D1> + RelatedData + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ARTError>,
+    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error =ArtError>,
     R: Rng + ?Sized,
 {
-    type Error = ARTError;
+    type Error = ArtError;
 
     fn try_from(value: &'a ChangeAggregationWithRng<'a, D1, R>) -> Result<Self, Self::Error> {
         match &value.root {
@@ -937,7 +937,7 @@ impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error = ARTError>,
+    Self: TryFrom<&'a AggregationNode<D>, Error =ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 

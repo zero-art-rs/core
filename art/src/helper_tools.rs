@@ -1,5 +1,5 @@
 use crate::art::ProverArtefacts;
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
@@ -29,12 +29,12 @@ where
 /// Iota function is a function which converts a point to scalar field element. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
-pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>
+pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    let x = point.x().ok_or(ARTError::XCoordinateError)?;
+    let x = point.x().ok_or(ArtError::XCoordinate)?;
     let secret = Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?);
 
     Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
@@ -45,7 +45,7 @@ where
 pub fn recompute_artefacts<G>(
     secret_key: G::ScalarField,
     co_path: &[G],
-) -> Result<ProverArtefacts<G>, ARTError>
+) -> Result<ProverArtefacts<G>, ArtError>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,

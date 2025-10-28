@@ -4,7 +4,7 @@ use crate::changes::aggregations::{
     RelatedData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -31,23 +31,23 @@ impl<D> AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
-    pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ARTError> {
+    pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;
         for direction in path {
             parent = parent
                 .get_child(*direction)
-                .ok_or(ARTError::PathNotExists)?;
+                .ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(parent)
     }
 
-    pub fn get_mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
+    pub fn get_mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut parent = self;
         for direction in path {
             parent = parent
                 .get_mut_child(*direction)
-                .ok_or(ARTError::InternalNodeOnly)?;
+                .ok_or(ArtError::InternalNodeOnly)?;
         }
 
         Ok(parent)
@@ -83,7 +83,7 @@ where
         intersection
     }
 
-    pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ARTError> {
+    pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut current_node = self;
         for dir in path {
             current_node = current_node.get_mut_child(*dir).unwrap();
@@ -125,11 +125,11 @@ where
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
         change_type_hint: BranchChangesTypeHint<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let mut leaf_path = change.node_index.get_path()?;
 
         if leaf_path.is_empty() {
-            return Err(ARTError::EmptyART);
+            return Err(ArtError::EmptyArt);
         }
 
         if let BranchChangesTypeHint::AddMember {
@@ -152,22 +152,22 @@ where
         rng: &mut R,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let leaf_path = change.node_index.get_path()?;
 
         if change.public_keys.len() != leaf_path.len() + 1
             || prover_artefacts.secrets.len() != leaf_path.len() + 1
             || prover_artefacts.co_path.len() != leaf_path.len()
         {
-            return Err(ARTError::InvalidInput);
+            return Err(ArtError::InvalidInput);
         }
 
         // Update root.
-        self.data.public_key = *prover_artefacts.path.last().ok_or(ARTError::EmptyART)?;
+        self.data.public_key = *prover_artefacts.path.last().ok_or(ArtError::EmptyArt)?;
         self.data.secret_key = *prover_artefacts
             .secrets
             .last()
-            .ok_or(ARTError::InvalidInput)?;
+            .ok_or(ArtError::InvalidInput)?;
 
         // Update other nodes.
         let mut parent = &mut *self;
@@ -213,11 +213,11 @@ where
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
         change_type_hint: BranchChangesTypeHint<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let mut leaf_path = change.node_index.get_path()?;
 
         if leaf_path.is_empty() {
-            return Err(ARTError::EmptyART);
+            return Err(ArtError::EmptyArt);
         }
 
         if let BranchChangesTypeHint::AddMember {
@@ -239,18 +239,18 @@ where
         &mut self,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let leaf_path = change.node_index.get_path()?;
 
         if change.public_keys.len() != leaf_path.len() + 1
             || prover_artefacts.secrets.len() != leaf_path.len() + 1
             || prover_artefacts.co_path.len() != leaf_path.len()
         {
-            return Err(ARTError::InvalidInput);
+            return Err(ArtError::InvalidInput);
         }
 
         // Update root.
-        self.data.public_key = *prover_artefacts.path.last().ok_or(ARTError::EmptyART)?;
+        self.data.public_key = *prover_artefacts.path.last().ok_or(ArtError::EmptyArt)?;
 
         // Update other nodes.
         let mut parent = &mut *self;
@@ -317,11 +317,11 @@ where
     D1: RelatedData + Clone + Default,
     D2: RelatedData + From<D1> + Clone + Default,
 {
-    type Error = ARTError;
+    type Error = ArtError;
 
     fn try_from(prover_aggregation: &AggregationNode<D1>) -> Result<Self, Self::Error> {
         let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
-        let (node, _) = iter.next().ok_or(ARTError::EmptyART)?;
+        let (node, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
         let verifier_data = D2::from(node.data.clone());
         let mut aggregation = AggregationNode::from(verifier_data);
@@ -346,14 +346,14 @@ impl<G> TryFrom<&AggregationNode<ProverAggregationData<G>>> for ProverAggregatio
 where
     G: AffineRepr,
 {
-    type Error = ARTError;
+    type Error = ArtError;
 
     fn try_from(value: &AggregationNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(value);
 
-        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
+        let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(ProverNodeData::from(&root.data))), None)
             .unwrap();
@@ -368,7 +368,7 @@ where
                     Node::new(node_id, Some(ProverNodeData::from(&agg_node.data))),
                     Some(&parent_id),
                 )
-                .map_err(|_| ARTError::TreeDS)?;
+                .map_err(|_| ArtError::TreeDs)?;
         }
 
         Ok(resulting_tree)
@@ -379,14 +379,14 @@ impl<G> TryFrom<&AggregationNode<VerifierAggregationData<G>>> for VerifierAggreg
 where
     G: AffineRepr,
 {
-    type Error = ARTError;
+    type Error = ArtError;
 
     fn try_from(value: &AggregationNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(value);
 
-        let (root, _) = node_iter.next().ok_or(ARTError::EmptyART)?;
+        let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(VerifierNodeData::from(&root.data))), None)
             .unwrap();
@@ -401,7 +401,7 @@ where
                     Node::new(node_id, Some(VerifierNodeData::from(&agg_node.data))),
                     Some(&parent_id),
                 )
-                .map_err(|_| ARTError::TreeDS)?;
+                .map_err(|_| ArtError::TreeDs)?;
         }
 
         Ok(resulting_tree)

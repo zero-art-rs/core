@@ -1,6 +1,6 @@
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
 use crate::changes::branch_change::{BranchChange, VerifiableBranchChange};
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -19,14 +19,14 @@ where
         append_changes: bool,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 
     fn add_node(
         &mut self,
         new_key: G::ScalarField,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<R, ARTError>;
+    ) -> Result<R, ArtError>;
 }
 
 impl<G> ArtBasicOps<G, BranchChange<G>> for PrivateArt<G>
@@ -41,7 +41,7 @@ where
         append_changes: bool,
         _: Option<EligibilityArtefact>,
         _: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         self.private_update_node_key(target_leaf, new_key, append_changes)
             .map(|(_, change, _)| change)
     }
@@ -51,7 +51,7 @@ where
         new_key: G::ScalarField,
         _: Option<EligibilityArtefact>,
         _: &[u8],
-    ) -> Result<BranchChange<G>, ARTError> {
+    ) -> Result<BranchChange<G>, ArtError> {
         self.private_add_node(new_key).map(|(_, change, _)| change)
     }
 }
@@ -67,7 +67,7 @@ where
         append_changes: bool,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
             None => self.get_member_current_eligibility()?,
@@ -91,7 +91,7 @@ where
         new_key: Fr,
         eligibility: Option<EligibilityArtefact>,
         ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ARTError> {
+    ) -> Result<VerifiableBranchChange, ArtError> {
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
             None => self.get_member_current_eligibility()?,

@@ -1,4 +1,4 @@
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
@@ -107,13 +107,13 @@ impl<T, C> MergeBranchChange<T, C> {
         base_fork: Option<T>,
         applied_change: Option<C>,
         unapplied_changes: Vec<C>,
-    ) -> Result<Self, ARTError> {
+    ) -> Result<Self, ArtError> {
         Ok(match (base_fork, applied_change) {
             (Some(base_fork), Some(applied_change)) => {
                 Self::new_for_participant(base_fork, applied_change, unapplied_changes)
             }
             (None, None) => Self::new_for_observer(unapplied_changes),
-            _ => return Err(ARTError::InvalidMergeInput),
+            _ => return Err(ArtError::InvalidMergeInput),
         })
     }
 

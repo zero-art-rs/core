@@ -1,6 +1,6 @@
 use crate::art::art_node::{ArtNode, NodeIterWithPath};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_std::rand::Rng;
@@ -14,60 +14,60 @@ where
 
     fn get_mut_root(&mut self) -> &mut ArtNode<G>;
 
-    fn get_node(&self, index: &NodeIndex) -> Result<&ArtNode<G>, ARTError> {
+    fn get_node(&self, index: &NodeIndex) -> Result<&ArtNode<G>, ArtError> {
         self.get_node_at(&index.get_path()?)
     }
 
-    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ArtNode<G>, ARTError> {
+    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ArtNode<G>, ArtError> {
         self.get_mut_node_at(&index.get_path()?)
     }
 
-    fn get_node_at(&self, path: &[Direction]) -> Result<&ArtNode<G>, ARTError> {
+    fn get_node_at(&self, path: &[Direction]) -> Result<&ArtNode<G>, ArtError> {
         let mut node = self.get_root();
         for direction in path {
             if let Some(child_node) = node.get_child(*direction) {
                 node = child_node;
             } else {
-                return Err(ARTError::PathNotExists);
+                return Err(ArtError::PathNotExists);
             }
         }
 
         Ok(node)
     }
 
-    fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ARTError> {
+    fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ArtError> {
         let mut node = self.get_mut_root();
         for direction in path {
             node = node
                 .get_mut_child(*direction)
-                .ok_or(ARTError::PathNotExists)?;
+                .ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(node)
     }
 
     // fn get_mut_node(&mut self, index: NodeIndex);
-    fn get_leaf_with(&self, public_key: G) -> Result<&ArtNode<G>, ARTError> {
+    fn get_leaf_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
         for (node, _) in NodeIterWithPath::new(self.get_root()) {
             if node.is_leaf() && node.get_public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
 
-        Err(ARTError::PathNotExists)
+        Err(ArtError::PathNotExists)
     }
 
-    fn get_node_with(&self, public_key: G) -> Result<&ArtNode<G>, ARTError> {
+    fn get_node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
         for (node, _) in NodeIterWithPath::new(self.get_root()) {
             if node.get_public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
 
-        Err(ARTError::PathNotExists)
+        Err(ArtError::PathNotExists)
     }
 
-    fn get_path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
         for (node, path) in NodeIterWithPath::new(self.get_root()) {
             if node.is_leaf() && node.get_public_key().eq(&public_key) {
                 return Ok(path
@@ -77,7 +77,7 @@ where
             }
         }
 
-        Err(ARTError::PathNotExists)
+        Err(ArtError::PathNotExists)
     }
 }
 

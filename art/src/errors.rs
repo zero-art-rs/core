@@ -3,9 +3,9 @@ use thiserror::Error;
 use zrt_zk::errors::ZKError;
 
 #[derive(Error, Debug)]
-pub enum ARTError {
+pub enum ArtError {
     #[error("Something vent wrong, while performing operations")]
-    ARTLogicError,
+    ArtLogic,
     #[error("Invalid input provided.")]
     InvalidInput,
     #[error("Fail to update. Path to user leaf is a subpath of updated path.")]
@@ -17,13 +17,13 @@ pub enum ARTError {
     #[error("Cant find path to the node.")]
     PathNotExists,
     #[error("Failed to convert &[u8] into &[u8;32] {0}.")]
-    ConversionError(#[from] std::array::TryFromSliceError),
+    Conversion(#[from] std::array::TryFromSliceError),
     #[error("Failed to retrieve x coordinate of a point.")]
-    XCoordinateError,
+    XCoordinate,
     #[error("No changes provided in given BranchChanges structure.")]
     NoChanges,
     #[error("The art has no nodes.")]
-    EmptyART,
+    EmptyArt,
     #[error("Can't apply blank operation change to itself.")]
     InapplicableBlanking,
     #[error("Can't apply key operation update change to itself.")]
@@ -37,11 +37,11 @@ pub enum ARTError {
     #[error("Can't merge given changes.")]
     InvalidMergeInput,
     #[error("Fail to update tree_ds tree.")]
-    TreeDS,
+    TreeDs,
     #[error("Provided aggregation is invalid.")]
     InvalidAggregation,
     #[error("R1CSError: {0}")]
-    R1CSError(#[from] R1CSError),
+    R1CS(#[from] R1CSError),
     #[error("ZKError: {0}")]
-    ZKError(#[from] ZKError),
+    Zk(#[from] ZKError),
 }

@@ -1,4 +1,4 @@
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
@@ -39,20 +39,20 @@ impl Default for NodeIndex {
 }
 
 impl NodeIndex {
-    pub fn as_path(&self) -> Result<Self, ARTError> {
+    pub fn as_path(&self) -> Result<Self, ArtError> {
         Ok(Self::Direction(self.get_path()?))
     }
 
-    pub fn as_index(&self) -> Result<Self, ARTError> {
+    pub fn as_index(&self) -> Result<Self, ArtError> {
         Ok(Self::Index(self.get_index()?))
     }
 
-    pub fn as_coordinate(&self) -> Result<Self, ARTError> {
+    pub fn as_coordinate(&self) -> Result<Self, ArtError> {
         let (level, position) = self.get_coordinate()?;
         Ok(Self::Coordinate(level, position))
     }
 
-    pub fn get_index(&self) -> Result<u64, ARTError> {
+    pub fn get_index(&self) -> Result<u64, ArtError> {
         match self {
             NodeIndex::Index(index) => Ok(*index),
             NodeIndex::Coordinate(level, position) => {
@@ -62,7 +62,7 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_coordinate(&self) -> Result<(u64, u64), ARTError> {
+    pub fn get_coordinate(&self) -> Result<(u64, u64), ArtError> {
         match self {
             NodeIndex::Coordinate(level, position) => Ok((*level, *position)),
             NodeIndex::Index(index) => Self::get_coordinate_from_index(*index),
@@ -70,7 +70,7 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_path(&self) -> Result<Vec<Direction>, ARTError> {
+    pub fn get_path(&self) -> Result<Vec<Direction>, ArtError> {
         match self {
             Self::Index(index) => Self::get_path_from_index(*index),
             Self::Coordinate(level, position) => Self::get_path_from_coordinate(*level, *position),
@@ -78,7 +78,7 @@ impl NodeIndex {
         }
     }
 
-    pub fn get_index_from_path(path: &[Direction]) -> Result<u64, ARTError> {
+    pub fn get_index_from_path(path: &[Direction]) -> Result<u64, ArtError> {
         let mut index = 1u64;
         for direction in path {
             match direction {
@@ -90,7 +90,7 @@ impl NodeIndex {
         Ok(index)
     }
 
-    pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ARTError> {
+    pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ArtError> {
         let mut is_subpath = true;
         for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
             if a != b {
@@ -123,7 +123,7 @@ impl NodeIndex {
 
     /// Returns an intersection with the other index, i.e. the path from root to the lowest common
     /// node on both paths
-    pub fn intersect_with(&self, other: &NodeIndex) -> Result<Vec<Direction>, ARTError> {
+    pub fn intersect_with(&self, other: &NodeIndex) -> Result<Vec<Direction>, ArtError> {
         let mut intersection: Vec<Direction> = vec![];
         for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
             if a == b {
@@ -137,10 +137,10 @@ impl NodeIndex {
     }
 
     /// Computes the path to the node starting from the root.
-    fn get_path_from_index(index: u64) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_from_index(index: u64) -> Result<Vec<Direction>, ArtError> {
         if index == 0 {
             error!("Failed to convert index: {index} to path");
-            return Err(ARTError::InvalidInput);
+            return Err(ArtError::InvalidInput);
         }
 
         let mut i = index;
@@ -161,12 +161,12 @@ impl NodeIndex {
     }
 
     /// Computes the path to the node starting from the root.
-    fn get_path_from_coordinate(level: u64, position: u64) -> Result<Vec<Direction>, ARTError> {
+    fn get_path_from_coordinate(level: u64, position: u64) -> Result<Vec<Direction>, ArtError> {
         if position >= (2 << level) {
             error!(
                 "Failed to convert coordinate (l: {level}, p: {position}), as the provided position is to big"
             );
-            return Err(ARTError::InvalidInput);
+            return Err(ArtError::InvalidInput);
         }
 
         let mut path = Vec::new();
@@ -188,7 +188,7 @@ impl NodeIndex {
         Ok(path)
     }
 
-    fn get_coordinate_from_index(index: u64) -> Result<(u64, u64), ARTError> {
+    fn get_coordinate_from_index(index: u64) -> Result<(u64, u64), ArtError> {
         let mut level = 0u64;
         let mut position = index;
 
@@ -202,7 +202,7 @@ impl NodeIndex {
         Ok((level, position))
     }
 
-    fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u64, u64), ARTError> {
+    fn get_coordinate_from_path(path: &Vec<Direction>) -> Result<(u64, u64), ArtError> {
         if path.is_empty() {
             return Ok((0, 0));
         }

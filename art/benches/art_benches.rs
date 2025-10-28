@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 use zrt_art::art::{PrivateART, PublicART};
-use zrt_art::errors::ARTError;
+use zrt_art::errors::ArtError;
 
 // hardcoded number of leaves in a tree for testing
 // pub const TEST_SAMPLES: [usize; 4] = [16, 64, 256, 1024];
@@ -18,7 +18,7 @@ pub const TEST_SAMPLES: [usize; 2] = [16, 64];
 pub fn get_two_private_arts<G>(
     secrets: &Vec<G::ScalarField>,
     tree: &PublicART<G>,
-) -> Result<(PrivateART<G>, PrivateART<G>), ARTError>
+) -> Result<(PrivateART<G>, PrivateART<G>), ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
@@ -33,7 +33,7 @@ pub fn get_several_private_arts<G>(
     number_of_agents: usize,
     secrets: &Vec<G::ScalarField>,
     tree: &PublicART<G>,
-) -> Result<Vec<PrivateART<G>>, ARTError>
+) -> Result<Vec<PrivateART<G>>, ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,

@@ -2,7 +2,7 @@ use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::applicable_change::ApplicableChange;
 use crate::changes::branch_change::VerifiableBranchChange;
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use zrt_zk::EligibilityRequirement;
@@ -14,14 +14,14 @@ pub trait VerifiableChange<T>: ApplicableChange<T> {
         art: &T,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError>;
+    ) -> Result<(), ArtError>;
 
     fn verify_then_update(
         &self,
         art: &mut T,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         self.verify(&*art, ad, eligibility_requirement)?;
         self.update(art)?;
 
@@ -35,7 +35,7 @@ impl VerifiableChange<PublicZeroArt> for VerifiableBranchChange {
         art: &PublicZeroArt,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let verification_branch = art
             .get_public_art()
             .compute_artefacts_for_verification(&self.branch_change)?
@@ -57,7 +57,7 @@ where
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let verification_branch = art
             .get_public_art()
             .compute_artefacts_for_verification(&self.branch_change)?
@@ -76,7 +76,7 @@ impl VerifiableChange<PublicZeroArt> for PlainChangeAggregationWithProof<Cortado
         art: &PublicZeroArt,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let extracted_agg = self.0.add_co_path(&art.public_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 
@@ -97,7 +97,7 @@ where
         art: &PrivateZeroArt<'a, R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
-    ) -> Result<(), ARTError> {
+    ) -> Result<(), ArtError> {
         let extracted_agg = self.0.add_co_path(&art.private_art.public_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 

@@ -1,4 +1,4 @@
-use crate::errors::ARTError;
+use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
@@ -80,9 +80,9 @@ where
         }
     }
 
-    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ARTError> {
+    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ArtError> {
         match self {
-            ArtNode::Leaf { .. } => Err(ARTError::InternalNodeOnly),
+            ArtNode::Leaf { .. } => Err(ArtError::InternalNodeOnly),
             ArtNode::Internal { weight, .. } => Ok(weight),
         }
     }
@@ -96,10 +96,10 @@ where
     }
 
     /// If the node is leaf, return its status, else None
-    pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ARTError> {
+    pub fn set_status(&mut self, new_status: LeafStatus) -> Result<(), ArtError> {
         match self {
             Self::Leaf { status, .. } => *status = new_status,
-            Self::Internal { .. } => return Err(ARTError::LeafOnly),
+            Self::Internal { .. } => return Err(ArtError::LeafOnly),
         }
 
         Ok(())
@@ -183,7 +183,7 @@ where
 
     /// If the node is temporary, replace the node, else moves current node down to left,
     /// and append other node to the right.
-    pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ARTError> {
+    pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ArtError> {
         match self {
             ArtNode::Leaf { status, .. } => {
                 match status {
@@ -191,7 +191,7 @@ where
                     _ => _ = self.replace_with(other),
                 };
             }
-            ArtNode::Internal { .. } => return Err(ARTError::LeafOnly),
+            ArtNode::Internal { .. } => return Err(ArtError::LeafOnly),
         }
 
         Ok(())
