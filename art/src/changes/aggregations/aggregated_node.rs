@@ -133,7 +133,7 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        if let BranchChangesTypeHint::AppendNode {
+        if let BranchChangesTypeHint::AddMember {
             ext_pk: Some(_), ..
         } = change_type_hint
         {
@@ -221,7 +221,7 @@ where
             return Err(ARTError::EmptyART);
         }
 
-        if let BranchChangesTypeHint::AppendNode {
+        if let BranchChangesTypeHint::AddMember {
             ext_pk: Some(_), ..
         } = change_type_hint
         {

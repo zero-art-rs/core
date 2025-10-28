@@ -28,6 +28,7 @@ pub enum EligibilityArtefact {
     CredentialHolder((Fr, Credential)), // holder of a credential, needed for anonymous AddMember & RemoveMember ops.
 }
 
+#[derive(Clone)]
 pub enum EligibilityRequirement {
     Member(CortadoAffine), // requirement only for proof of leaf possession or group membership, public key is provided
     Previleged((CortadoAffine, Vec<Scalar>)), // requirement for the previleged rights

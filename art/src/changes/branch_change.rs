@@ -57,14 +57,14 @@ pub enum BranchChangesTypeHint<G>
 where
     G: AffineRepr,
 {
-    MakeBlank {
+    RemoveMember {
         /// Public key used for blanking.
         pk: G,
 
         /// If true, that blanking is the commit blanking, else it is initialisation.
         merge: bool,
     },
-    AppendNode {
+    AddMember {
         /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
         /// of the node, else the node was replaced.
         ext_pk: Option<G>,
@@ -88,8 +88,8 @@ where
 {
     fn from(value: &BranchChangesTypeHint<G>) -> Self {
         match value {
-            BranchChangesTypeHint::MakeBlank { .. } => BranchChangeType::RemoveMember,
-            BranchChangesTypeHint::AppendNode { .. } => BranchChangeType::AddMember,
+            BranchChangesTypeHint::RemoveMember { .. } => BranchChangeType::RemoveMember,
+            BranchChangesTypeHint::AddMember { .. } => BranchChangeType::AddMember,
             BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
             BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
         }

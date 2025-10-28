@@ -11,9 +11,8 @@ where
     G: AffineRepr,
 {
     fn get_root(&self) -> &ArtNode<G>;
+
     fn get_mut_root(&mut self) -> &mut ArtNode<G>;
-    // fn get_child(&self, child: Direction) -> Option<&ArtNode<G>>;
-    // fn get_mut_child(&mut self, child: Direction) -> Option<&mut ArtNode<G>>;
 
     fn get_node(&self, index: &NodeIndex) -> Result<&ArtNode<G>, ARTError> {
         self.get_node_at(&index.get_path()?)
@@ -80,22 +79,7 @@ where
 
         Err(ARTError::PathNotExists)
     }
-
-    // fn get_mut_node_with(&mut self, pk: G);
-    // fn get_node_at(&self, path: &[Direction]) -> Result<&ArtNode<G>, ARTError>;
-    // fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ARTError>;
-    // fn get_child(&self, dir: Direction);
-    // fn get_mut_child(&mut self, dir: Direction);
-    // fn replace_node(&mut self, target_index: NodeIndex, new_node: ArtNode<G>);
-    // fn extend_right(&mut self, target_index: NodeIndex, new_node: ArtNode<G>);
-    // fn set_leaf_status(&mut self, target_index: NodeIndex, status: String);
-    // ...
 }
-
-// pub(crate) trait AdditionalTreeMethods {
-//     fn get_node_at(&self, path: Vec<Direction>);
-//     fn get_mut_node_at(&mut self, path: Vec<Direction>);
-// }
 
 impl<G> TreeMethods<G> for ArtNode<G>
 where

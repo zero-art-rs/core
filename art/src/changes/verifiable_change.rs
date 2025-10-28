@@ -1,7 +1,7 @@
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::applicable_change::ApplicableChange;
-use crate::changes::branch_change::{BranchChangeType, VerifiableBranchChange};
+use crate::changes::branch_change::{BranchChangeType, MergeBranchChange, VerifiableBranchChange};
 use crate::errors::ARTError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
@@ -125,6 +125,7 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
     use zrt_zk::EligibilityRequirement;
+    use crate::changes::branch_change::MergeBranchChange;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
 

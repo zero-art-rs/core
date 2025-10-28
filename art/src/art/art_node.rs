@@ -142,7 +142,7 @@ where
             },
         }
     }
-
+    
     pub fn get_mut_child(&mut self, child: Direction) -> Option<&mut Self> {
         match self {
             ArtNode::Leaf { .. } => None,

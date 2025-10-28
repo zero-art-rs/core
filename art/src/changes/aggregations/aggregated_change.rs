@@ -130,10 +130,10 @@ where
                 if let Some(node) = agg_node.get_child(*dir) {
                     for change_type in &node.data.change_type {
                         match change_type {
-                            BranchChangesTypeHint::MakeBlank { pk: blank_pk, .. } => {
+                            BranchChangesTypeHint::RemoveMember { pk: blank_pk, .. } => {
                                 leaf_public_key = *blank_pk
                             }
-                            BranchChangesTypeHint::AppendNode { pk, ext_pk, .. } => {
+                            BranchChangesTypeHint::AddMember { pk, ext_pk, .. } => {
                                 if let Some(replacement_pk) = ext_pk {
                                     match path.get(i + 1) {
                                         Some(Direction::Right) => leaf_public_key = *pk,
@@ -177,7 +177,7 @@ where
 
             for change_type in &item.data.change_type {
                 match change_type {
-                    BranchChangesTypeHint::MakeBlank {
+                    BranchChangesTypeHint::RemoveMember {
                         pk: blank_pk,
                         merge,
                     } => {
@@ -192,7 +192,7 @@ where
                         corresponding_item.set_status(LeafStatus::Blank)?;
                         corresponding_item.set_public_key(*blank_pk);
                     }
-                    BranchChangesTypeHint::AppendNode { pk, ext_pk } => {
+                    BranchChangesTypeHint::AddMember { pk, ext_pk } => {
                         art.update_branch_weight(&item_path, true)?;
 
                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?
@@ -320,7 +320,7 @@ where
             .data
             .change_type
             .iter()
-            .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
+            .filter(|change| matches!(change, BranchChangesTypeHint::AddMember { .. }))
             .count();
         for dir in &intersection {
             partial_co_path.push(
@@ -341,7 +341,7 @@ where
                 .data
                 .change_type
                 .iter()
-                .filter(|change| matches!(change, BranchChangesTypeHint::AppendNode { .. }))
+                .filter(|change| matches!(change, BranchChangesTypeHint::AddMember { .. }))
                 .count();
         }
 
@@ -655,7 +655,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
             &mut art.rng,
             &change,
             &artefacts,
-            BranchChangesTypeHint::MakeBlank {
+            BranchChangesTypeHint::RemoveMember {
                 pk: CortadoAffine::generator()
                     .mul(temporary_secret_key)
                     .into_affine(),
@@ -710,7 +710,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
             &mut art.rng,
             &changes,
             &artefacts,
-            BranchChangesTypeHint::AppendNode {
+            BranchChangesTypeHint::AddMember {
                 pk: CortadoAffine::generator().mul(secret_key).into_affine(),
                 ext_pk,
             },
@@ -836,7 +836,7 @@ where
         self.extend(
             &change,
             &artefacts,
-            BranchChangesTypeHint::MakeBlank {
+            BranchChangesTypeHint::RemoveMember {
                 pk: G::generator().mul(temporary_secret_key).into_affine(),
                 merge: append_changes,
             },
@@ -882,7 +882,7 @@ where
         self.extend(
             &changes,
             &artefacts,
-            BranchChangesTypeHint::AppendNode {
+            BranchChangesTypeHint::AddMember {
                 pk: G::generator().mul(secret_key).into_affine(),
                 ext_pk,
             },

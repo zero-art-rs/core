@@ -1182,3 +1182,72 @@ where
 }
 
 impl<'a, R> Eq for PrivateZeroArt<'a, R> where R: Rng + ?Sized {}
+
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::{max, min};
+    use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::SeedableRng;
+    use ark_std::UniformRand;
+    use postcard::{from_bytes, to_allocvec};
+    use rand::rng;
+    use tracing::debug;
+    use crate::art::art_types::{PrivateArt};
+    use crate::test_helper_tools::init_tracing;
+    use cortado::{CortadoAffine, Fr};
+    use crate::art::art_node::LeafIterWithPath;
+    use crate::TreeMethods;
+
+    const TEST_GROUP_SIZE: usize = 100;
+
+    #[test]
+    /// Test if art serialization -> deserialization works correctly for unchanged arts
+    fn test_art_initial_serialization() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for i in (TEST_GROUP_SIZE - 1)..TEST_GROUP_SIZE {
+            // debug!("Test ART serialization for group of size: {}", i);
+            let secrets = (0..i).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+            let private_art = PrivateArt::setup(&secrets).unwrap();
+            let public_art_bytes = to_allocvec(&private_art.get_public_art()).unwrap();
+            // let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+            // Try to deserialize art for every other user in a group
+            for j in 0..i {
+                let deserialized_art: PrivateArt<CortadoAffine> = PrivateArt::new(
+                    from_bytes(&public_art_bytes).unwrap(),
+                    secrets[j]
+                ).unwrap();
+
+                assert_eq!(
+                    deserialized_art, private_art,
+                    "Both users have the same view on the state of the art",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_art_weight_balance_at_creation() {
+        for i in 1..TEST_GROUP_SIZE {
+            let mut rng = StdRng::seed_from_u64(0);
+            let secrets = (0..i).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+            let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+
+            let mut min_height = u64::MAX;
+            let mut max_height = u64::MIN;
+            let root = art.get_root();
+
+            for (_, path) in LeafIterWithPath::new(root) {
+                min_height = min(min_height, path.len() as u64);
+                max_height = max(max_height, path.len() as u64);
+            }
+
+            assert!(max_height - min_height < 2);
+        }
+    }
+}

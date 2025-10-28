@@ -226,12 +226,14 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
-    use std::ops::Mul;
+    use std::ops::{Add, Mul};
+    use tracing::warn;
     use zkp::rand::thread_rng;
     use zrt_zk::EligibilityRequirement;
     use zrt_zk::aggregated_art::ProverAggregationTree;
+    use crate::changes::branch_change::MergeBranchChange;
 
-    const DEFAULT_TEST_GROUP_SIZE: i32 = 100;
+    const DEFAULT_TEST_GROUP_SIZE: usize = 100;
 
     #[test]
     fn test_flow_append_join_update() {
@@ -505,6 +507,78 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_art_key_update() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let main_user_id = 0;
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+        let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let public_art = private_art.public_art.clone();
+
+        let mut users_arts = Vec::new();
+        for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
+            users_arts.push(
+                PrivateArt::new(public_art.clone(), secrets[i]).unwrap(),
+            );
+        }
+
+        let root_key = private_art.get_root_secret_key().unwrap();
+        for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
+            // Assert creator and users computed the same tree key.
+            assert_eq!(users_arts[i].get_root_secret_key().unwrap(), root_key);
+        }
+
+        let mut main_user_art = users_arts[main_user_id].clone();
+
+        // Save old secret key to roll back
+        let main_old_key = secrets[main_user_id];
+        let main_new_key = Fr::rand(&mut rng);
+        let changes = main_user_art.update_key(main_new_key, None, &[]).unwrap();
+        assert_ne!(main_user_art.get_leaf_secret_key().unwrap(), main_old_key);
+
+        let mut pub_keys = Vec::new();
+        let mut parent = main_user_art.get_root();
+        for direction in &main_user_art.get_node_index().get_path().unwrap() {
+            pub_keys.push(parent.get_child(*direction).unwrap().get_public_key());
+            parent = parent.get_child(*direction).unwrap();
+        }
+        pub_keys.reverse();
+
+        for (secret_key, corr_pk) in main_user_art.secrets.iter().zip(pub_keys.iter()) {
+            assert_eq!(
+                CortadoAffine::generator().mul(secret_key).into_affine(),
+                *corr_pk,
+                "Multiplication done correctly."
+            );
+        }
+
+        let test_user_id = 12;
+        changes.update(&mut users_arts[test_user_id]).unwrap();
+        let new_key = main_user_art.get_root_secret_key().unwrap();
+        assert_eq!(
+            users_arts[test_user_id].get_root_secret_key().unwrap(),
+            new_key
+        );
+
+        let changes = main_user_art.update_key(main_old_key, None, &[]).unwrap();
+        let recomputed_old_key = main_user_art.get_root_secret_key().unwrap();
+
+        assert_eq!(root_key, recomputed_old_key);
+
+        for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
+            if i != main_user_id {
+                changes.update(&mut users_arts[i]).unwrap();
+                assert_eq!(
+                    users_arts[i].get_root_secret_key().unwrap(),
+                    recomputed_old_key
+                );
+            }
+        }
+    }
+
     /// Main user creates art with four users, then first, second, and third users updates their
     /// arts. The forth user, applies changes, but swaps first two.
     #[test]
@@ -776,6 +850,256 @@ mod tests {
                         + node.get_child(Direction::Right).unwrap().get_weight()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_leaf_status_affect_on_make_blank() {
+        init_tracing();
+
+        if DEFAULT_TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
+            return;
+        }
+
+        let seed = rand::random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+
+        let sk_1 = Fr::rand(&mut rng);
+        let sk_2 = Fr::rand(&mut rng);
+        let user_2_path = art
+            .get_public_art()
+            .get_path_to_leaf_with(CortadoAffine::generator().mul(&secrets[1]).into_affine())
+            .unwrap();
+        let user_2_index = NodeIndex::from(user_2_path.clone());
+
+        // usual update
+        let mut art1 = art.clone();
+        art1.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
+        art1.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        assert_eq!(
+            art1.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art2 = art.clone();
+        art2.public_art
+            .get_mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::PendingRemoval)
+            .unwrap();
+        art2.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
+        art2.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        assert_eq!(
+            art2.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art3 = art.clone();
+        art3.public_art
+            .get_mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::Blank)
+            .unwrap();
+        art3.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
+        art3.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        assert_eq!(
+            art3.get_public_art()
+                .get_node(&user_2_index)
+                .unwrap()
+                .get_public_key(),
+            CortadoAffine::generator()
+                .mul(&(secrets[1] + sk_1 + sk_2))
+                .into_affine()
+        );
+    }
+
+    #[test]
+    fn test_merge_for_key_update() {
+        init_tracing();
+
+        if DEFAULT_TEST_GROUP_SIZE < 5 {
+            warn!("Cant run the test test_merge_for_add_member, as group size is to small");
+            return;
+        }
+
+        let mut rng = StdRng::from_seed(rand::random());
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+
+        let mut user_arts = Vec::new();
+        for i in 0..DEFAULT_TEST_GROUP_SIZE {
+            let art = PrivateArt::<CortadoAffine>::new(art.public_art.clone(), secrets[i]).unwrap();
+            user_arts.push(art);
+        }
+
+        let mut art1 = user_arts.remove(0);
+        let mut art2 = user_arts.remove(1);
+        let mut art3 = user_arts.remove(3);
+        let mut art4 = user_arts.remove(4);
+
+        let def_art1 = art1.clone();
+        let def_art2 = art2.clone();
+        let def_art3 = art3.clone();
+        let def_art4 = art4.clone();
+
+        assert_eq!(art1.get_root(), art2.get_root());
+        assert_eq!(art1.get_root(), art3.get_root());
+        assert_eq!(art1.get_root(), art4.get_root());
+
+        let new_node1_sk = Fr::rand(&mut rng);
+        let new_node2_sk = Fr::rand(&mut rng);
+        let new_node3_sk = Fr::rand(&mut rng);
+        let new_node4_sk = Fr::rand(&mut rng);
+
+        let changes1 = art1.update_key(new_node1_sk, None, &[]).unwrap();
+        let changes2 = art2.update_key(new_node2_sk, None, &[]).unwrap();
+        let changes3 = art3.update_key(new_node3_sk, None, &[]).unwrap();
+        let changes4 = art4.update_key(new_node4_sk, None, &[]).unwrap();
+
+
+        let tk1 = art1.get_root_secret_key().unwrap();
+        let tk2 = art2.get_root_secret_key().unwrap();
+        let tk3 = art3.get_root_secret_key().unwrap();
+        let tk4 = art4.get_root_secret_key().unwrap();
+
+
+        let merged_tk = tk1 + tk2 + tk3 + tk4;
+
+        assert_eq!(
+            art1.get_root().get_public_key(),
+            CortadoAffine::generator().mul(tk1).into_affine()
+        );
+        assert_eq!(
+            art2.get_root().get_public_key(),
+            CortadoAffine::generator().mul(tk2).into_affine()
+        );
+        assert_eq!(
+            art3.get_root().get_public_key(),
+            CortadoAffine::generator().mul(tk3).into_affine()
+        );
+        assert_eq!(
+            art4.get_root().get_public_key(),
+            CortadoAffine::generator().mul(tk4).into_affine()
+        );
+
+        assert_eq!(
+            art1.get_root().get_public_key(),
+            *changes1.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art2.get_root().get_public_key(),
+            *changes2.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art3.get_root().get_public_key(),
+            *changes3.public_keys.get(0).unwrap()
+        );
+        assert_eq!(
+            art4.get_root().get_public_key(),
+            *changes4.public_keys.get(0).unwrap()
+        );
+
+        art1.merge_for_participant(
+            changes1.clone(),
+            &vec![changes2.clone(), changes3.clone(), changes4.clone()],
+            def_art1.clone(),
+        )
+            .unwrap();
+
+        assert_eq!(
+            art1.get_root().get_public_key(),
+            CortadoAffine::generator().mul(merged_tk).into_affine()
+        );
+        assert_eq!(merged_tk, art1.get_root_secret_key().unwrap());
+        let tk1_merged = art1.get_root_secret_key().unwrap();
+        assert_eq!(
+            art1.get_root().get_public_key(),
+            CortadoAffine::generator().mul(tk1_merged).into_affine()
+        );
+
+        art2.merge_for_participant(
+            changes2.clone(),
+            &vec![changes1.clone(), changes3.clone(), changes4.clone()],
+            def_art2.clone(),
+        )
+            .unwrap();
+
+        assert_eq!(
+            art2.get_root().get_public_key(),
+            CortadoAffine::generator().mul(merged_tk).into_affine()
+        );
+        assert_eq!(merged_tk, art2.get_root_secret_key().unwrap());
+
+        let mut root_key_from_changes = CortadoAffine::zero();
+        for g in &vec![
+            changes1.clone(),
+            changes2.clone(),
+            changes3.clone(),
+            changes4.clone(),
+        ] {
+            root_key_from_changes = root_key_from_changes.add(g.public_keys[0]).into_affine();
+        }
+        assert_eq!(root_key_from_changes, CortadoAffine::generator().mul(merged_tk).into_affine());
+        assert_eq!(root_key_from_changes, art1.get_root().get_public_key());
+        assert_eq!(
+            art1.get_root().get_public_key(),
+            CortadoAffine::generator().mul(art1.get_root_secret_key().unwrap()).into_affine(),
+        );
+
+        assert_eq!(
+            CortadoAffine::generator().mul(new_node1_sk).into_affine(),
+            art1.get_public_art()
+                .get_node(&art1.get_node_index())
+                .unwrap()
+                .get_public_key()
+        );
+        assert_eq!(
+            CortadoAffine::generator().mul(new_node2_sk).into_affine(),
+            art2.get_public_art()
+                .get_node(&art2.get_node_index())
+                .unwrap()
+                .get_public_key()
+        );
+
+        assert_eq!(art1, art2);
+
+        let all_changes = vec![changes1, changes2, changes3, changes4];
+        let observer_merge_change = MergeBranchChange::new_for_observer(all_changes.clone());
+        for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
+            observer_merge_change.update(&mut user_arts[i]).unwrap();
+
+            let tk = user_arts[i].get_root_secret_key().unwrap();
+
+            assert_eq!(
+                root_key_from_changes,
+                user_arts[i].get_root().get_public_key()
+            );
+            assert_eq!(
+                user_arts[i].get_root().get_public_key(),
+                CortadoAffine::generator().mul(tk).into_affine(),
+            );
+            assert_eq!(merged_tk, user_arts[i].get_root_secret_key().unwrap());
+        }
+
+        let post_merge_sk = Fr::rand(&mut rng);
+        let post_change = art1.update_key(post_merge_sk, None, &[]).unwrap();
+
+        post_change.update(&mut art2).unwrap();
+
+        assert_eq!(art1, art2);
+
+        for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
+            post_change.update(&mut user_arts[i]).unwrap();
+            assert_eq!(art1, art2);
         }
     }
 
