@@ -1,7 +1,7 @@
+use crate::art::ArtUpdateOutput;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use crate::art::artefacts::ProverArtefacts;
-use crate::art::ArtUpdateOutput;
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
@@ -633,7 +633,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         R: Rng + ?Sized,
     {
         let append_changes = matches!(
-            art.get_node_at(&path)?.get_status(),
+            art.get_node_at(path)?.get_status(),
             Some(LeafStatus::Blank)
         );
 
@@ -661,12 +661,12 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
             },
         )?;
 
-        art.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+        art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
             art.private_art
                 .public_art
-                .update_branch_weight(&path, false)?;
+                .update_branch_weight(path, false)?;
         }
 
         Ok((tk, change, artefacts))
@@ -818,7 +818,7 @@ where
         art: &mut PrivateArt<G>,
     ) -> Result<ArtUpdateOutput<G>, ARTError> {
         let append_changes = matches!(
-            art.get_node_at(&path)?.get_status(),
+            art.get_node_at(path)?.get_status(),
             Some(LeafStatus::Blank)
         );
 
@@ -840,10 +840,10 @@ where
             },
         )?;
 
-        art.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+        art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
-            art.public_art.update_branch_weight(&path, false)?;
+            art.public_art.update_branch_weight(path, false)?;
         }
 
         Ok((tk, change, artefacts))

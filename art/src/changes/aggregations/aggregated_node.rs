@@ -297,36 +297,6 @@ where
 
         child.map(|r| r.as_mut())
     }
-
-    /// Return true, if the node has no children.
-    fn is_leaf(&self) -> bool {
-        self.r.is_none() && self.l.is_none()
-    }
-
-    /// Return a reference of the left child.
-    fn get_left(&self) -> Option<&Self> {
-    self.get_child(Direction::Left)
-    }
-
-    /// Return a mutable reference of the left child.
-    fn get_mut_left(&mut self) -> Option<&mut Self> {
-    self.get_mut_child(Direction::Left)
-    }
-
-    /// Return a reference of the right child.
-    fn get_right(&self) -> Option<&Self> {
-    self.get_child(Direction::Right)
-    }
-
-    /// Return a mutable reference of the right child.
-    fn get_mut_right(&mut self) -> Option<&mut Self> {
-    self.get_mut_child(Direction::Right)
-    }
-
-    /// Returns true, if the node has a child on `dir` direction.
-    fn has_child(&self, dir: Direction) -> bool {
-    self.get_child(dir).is_some()
-    }
 }
 
 impl<D> From<D> for AggregationNode<D>

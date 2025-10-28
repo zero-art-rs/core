@@ -121,7 +121,7 @@ where
             co_pk_marker,
             self.change_type
                 .iter()
-                .map(|change_type| BranchChangeType::from(change_type))
+                .map(BranchChangeType::from)
                 .collect::<Vec<_>>(),
         )
     }

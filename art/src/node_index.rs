@@ -249,15 +249,15 @@ impl From<(u64, u64)> for NodeIndex {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Mul;
-    use ark_ec::{AffineRepr, CurveGroup};
-    use ark_std::rand::prelude::StdRng;
-    use ark_std::rand::SeedableRng;
-    use ark_std::UniformRand;
-    use cortado::{CortadoAffine, Fr};
-    use crate::art::art_types::PrivateArt;
-    use crate::TreeMethods;
     use super::{Direction, NodeIndex};
+    use crate::TreeMethods;
+    use crate::art::art_types::PrivateArt;
+    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_std::UniformRand;
+    use ark_std::rand::SeedableRng;
+    use ark_std::rand::prelude::StdRng;
+    use cortado::{CortadoAffine, Fr};
+    use std::ops::Mul;
 
     #[test]
     fn test_path_to_index_conversion() {
@@ -366,7 +366,9 @@ mod tests {
         let number_of_users = 32;
 
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = (0..number_of_users).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let secrets = (0..number_of_users)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
 
         let tree = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let node_pk = tree
@@ -381,7 +383,11 @@ mod tests {
             .get_node(&NodeIndex::Coordinate(1, 0))
             .unwrap()
             .get_public_key();
-        let root_pk = tree.get_root().get_child(Direction::Left).unwrap().get_public_key();
+        let root_pk = tree
+            .get_root()
+            .get_child(Direction::Left)
+            .unwrap()
+            .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -389,7 +395,11 @@ mod tests {
             .get_node(&NodeIndex::Coordinate(1, 1))
             .unwrap()
             .get_public_key();
-        let root_pk = tree.get_root().get_child(Direction::Right).unwrap().get_public_key();
+        let root_pk = tree
+            .get_root()
+            .get_child(Direction::Right)
+            .unwrap()
+            .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -399,7 +409,12 @@ mod tests {
             .get_public_key();
         let root_pk = tree
             .get_root()
-            .get_node_at(&[Direction::Left, Direction::Left, Direction::Left, Direction::Left])
+            .get_node_at(&[
+                Direction::Left,
+                Direction::Left,
+                Direction::Left,
+                Direction::Left,
+            ])
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -411,7 +426,12 @@ mod tests {
             .get_public_key();
         let root_pk = tree
             .get_root()
-            .get_node_at(&[Direction::Right, Direction::Left, Direction::Right, Direction::Right])
+            .get_node_at(&[
+                Direction::Right,
+                Direction::Left,
+                Direction::Right,
+                Direction::Right,
+            ])
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -423,7 +443,12 @@ mod tests {
             .get_public_key();
         let root_pk = tree
             .get_root()
-            .get_node_at(&[Direction::Right, Direction::Right, Direction::Right, Direction::Right])
+            .get_node_at(&[
+                Direction::Right,
+                Direction::Right,
+                Direction::Right,
+                Direction::Right,
+            ])
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -435,7 +460,13 @@ mod tests {
             .get_public_key();
         let root_pk = tree
             .get_root()
-            .get_node_at(&[Direction::Right, Direction::Right, Direction::Right, Direction::Right, Direction::Right])
+            .get_node_at(&[
+                Direction::Right,
+                Direction::Right,
+                Direction::Right,
+                Direction::Right,
+                Direction::Right,
+            ])
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
@@ -446,10 +477,11 @@ mod tests {
         let number_of_users = 32;
 
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = (0..number_of_users).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let secrets = (0..number_of_users)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
 
-        let mut tree =
-            PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let mut tree = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let node_pk = tree
             .get_public_art()
             .get_node(&NodeIndex::Index(1))
@@ -463,7 +495,11 @@ mod tests {
             .get_node(&NodeIndex::Index(2))
             .unwrap()
             .get_public_key();
-        let root_pk = tree.get_root().get_child(Direction::Left).unwrap().get_public_key();
+        let root_pk = tree
+            .get_root()
+            .get_child(Direction::Left)
+            .unwrap()
+            .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -471,7 +507,11 @@ mod tests {
             .get_node(&NodeIndex::Index(3))
             .unwrap()
             .get_public_key();
-        let root_pk = tree.get_root().get_child(Direction::Right).unwrap().get_public_key();
+        let root_pk = tree
+            .get_root()
+            .get_child(Direction::Right)
+            .unwrap()
+            .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -481,16 +521,24 @@ mod tests {
             .get_public_key();
         let root_pk = tree
             .get_root()
-            .get_node_at(&[Direction::Right, Direction::Left, Direction::Right, Direction::Right])
+            .get_node_at(&[
+                Direction::Right,
+                Direction::Left,
+                Direction::Right,
+                Direction::Right,
+            ])
             .unwrap()
             .get_public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
         let node_index = NodeIndex::get_index_from_path(
-            &tree.get_public_art().get_path_to_leaf_with(node_pk).unwrap(),
+            &tree
+                .get_public_art()
+                .get_path_to_leaf_with(node_pk)
+                .unwrap(),
         )
-            .unwrap();
+        .unwrap();
         let rec_node_pk = tree
             .get_public_art()
             .get_node(&NodeIndex::Index(node_index))

@@ -4,7 +4,7 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ARTError;
-use crate::helper_tools::{iota_function, recompute_artefacts};
+use crate::helper_tools::{iota_function, recompute_artefacts, ark_se, ark_de};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
@@ -29,12 +29,13 @@ where
     pub(crate) tree_root: ArtNode<G>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrivateArt<G>
 where
     G: AffineRepr,
 {
     pub(crate) public_art: PublicArt<G>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub(crate) secrets: Vec<G::ScalarField>,
     pub(crate) node_index: NodeIndex,
 }
@@ -342,14 +343,13 @@ where
         let mut changes = applied_changes.to_vec();
         let key_update_changes_len = key_update_changes.len();
 
-        let mut previous_shift = key_update_changes.len();
+        let previous_shift = key_update_changes.len();
         changes.extend(key_update_changes);
         for i in iteration_start..changes.len() {
             self.merge_change(&changes[0..i], &changes[i])?;
         }
         iteration_start += previous_shift;
 
-        previous_shift = make_blank_changes.len();
         changes.extend(make_blank_changes);
         for i in iteration_start..changes.len() {
             let extend_node = matches!(
@@ -452,7 +452,7 @@ where
         let path = public_art.get_path_to_leaf_with(pk)?;
         let co_path = public_art.get_co_path_values(&path)?;
         let artefacts =
-            recompute_artefacts(*secrets.get(0).ok_or(ARTError::InvalidInput)?, &co_path)?;
+            recompute_artefacts(*secrets.first().ok_or(ARTError::InvalidInput)?, &co_path)?;
 
         Ok(Self {
             public_art,
@@ -461,7 +461,7 @@ where
         })
     }
 
-    pub fn new(mut public_art: PublicArt<G>, secret_key: G::ScalarField) -> Result<Self, ARTError> {
+    pub fn new(public_art: PublicArt<G>, secret_key: G::ScalarField) -> Result<Self, ARTError> {
         let leaf_path =
             public_art.get_path_to_leaf_with(G::generator().mul(secret_key).into_affine())?;
         let co_path = public_art.get_co_path_values(&leaf_path)?;
@@ -1091,7 +1091,7 @@ where
     }
 
     pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {
-        &self.private_art.get_public_art()
+        self.private_art.get_public_art()
     }
 
     pub fn get_node_index(&self) -> &NodeIndex {
@@ -1124,19 +1124,6 @@ where
         self.private_art.get_member_current_eligibility()
     }
 }
-
-// impl<G> Debug for PrivateArt<G>
-// where
-//     G: AffineRepr,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("PublicArt")
-//             .field("public_art", &self.public_art)
-//             .field("secrets", &self.secrets)
-//             .field("node_index", &self.node_index)
-//             .finish()
-//     }
-// }
 
 impl<'a, R> Debug for PrivateZeroArt<'a, R>
 where
@@ -1183,21 +1170,18 @@ where
 
 impl<'a, R> Eq for PrivateZeroArt<'a, R> where R: Rng + ?Sized {}
 
-
 #[cfg(test)]
 mod tests {
-    use std::cmp::{max, min};
-    use ark_std::rand::prelude::StdRng;
-    use ark_std::rand::SeedableRng;
-    use ark_std::UniformRand;
-    use postcard::{from_bytes, to_allocvec};
-    use rand::rng;
-    use tracing::debug;
-    use crate::art::art_types::{PrivateArt};
-    use crate::test_helper_tools::init_tracing;
-    use cortado::{CortadoAffine, Fr};
-    use crate::art::art_node::LeafIterWithPath;
     use crate::TreeMethods;
+    use crate::art::art_node::LeafIterWithPath;
+    use crate::art::art_types::PrivateArt;
+    use crate::test_helper_tools::init_tracing;
+    use ark_std::UniformRand;
+    use ark_std::rand::SeedableRng;
+    use ark_std::rand::prelude::StdRng;
+    use cortado::{CortadoAffine, Fr};
+    use postcard::{from_bytes, to_allocvec};
+    use std::cmp::{max, min};
 
     const TEST_GROUP_SIZE: usize = 100;
 
@@ -1214,14 +1198,11 @@ mod tests {
 
             let private_art = PrivateArt::setup(&secrets).unwrap();
             let public_art_bytes = to_allocvec(&private_art.get_public_art()).unwrap();
-            // let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
 
             // Try to deserialize art for every other user in a group
             for j in 0..i {
-                let deserialized_art: PrivateArt<CortadoAffine> = PrivateArt::new(
-                    from_bytes(&public_art_bytes).unwrap(),
-                    secrets[j]
-                ).unwrap();
+                let deserialized_art: PrivateArt<CortadoAffine> =
+                    PrivateArt::new(from_bytes(&public_art_bytes).unwrap(), secrets[j]).unwrap();
 
                 assert_eq!(
                     deserialized_art, private_art,

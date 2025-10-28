@@ -88,10 +88,10 @@ where
     fn update(&self, art: &mut PublicArt<G>) -> Result<(), ARTError> {
         if let Some((base_fork, change)) = &self.applied_helper_data {
             _ = mem::replace(art, base_fork.clone());
-            let changes = vec![vec![change.clone()], self.unapplied_changes.clone()]
+            let changes = [vec![change.clone()], self.unapplied_changes.clone()]
                 .iter()
-                .cloned()
                 .flatten()
+                .cloned()
                 .collect::<Vec<_>>();
             art.merge_all(&changes)?;
         } else {

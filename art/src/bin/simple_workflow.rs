@@ -34,13 +34,11 @@ fn general_example() {
     let mut zero_art_rng = thread_rng();
     let zero_art = PrivateZeroArt::new(art.clone(), &mut zero_art_rng);
 
-    // PrivateArt implements Serialize and Deserialize, however there is a default implementation
-    // for serialization with postcard. It will return bytes for serialized PublicART, which
-    // doesn't contain any secret keys.
+    // PublicArt implements Derive for serialization.
     let encoded_representation = to_allocvec(&art.get_public_art()).unwrap();
-    // The deserialization method requires leaf secret key, as the encoded_representation is
-    // the encoding of PrivateArt.
     let public_art: PublicArt<CortadoAffine> = from_bytes(&encoded_representation).unwrap();
+
+    // When rhe user receives his art, he can derive a new PrivateArt with his leaf secret key.
     let recovered_private_art = PrivateArt::new(public_art.clone(), secrets[0]).unwrap();
     let mut recovered_art_rng = thread_rng();
     let recovered_art = PrivateZeroArt::new(recovered_private_art, &mut recovered_art_rng);
@@ -62,13 +60,12 @@ fn general_example() {
 
     // Any user can update his public art with the next method.
     let change_1 = art_1.update_key(new_secret_key_1, None, &[]).unwrap();
-    // Root key tk is a new common secret. Other users can use returned change to update
-    // theirs trees. Fot example, it can be done as next:
+    // Root key tk is a new common secret. To get common secret, user should use the next method.
+    let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
+
+    // Other users can use returned change to update local tree. Fot example, this can be done as next:
     change_1.update(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
-
-    // To get common secret, user should use the next method.
-    let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
 
     // Other art modifications include addition and blanking.
     // Addition of a new node can be done as next:
@@ -91,14 +88,15 @@ fn general_example() {
     changes_3.update(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
-    // For proof generation, use `ProverArtefacts` structure. They are returned with every art update.
-    // Let's prove key update:
+    // For proof generation, use pass required data for proof creation, to change creation method.
+    // Here is an example for key update:
     let associated_data = b"associated data";
     let some_secret_key4 = Fr::rand(&mut rng);
     let changes_4 = art_1
         .update_key(some_secret_key4, None, associated_data)
         .unwrap();
 
+    // To verify the change, one pass eligibility_requirement to verification method.
     let eligibility_requirement = EligibilityRequirement::Member(
         art_0
             .get_node(art_1.get_node_index())
@@ -121,8 +119,6 @@ fn merge_conflict_changes() {
     let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
     let art0 = PrivateArt::setup(&secrets).unwrap();
-
-    // Serialise and deserialize art for the other users.
     let public_art = art0.get_public_art().clone();
 
     // Store the basic art1.
@@ -154,15 +150,11 @@ fn merge_conflict_changes() {
         all_but_0_changes.clone(),
     );
     participant_merge_change.update(&mut participant).unwrap();
-    // participant
-    //     .merge_for_participant(applied_change.clone(), &all_but_0_changes, art0.clone())
-    //     .unwrap();
 
     // Merge for users which only observed the merge conflict
     let mut observer = art1.clone();
     let observer_merge_change = MergeBranchChange::new_for_observer(all_changes);
     observer_merge_change.update(&mut observer).unwrap();
-    // observer.merge_for_observer(&all_changes).unwrap();
 
     assert_eq!(
         participant, observer,
@@ -175,16 +167,18 @@ fn branch_aggregation_proof_verify() {
     let mut rng = StdRng::seed_from_u64(0);
 
     let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-
     let art0 = PrivateArt::setup(&secrets).unwrap();
 
+    // Create a different user.
     let mut art1 =
         PrivateArt::<CortadoAffine>::new(art0.get_public_art().clone(), secrets[1]).unwrap();
 
+    // Define some target user, to be removed.
     let target_3 = art0
         .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
         .unwrap();
 
+    // Create zero_art to create proofs.
     let mut zero_art0_rng = thread_rng();
     let mut zero_art0 = PrivateZeroArt::new(art0, &mut zero_art0_rng);
 
@@ -201,8 +195,10 @@ fn branch_aggregation_proof_verify() {
     // Gather associated data
     let associated_data = b"associated data";
 
+    // Create verifiable aggregation.
     let verifiable_agg = agg.prove(&zero_art0, associated_data, None).unwrap();
 
+    // Aggregation verification is similar to usual change aggregation.
     let aux_pk = zero_art0.get_leaf_public_key().unwrap();
     let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
     verifiable_agg
