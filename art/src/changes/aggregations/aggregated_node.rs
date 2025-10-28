@@ -6,7 +6,6 @@ use crate::changes::aggregations::{
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ARTError;
 use crate::node_index::{Direction, NodeIndex};
-use crate::tree_node::TreeNode;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -272,11 +271,14 @@ where
     }
 }
 
-impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
+// impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
+impl<D> AggregationNode<D>
 where
     D: RelatedData + Clone + Default,
 {
-    fn get_child(&self, dir: Direction) -> Option<&Self> {
+    /// Return a reference on a child on the given direction. Return None, if there is no
+    /// child there.
+    pub(crate) fn get_child(&self, dir: Direction) -> Option<&Self> {
         let child = match dir {
             Direction::Right => self.r.as_ref(),
             Direction::Left => self.l.as_ref(),
@@ -285,6 +287,8 @@ where
         child.map(|r| r.as_ref())
     }
 
+    /// Return a mutable reference on a child on the given direction. Return None,
+    /// if there is no child there.
     fn get_mut_child(&mut self, dir: Direction) -> Option<&mut Self> {
         let child = match dir {
             Direction::Right => self.r.as_mut(),
@@ -294,8 +298,34 @@ where
         child.map(|r| r.as_mut())
     }
 
+    /// Return true, if the node has no children.
     fn is_leaf(&self) -> bool {
         self.r.is_none() && self.l.is_none()
+    }
+
+    /// Return a reference of the left child.
+    fn get_left(&self) -> Option<&Self> {
+    self.get_child(Direction::Left)
+    }
+
+    /// Return a mutable reference of the left child.
+    fn get_mut_left(&mut self) -> Option<&mut Self> {
+    self.get_mut_child(Direction::Left)
+    }
+
+    /// Return a reference of the right child.
+    fn get_right(&self) -> Option<&Self> {
+    self.get_child(Direction::Right)
+    }
+
+    /// Return a mutable reference of the right child.
+    fn get_mut_right(&mut self) -> Option<&mut Self> {
+    self.get_mut_child(Direction::Right)
+    }
+
+    /// Returns true, if the node has a child on `dir` direction.
+    fn has_child(&self, dir: Direction) -> bool {
+    self.get_child(dir).is_some()
     }
 }
 

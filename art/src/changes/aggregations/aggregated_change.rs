@@ -1,8 +1,7 @@
-use crate::art::art_advanced_operations::ArtAdvancedOps;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use crate::art::artefacts::ProverArtefacts;
-use crate::art::{ArtBasicOps, ArtUpdateOutput};
+use crate::art::ArtUpdateOutput;
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
@@ -12,7 +11,6 @@ use crate::errors::ARTError;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
 use crate::tree_methods::TreeMethods;
-use crate::tree_node::TreeNode;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;

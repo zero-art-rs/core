@@ -5,7 +5,6 @@ pub mod errors;
 pub mod helper_tools;
 pub mod node_index;
 mod tree_methods;
-pub mod tree_node;
 
 pub use tree_methods::TreeMethods;
 
