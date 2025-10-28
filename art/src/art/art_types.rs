@@ -1015,7 +1015,7 @@ impl PrivateArt<CortadoAffine> {
 }
 
 impl PublicZeroArt {
-    pub fn new(public_art: PublicArt<CortadoAffine>) -> Result<Self, ArtError> {
+    pub fn new(public_art: PublicArt<CortadoAffine>) -> Self {
         let gens = PedersenGens::default();
         let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
             CortadoAffine::generator(),
@@ -1024,13 +1024,13 @@ impl PublicZeroArt {
             ristretto255_to_ark(gens.B_blinding).unwrap(),
         );
 
-        Ok(Self {
+        Self {
             public_art,
             verifier_engine: ZeroArtVerifierEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
             ),
-        })
+        }
     }
 
     pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {

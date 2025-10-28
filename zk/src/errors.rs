@@ -3,7 +3,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ZKError {
     #[error("bulletproofs R1CS error: {0}")]
-    Postcard(#[from] bulletproofs::r1cs::R1CSError),
+    R1CSError(#[from] bulletproofs::r1cs::R1CSError),
     #[error("zkp error: {0}.")]
     ZKPError(#[from] zkp::ProofError),
     #[error("Provided aggregation is invalid.")]
