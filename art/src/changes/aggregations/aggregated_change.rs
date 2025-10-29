@@ -605,32 +605,6 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     }
 }
 
-impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
-    pub fn prove<'a, R>(
-        &self,
-        art: &PrivateZeroArt<'a, R>,
-        ad: &[u8],
-        eligibility: Option<EligibilityArtefact>,
-    ) -> Result<PlainChangeAggregationWithProof<CortadoAffine>, ArtError>
-    where
-        R: Rng + ?Sized,
-    {
-        // Use some auxiliary keys for proof
-        let eligibility = match eligibility {
-            Some(eligibility) => eligibility,
-            None => art.get_member_current_eligibility()?,
-        };
-
-        // Get ProverAggregationTree for proof.
-        let prover_tree = ProverAggregationTree::try_from(self)?;
-
-        let context = art.prover_engine.new_context(ad, eligibility);
-        let proof = context.prove_aggregated(&prover_tree)?;
-
-        Ok((PlainChangeAggregation::try_from(self)?, proof))
-    }
-}
-
 impl<G> ChangeAggregation<AggregationData<G>>
 where
     G: AffineRepr,

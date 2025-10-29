@@ -22,13 +22,14 @@ pub(crate) enum EligibilityProof {
     CredentialHolder(CredentialPresentationProof),
 }
 
+#[derive(Debug, Clone)]
 pub enum EligibilityArtefact {
     Member((Fr, CortadoAffine)), // just normal member of the group, needed for UpdateKey & ConfirmRemove ops.
     Owner((Fr, CortadoAffine)),  // owner of the group, could perform AddMember, RemoveMember
     CredentialHolder((Fr, Credential)), // holder of a credential, needed for anonymous AddMember & RemoveMember ops.
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum EligibilityRequirement {
     Member(CortadoAffine), // requirement only for proof of leaf possession or group membership, public key is provided
     Previleged((CortadoAffine, Vec<Scalar>)), // requirement for the previleged rights

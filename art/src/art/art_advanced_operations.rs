@@ -1,7 +1,7 @@
 use crate::art::ArtBasicOps;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::changes::branch_change::{BranchChange, BranchChangeType, VerifiableBranchChange};
+use crate::changes::branch_change::{ArtOperationOutput, BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use crate::tree_methods::TreeMethods;
@@ -18,30 +18,22 @@ where
     fn add_member(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<R, ArtError>;
 
     fn remove_member(
         &mut self,
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<R, ArtError>;
 
     fn leave_group(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<R, ArtError>;
 
     fn update_key(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<R, ArtError>;
 }
 
@@ -53,10 +45,8 @@ where
     fn add_member(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<BranchChange<G>, ArtError> {
-        self.add_node(new_key, eligibility, ad).map(|mut change| {
+        self.add_node(new_key).map(|mut change| {
             change.change_type = BranchChangeType::AddMember;
             change
         })
@@ -66,8 +56,6 @@ where
         &mut self,
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<BranchChange<G>, ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
@@ -75,7 +63,7 @@ where
             Some(LeafStatus::Blank)
         );
         let change = self
-            .update_node_key(target_leaf, new_key, append_changes, eligibility, ad)
+            .update_node_key(target_leaf, new_key, append_changes)
             .map(|mut change| {
                 change.change_type = BranchChangeType::RemoveMember;
                 change
@@ -93,12 +81,10 @@ where
     fn leave_group(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
         let change = self
-            .update_node_key(&index, new_key, false, eligibility, ad)
+            .update_node_key(&index, new_key, false)
             .map(|mut change| {
                 change.change_type = BranchChangeType::Leave;
                 change
@@ -113,25 +99,21 @@ where
     fn update_key(
         &mut self,
         new_key: G::ScalarField,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
     ) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
-        self.update_node_key(&index, new_key, false, eligibility, ad)
+        self.update_node_key(&index, new_key, false)
     }
 }
 
-impl<'a, R> ArtAdvancedOps<CortadoAffine, VerifiableBranchChange> for PrivateZeroArt<'a, R>
+impl<'a, R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<'a, R>
 where
     R: Rng + ?Sized,
 {
     fn add_member(
         &mut self,
         new_key: Fr,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ArtError> {
-        let change = self.add_node(new_key, eligibility, ad).map(|mut change| {
+    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+        let change = self.add_node(new_key).map(|mut change| {
             change.branch_change.change_type = BranchChangeType::AddMember;
             change
         })?;
@@ -148,19 +130,28 @@ where
         &mut self,
         target_leaf: &NodeIndex,
         new_key: Fr,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ArtError> {
+    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
             self.get_node_at(&path)?.get_status(),
             Some(LeafStatus::Blank)
         );
-        let change = self
-            .update_node_key(target_leaf, new_key, append_changes, eligibility, ad)
-            .map(|mut change| {
-                change.branch_change.change_type = BranchChangeType::RemoveMember;
-                change
+
+        let elligibility = if append_changes {
+            let sk = self.get_root_secret_key()?;
+            let pk = self.get_root().get_public_key();
+            EligibilityArtefact::Member((sk, pk))
+        } else {
+            self.get_current_member_eligibility()?
+        };
+
+
+        let output = self
+            .update_node_key(target_leaf, new_key, append_changes)
+            .map(|mut output| {
+                output.branch_change.change_type = BranchChangeType::RemoveMember;
+                output.eligibility = elligibility;
+                output
             })?;
 
         self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
@@ -171,37 +162,33 @@ where
                 .update_branch_weight(&path, false)?;
         }
 
-        Ok(change)
+        Ok(output)
     }
 
     fn leave_group(
         &mut self,
         new_key: Fr,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ArtError> {
+    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
-        let change = self
-            .update_node_key(&index, new_key, false, eligibility, ad)
-            .map(|mut change| {
-                change.branch_change.change_type = BranchChangeType::Leave;
-                change
+        let output = self
+            .update_node_key(&index, new_key, false)
+            .map(|mut output| {
+                output.branch_change.change_type = BranchChangeType::Leave;
+                output
             })?;
 
         self.get_mut_node(&index)?
             .set_status(LeafStatus::PendingRemoval)?;
 
-        Ok(change)
+        Ok(output)
     }
 
     fn update_key(
         &mut self,
         new_key: Fr,
-        eligibility: Option<EligibilityArtefact>,
-        ad: &[u8],
-    ) -> Result<VerifiableBranchChange, ArtError> {
+    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
-        self.update_node_key(&index, new_key, false, eligibility, ad)
+        self.update_node_key(&index, new_key, false)
     }
 }
 
@@ -216,7 +203,7 @@ mod tests {
         ProverChangeAggregation, VerifierAggregationData,
     };
     use crate::changes::branch_change::MergeBranchChange;
-    use crate::changes::{ApplicableChange, VerifiableChange};
+    use crate::changes::{ApplicableChange, ProvableChange, VerifiableChange};
     use crate::errors::ArtError;
     use crate::helper_tools::iota_function;
     use crate::init_tracing;
@@ -253,7 +240,7 @@ mod tests {
         // Add member with user0
         let secret_key_1 = Fr::rand(&mut rng);
         assert_ne!(secret_key_0, secret_key_1);
-        let changes = user0.add_member(secret_key_1, None, &[]).unwrap();
+        let changes = user0.add_member(secret_key_1).unwrap();
         // debug!("user0\n{}", user0.get_root());
 
         assert_eq!(
@@ -307,7 +294,7 @@ mod tests {
         let secret_key_3 = Fr::rand(&mut rng);
 
         // New user updates his key
-        let change_key_update = user1.update_key(secret_key_3, None, &[]).unwrap();
+        let change_key_update = user1.update_key(secret_key_3).unwrap();
         let tk2 = user1.get_root_secret_key().unwrap();
         assert_ne!(
             tk1,
@@ -388,7 +375,7 @@ mod tests {
 
         // User0 removes second user node from the art.
         let remove_member_change1 = user0
-            .remove_member(&user2.get_node_index(), blanking_secret_key_1, None, &[])
+            .remove_member(&user2.get_node_index(), blanking_secret_key_1)
             .unwrap();
         let tk_r1 = user0.get_root_secret_key().unwrap();
         assert_ne!(
@@ -451,7 +438,7 @@ mod tests {
 
         // User1 removes second user node from the art.
         let remove_member_change2 = user1
-            .remove_member(&user2.get_node_index(), blanking_secret_key_2, None, &[])
+            .remove_member(&user2.get_node_index(), blanking_secret_key_2)
             .unwrap();
         let tk_r2 = user1.get_root_secret_key().unwrap();
         assert_eq!(
@@ -548,7 +535,7 @@ mod tests {
         // Save old secret key to roll back
         let main_old_key = secrets[main_user_id];
         let main_new_key = Fr::rand(&mut rng);
-        let changes = main_user_art.update_key(main_new_key, None, &[]).unwrap();
+        let changes = main_user_art.update_key(main_new_key).unwrap();
         assert_ne!(main_user_art.get_leaf_secret_key().unwrap(), main_old_key);
 
         let mut pub_keys = Vec::new();
@@ -575,7 +562,7 @@ mod tests {
             new_key
         );
 
-        let changes = main_user_art.update_key(main_old_key, None, &[]).unwrap();
+        let changes = main_user_art.update_key(main_old_key).unwrap();
         let recomputed_old_key = main_user_art.get_root_secret_key().unwrap();
 
         assert_eq!(root_key, recomputed_old_key);
@@ -630,7 +617,7 @@ mod tests {
 
         // User0 updates his key.
         let new_sk0 = Fr::rand(&mut rng);
-        let key_update_change0 = user0.update_key(new_sk0, None, &[]).unwrap();
+        let key_update_change0 = user0.update_key(new_sk0).unwrap();
         let tk_r0 = user0.get_root_secret_key().unwrap();
         assert_eq!(
             tk_r0,
@@ -641,7 +628,7 @@ mod tests {
         // User1 updates his art.
         key_update_change0.update(&mut user1).unwrap();
         let new_sk1 = Fr::rand(&mut rng);
-        let key_update_change1 = user1.update_key(new_sk1, None, &[]).unwrap();
+        let key_update_change1 = user1.update_key(new_sk1).unwrap();
         let tk_r1 = user1.get_root_secret_key().unwrap();
         assert_eq!(
             tk_r1,
@@ -653,7 +640,7 @@ mod tests {
         key_update_change0.update(&mut user2).unwrap();
         key_update_change1.update(&mut user2).unwrap();
         let new_sk2 = Fr::rand(&mut rng);
-        let key_update_change2 = user2.update_key(new_sk2, None, &[]).unwrap();
+        let key_update_change2 = user2.update_key(new_sk2).unwrap();
         let tk_r2 = user2.get_root_secret_key().unwrap();
         assert_eq!(
             tk_r2,
@@ -704,7 +691,7 @@ mod tests {
 
         // User0 updates his key.
         let new_sk0 = Fr::rand(&mut rng);
-        let key_update_change0 = user0.update_key(new_sk0, None, &[]).unwrap();
+        let key_update_change0 = user0.update_key(new_sk0).unwrap();
         let tk_r0 = user0.get_root_secret_key().unwrap();
 
         // Update art for other users.
@@ -825,7 +812,7 @@ mod tests {
 
         // User0 updates his key.
         let new_sk0 = Fr::rand(&mut rng);
-        let key_update_change0 = user0.update_key(new_sk0, None, &[]).unwrap();
+        let key_update_change0 = user0.update_key(new_sk0).unwrap();
 
         // User1 fails to update his art.
         assert!(matches!(
@@ -845,7 +832,7 @@ mod tests {
         let mut rng = &mut StdRng::seed_from_u64(rand::random());
 
         for _ in 1..DEFAULT_TEST_GROUP_SIZE {
-            let _ = tree.add_member(Fr::rand(&mut rng), None, &[]).unwrap();
+            let _ = tree.add_member(Fr::rand(&mut rng)).unwrap();
         }
 
         for node in tree.get_root() {
@@ -891,8 +878,8 @@ mod tests {
 
         // usual update
         let mut art1 = art.clone();
-        art1.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
-        art1.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        art1.remove_member(&user_2_index, sk_1).unwrap();
+        art1.remove_member(&user_2_index, sk_2).unwrap();
         assert_eq!(
             art1.get_public_art()
                 .get_node(&user_2_index)
@@ -907,8 +894,8 @@ mod tests {
             .unwrap()
             .set_status(LeafStatus::PendingRemoval)
             .unwrap();
-        art2.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
-        art2.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        art2.remove_member(&user_2_index, sk_1).unwrap();
+        art2.remove_member(&user_2_index, sk_2).unwrap();
         assert_eq!(
             art2.get_public_art()
                 .get_node(&user_2_index)
@@ -923,8 +910,8 @@ mod tests {
             .unwrap()
             .set_status(LeafStatus::Blank)
             .unwrap();
-        art3.remove_member(&user_2_index, sk_1, None, &[]).unwrap();
-        art3.remove_member(&user_2_index, sk_2, None, &[]).unwrap();
+        art3.remove_member(&user_2_index, sk_1).unwrap();
+        art3.remove_member(&user_2_index, sk_2).unwrap();
         assert_eq!(
             art3.get_public_art()
                 .get_node(&user_2_index)
@@ -976,10 +963,10 @@ mod tests {
         let new_node3_sk = Fr::rand(&mut rng);
         let new_node4_sk = Fr::rand(&mut rng);
 
-        let changes1 = art1.update_key(new_node1_sk, None, &[]).unwrap();
-        let changes2 = art2.update_key(new_node2_sk, None, &[]).unwrap();
-        let changes3 = art3.update_key(new_node3_sk, None, &[]).unwrap();
-        let changes4 = art4.update_key(new_node4_sk, None, &[]).unwrap();
+        let changes1 = art1.update_key(new_node1_sk).unwrap();
+        let changes2 = art2.update_key(new_node2_sk).unwrap();
+        let changes3 = art3.update_key(new_node3_sk).unwrap();
+        let changes4 = art4.update_key(new_node4_sk).unwrap();
 
         let tk1 = art1.get_root_secret_key().unwrap();
         let tk2 = art2.get_root_secret_key().unwrap();
@@ -1110,7 +1097,7 @@ mod tests {
         }
 
         let post_merge_sk = Fr::rand(&mut rng);
-        let post_change = art1.update_key(post_merge_sk, None, &[]).unwrap();
+        let post_change = art1.update_key(post_merge_sk).unwrap();
 
         post_change.update(&mut art2).unwrap();
 
@@ -1336,7 +1323,7 @@ mod tests {
                 .unwrap(),
         );
         user0
-            .remove_member(&user3_path, Fr::rand(&mut rng), None, &[])
+            .remove_member(&user3_path, Fr::rand(&mut rng))
             .unwrap();
 
         // Create aggregation
@@ -1425,12 +1412,14 @@ mod tests {
 
         let associated_data = b"data";
 
-        let verifiable_agg = agg.prove(&user0, associated_data, None).unwrap();
+        let proof = agg.prove(&mut user0, associated_data, None).unwrap();
+
+        let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
 
         let aux_pk = user0.get_leaf_public_key().unwrap();
         let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
-        verifiable_agg
-            .verify(&user0, associated_data, eligibility_requirement)
+        plain_agg
+            .verify(&user0, associated_data, eligibility_requirement, &proof)
             .unwrap();
 
         let plain_agg =

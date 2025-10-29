@@ -8,10 +8,10 @@ use std::ops::Mul;
 use zrt_art::TreeMethods;
 use zrt_art::art::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::changes::ApplicableChange;
+use zrt_art::changes::{ApplicableChange, ProvableChange};
 use zrt_art::changes::VerifiableChange;
 use zrt_art::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
-use zrt_art::changes::branch_change::MergeBranchChange;
+use zrt_art::changes::branch_change::{BranchChange, MergeBranchChange};
 use zrt_art::node_index::NodeIndex;
 use zrt_zk::EligibilityRequirement;
 
@@ -59,7 +59,9 @@ fn general_example() {
     let new_secret_key_1 = Fr::rand(&mut rng);
 
     // Any user can update his public art with the next method.
-    let change_1 = art_1.update_key(new_secret_key_1, None, &[]).unwrap();
+    let output_1 = art_1.update_key(new_secret_key_1).unwrap();
+    let change_1 = BranchChange::from(output_1);
+    
     // Root key tk is a new common secret. To get common secret, user should use the next method.
     let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
 
@@ -70,7 +72,9 @@ fn general_example() {
     // Other art modifications include addition and blanking.
     // Addition of a new node can be done as next:
     let new_node1_secret_key = Fr::rand(&mut rng);
-    let changes_2 = art_1.add_member(new_node1_secret_key, None, &[]).unwrap();
+    let output_2 = art_1.add_member(new_node1_secret_key).unwrap();
+    let changes_2 = BranchChange::from(output_2);
+
     changes_2.update(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
@@ -82,9 +86,10 @@ fn general_example() {
         .get_path_to_leaf_with(new_node1_public_key)
         .unwrap();
     let target_node_index = NodeIndex::from(target_node_path);
-    let changes_3 = art_1
-        .remove_member(&target_node_index, some_secret_key1, None, &[])
+    let output_3 = art_1
+        .remove_member(&target_node_index, some_secret_key1)
         .unwrap();
+    let changes_3 = BranchChange::from(output_3);
     changes_3.update(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
@@ -92,18 +97,20 @@ fn general_example() {
     // Here is an example for key update:
     let associated_data = b"associated data";
     let some_secret_key4 = Fr::rand(&mut rng);
-    let changes_4 = art_1
-        .update_key(some_secret_key4, None, associated_data)
+    let output_4 = art_1
+        .update_key(some_secret_key4)
         .unwrap();
+    let proof = output_4.prove(&mut art_1, associated_data, None).unwrap();
+    let changes_4 = BranchChange::from(output_4);
 
-    // To verify the change, one pass eligibility_requirement to verification method.
+    // To verify the change, one pass eligibility_requirement with proof to verify method.
     let eligibility_requirement = EligibilityRequirement::Member(
         art_0
             .get_node(art_1.get_node_index())
             .unwrap()
             .get_public_key(),
     );
-    let verification_result = changes_4.verify(&art_0, associated_data, eligibility_requirement);
+    let verification_result = changes_4.verify(&art_0, associated_data, eligibility_requirement, &proof);
 
     assert!(
         matches!(verification_result, Ok(())),
@@ -130,13 +137,13 @@ fn merge_conflict_changes() {
     let mut user3 = PrivateArt::<CortadoAffine>::new(public_art.clone(), secrets[8]).unwrap();
 
     let sk0 = Fr::rand(&mut rng);
-    let change0 = user0.update_key(sk0, None, &[]).unwrap();
+    let change0 = user0.update_key(sk0).unwrap();
 
     let sk2 = Fr::rand(&mut rng);
-    let change2 = user2.update_key(sk2, None, &[]).unwrap();
+    let change2 = user2.update_key(sk2).unwrap();
 
     let sk3 = Fr::rand(&mut rng);
-    let change3 = user3.update_key(sk3, None, &[]).unwrap();
+    let change3 = user3.update_key(sk3).unwrap();
 
     let applied_change = change0.clone();
     let all_but_0_changes = vec![change2.clone(), change3.clone()];
@@ -196,17 +203,17 @@ fn branch_aggregation_proof_verify() {
     let associated_data = b"associated data";
 
     // Create verifiable aggregation.
-    let verifiable_agg = agg.prove(&zero_art0, associated_data, None).unwrap();
+    let proof = agg.prove(&mut zero_art0, associated_data, None).unwrap();
+    let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
 
     // Aggregation verification is similar to usual change aggregation.
     let aux_pk = zero_art0.get_leaf_public_key().unwrap();
     let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
-    verifiable_agg
-        .verify(&zero_art0, associated_data, eligibility_requirement)
+    plain_agg.verify(&zero_art0, associated_data, eligibility_requirement, &proof)
         .unwrap();
 
     // Finally update private art with the `extracted_agg` aggregation.
-    verifiable_agg.update(&mut art1).unwrap();
+    plain_agg.update(&mut art1).unwrap();
 
     assert_eq!(zero_art0.get_public_art(), art1.get_public_art());
     assert_eq!(

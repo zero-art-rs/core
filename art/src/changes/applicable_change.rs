@@ -285,24 +285,24 @@ mod test {
             PrivateArt::new(public_art.clone(), secrets[67]).unwrap();
 
         let sk0 = Fr::rand(&mut rng);
-        let change0 = user0.update_key(sk0, None, &[]).unwrap();
+        let change0 = user0.update_key(sk0).unwrap();
 
         let sk2 = Fr::rand(&mut rng);
-        let change2 = user2.update_key(sk2, None, &[]).unwrap();
+        let change2 = user2.update_key(sk2).unwrap();
 
         let sk3 = Fr::rand(&mut rng);
         let target_user_public_key = CortadoAffine::generator().mul(secrets[25]).into_affine();
         let target_node_index =
             NodeIndex::from(user3.get_path_to_leaf_with(target_user_public_key).unwrap());
         let change3 = user3
-            .remove_member(&target_node_index, sk3, None, &[])
+            .remove_member(&target_node_index, sk3)
             .unwrap();
 
         let sk4 = Fr::rand(&mut rng);
-        let change4 = user4.update_key(sk4, None, &[]).unwrap();
+        let change4 = user4.update_key(sk4).unwrap();
 
         let sk5 = Fr::rand(&mut rng);
-        let change5 = user5.update_key(sk5, None, &[]).unwrap();
+        let change5 = user5.update_key(sk5).unwrap();
 
         let applied_change = change0.clone();
         let all_but_0_changes = vec![

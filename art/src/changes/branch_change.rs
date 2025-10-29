@@ -7,6 +7,8 @@ use cortado::CortadoAffine;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use zrt_zk::art::ArtProof;
+use zrt_zk::EligibilityArtefact;
+use crate::art::ProverArtefacts;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -34,6 +36,42 @@ where
 
     /// index of the target leaf
     pub node_index: NodeIndex,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtOperationOutput<G>
+where
+    G: AffineRepr,
+{
+    pub(crate) branch_change: BranchChange<G>,
+    pub(crate) artefacts: ProverArtefacts<G>,
+    pub(crate) eligibility: EligibilityArtefact,
+}
+
+impl<G> ArtOperationOutput<G>
+where 
+    G: AffineRepr,
+{
+    pub fn new(
+        branch_change: BranchChange<G>,
+        artefacts: ProverArtefacts<G>,
+        eligibility: EligibilityArtefact,
+    ) -> Self {
+        Self {
+            branch_change,
+            artefacts,
+            eligibility,
+        }
+    }
+}
+
+impl<G> From<ArtOperationOutput<G>> for BranchChange<G>
+where
+    G: AffineRepr,
+{
+    fn from(output: ArtOperationOutput<G>) -> Self {
+        output.branch_change
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]

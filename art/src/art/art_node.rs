@@ -143,6 +143,14 @@ where
         }
     }
 
+    pub fn get_left(&self) -> Option<&Self> {
+        self.get_child(Direction::Left)
+    }
+
+    pub fn get_right(&self) -> Option<&Self> {
+        self.get_child(Direction::Right)
+    }
+
     pub fn get_mut_child(&mut self, child: Direction) -> Option<&mut Self> {
         match self {
             ArtNode::Leaf { .. } => None,

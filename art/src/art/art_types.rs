@@ -1006,7 +1006,8 @@ where
 }
 
 impl PrivateArt<CortadoAffine> {
-    pub(crate) fn get_member_current_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
+    /// Returns an eligibility artefacts with user leaf secret and public key.
+    pub fn get_current_member_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
         Ok(EligibilityArtefact::Member((
             self.get_leaf_secret_key()?,
             self.get_leaf_public_key()?,
@@ -1102,9 +1103,10 @@ where
             .mul(self.get_leaf_secret_key()?)
             .into_affine())
     }
-
-    pub(crate) fn get_member_current_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
-        self.private_art.get_member_current_eligibility()
+    
+    /// Returns an eligibility artefacts with user leaf secret and public key.
+    pub fn get_current_member_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
+        self.private_art.get_current_member_eligibility()
     }
 }
 
