@@ -162,7 +162,7 @@ mod tests {
         let key_update_change_output = art
             .update_key(new_secret_key)
             .unwrap();
-        
+
         let proof = key_update_change_output.prove(&mut art, associated_data, None).unwrap();
         let key_update_change = BranchChange::from(key_update_change_output);
 
@@ -226,11 +226,14 @@ mod tests {
 
         let proof = make_blank_change_output.prove(&mut art, associated_data, None).unwrap();
         let make_blank_change = BranchChange::from(make_blank_change_output);
-        
+
         let tk = art.get_root_secret_key().unwrap();
 
         let eligibility_requirement =
-            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+            EligibilityRequirement::Previleged((
+                art.get_leaf_public_key().unwrap(),
+                vec![],
+            ));
         let verification_result =
             make_blank_change.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -275,7 +278,10 @@ mod tests {
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+            EligibilityRequirement::Previleged((
+               art.get_leaf_public_key().unwrap(),
+                vec![],
+            ));
         let verification_result =
             append_node_changes.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -326,7 +332,10 @@ mod tests {
         let make_blank_changes = BranchChange::from(make_blank_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+            EligibilityRequirement::Previleged((
+                art.get_leaf_public_key().unwrap(),
+                vec![],
+            ));
         let verification_result =
             make_blank_changes.verify(&test_art, associated_data1, eligibility_requirement, &proof1);
 
@@ -345,7 +354,10 @@ mod tests {
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Member(art.get_leaf_public_key().unwrap());
+            EligibilityRequirement::Previleged((
+                art.get_leaf_public_key().unwrap(),
+                vec![],
+            ));
         let verification_result =
             append_node_changes.verify(&test_art, associated_data2, eligibility_requirement, &proof2);
 

@@ -1005,16 +1005,6 @@ where
     }
 }
 
-impl PrivateArt<CortadoAffine> {
-    /// Returns an eligibility artefacts with user leaf secret and public key.
-    pub fn get_current_member_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
-        Ok(EligibilityArtefact::Member((
-            self.get_leaf_secret_key()?,
-            self.get_leaf_public_key()?,
-        )))
-    }
-}
-
 impl PublicZeroArt {
     pub fn new(public_art: PublicArt<CortadoAffine>) -> Self {
         let gens = PedersenGens::default();
@@ -1102,11 +1092,6 @@ where
         Ok(CortadoAffine::generator()
             .mul(self.get_leaf_secret_key()?)
             .into_affine())
-    }
-    
-    /// Returns an eligibility artefacts with user leaf secret and public key.
-    pub fn get_current_member_eligibility(&self) -> Result<EligibilityArtefact, ArtError> {
-        self.private_art.get_current_member_eligibility()
     }
 }
 

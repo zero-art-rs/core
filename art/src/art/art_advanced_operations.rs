@@ -142,9 +142,11 @@ where
             let pk = self.get_root().get_public_key();
             EligibilityArtefact::Member((sk, pk))
         } else {
-            self.get_current_member_eligibility()?
+            EligibilityArtefact::Owner((
+                self.get_leaf_secret_key()?,
+                self.get_leaf_public_key()?,
+            ))
         };
-
 
         let output = self
             .update_node_key(target_leaf, new_key, append_changes)

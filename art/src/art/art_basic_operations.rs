@@ -6,6 +6,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
+use zrt_zk::EligibilityArtefact;
 
 pub trait ArtBasicOps<G, R>
 where
@@ -57,7 +58,10 @@ where
         new_key: Fr,
         append_changes: bool,
     ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
-        let eligibility = self.get_current_member_eligibility()?;
+        let eligibility = EligibilityArtefact::Member((
+            self.get_leaf_secret_key()?,
+            self.get_leaf_public_key()?,
+        ));
 
         let (_, change, artefacts) =
             self.private_art
@@ -74,7 +78,10 @@ where
         &mut self,
         new_key: Fr,
     ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
-        let eligibility = self.get_current_member_eligibility()?;
+        let eligibility = EligibilityArtefact::Owner((
+            self.get_leaf_secret_key()?,
+            self.get_leaf_public_key()?,
+        ));
 
         let (_, change, artefacts) = self.private_art.private_add_node(new_key)?;
 

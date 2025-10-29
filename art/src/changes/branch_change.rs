@@ -65,6 +65,10 @@ where
     pub fn get_branch_change(&self) -> &BranchChange<G> {
         &self.branch_change
     }
+
+    pub fn get_eligibility(&self) -> &EligibilityArtefact {
+        &self.eligibility
+    }
 }
 
 impl<G> From<ArtOperationOutput<G>> for BranchChange<G>

@@ -57,7 +57,10 @@ impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> 
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => art.get_current_member_eligibility()?,
+            None => EligibilityArtefact::Member((
+                art.get_leaf_secret_key()?,
+                art.get_leaf_public_key()?,
+            )),
         };
 
         // Get ProverAggregationTree for proof.
