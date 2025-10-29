@@ -137,22 +137,24 @@ where
             Some(LeafStatus::Blank)
         );
 
-        let elligibility = if append_changes {
+        let eligibility = if matches!(
+            self.get_node_at(&path)?.get_status(),
+            Some(LeafStatus::Active)
+        ) {
+            let sk = self.get_leaf_secret_key()?;
+            let pk = self.get_leaf_public_key()?;
+            EligibilityArtefact::Owner((sk, pk))
+        } else {
             let sk = self.get_root_secret_key()?;
             let pk = self.get_root().get_public_key();
             EligibilityArtefact::Member((sk, pk))
-        } else {
-            EligibilityArtefact::Owner((
-                self.get_leaf_secret_key()?,
-                self.get_leaf_public_key()?,
-            ))
         };
 
         let output = self
             .update_node_key(target_leaf, new_key, append_changes)
             .map(|mut output| {
                 output.branch_change.change_type = BranchChangeType::RemoveMember;
-                output.eligibility = elligibility;
+                output.eligibility = eligibility;
                 output
             })?;
 
