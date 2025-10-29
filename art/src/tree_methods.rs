@@ -6,22 +6,41 @@ use ark_ec::AffineRepr;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 
+/// A collection of helper methods to interact with tree.
+///
+/// This trait provides access to the root node and other leaves. There are several
+/// similar methods, which differ only on input type. They can be differentiated by the postfix.
+/// If the method takes as input `NodeIndex`, then there is no specific postfixes. If it takes
+/// a slice `[Direction]`, then the postfix is `_at`. The last postfix `_with` is for methods,
+/// which searches for a node with the provided public key.
+/// 
+/// This trait can be implemented to any type, that reefers to `ArtNode`.
+///
+/// # Type Parameters
+/// * `G` - The affine curve representation used for nodes in the tree.
 pub trait TreeMethods<G>
 where
     G: AffineRepr,
 {
+    /// Return the reference on the root node of the tree.
     fn get_root(&self) -> &ArtNode<G>;
 
+    /// Return the mutable reference on the root node of the tree
     fn get_mut_root(&mut self) -> &mut ArtNode<G>;
 
+    /// If exists, returns a reference on the node with the given index, in correspondence to the
+    /// root node. Else return `ArtError`.
     fn get_node(&self, index: &NodeIndex) -> Result<&ArtNode<G>, ArtError> {
         self.get_node_at(&index.get_path()?)
     }
 
+    /// If exists, returns mutable reference on the node with the given index, in correspondence
+    /// to the root node. Else return `ArtError`.
     fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ArtNode<G>, ArtError> {
         self.get_mut_node_at(&index.get_path()?)
     }
 
+    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
     fn get_node_at(&self, path: &[Direction]) -> Result<&ArtNode<G>, ArtError> {
         let mut node = self.get_root();
         for direction in path {
@@ -35,6 +54,7 @@ where
         Ok(node)
     }
 
+    /// If exists, returns a mutable reference on the node at the end of the given `path` form root. Else return `ArtError`.
     fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ArtError> {
         let mut node = self.get_mut_root();
         for direction in path {
@@ -46,7 +66,7 @@ where
         Ok(node)
     }
 
-    // fn get_mut_node(&mut self, index: NodeIndex);
+    /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
     fn get_leaf_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
         for (node, _) in NodeIterWithPath::new(self.get_root()) {
             if node.is_leaf() && node.get_public_key().eq(&public_key) {
@@ -57,6 +77,7 @@ where
         Err(ArtError::PathNotExists)
     }
 
+    /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
     fn get_node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
         for (node, _) in NodeIterWithPath::new(self.get_root()) {
             if node.get_public_key().eq(&public_key) {
@@ -67,6 +88,7 @@ where
         Err(ArtError::PathNotExists)
     }
 
+    /// Searches for a leaf with the provided `public_key`. If there is no such leaf, retutrn `ArtError`.
     fn get_path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
         for (node, path) in NodeIterWithPath::new(self.get_root()) {
             if node.is_leaf() && node.get_public_key().eq(&public_key) {

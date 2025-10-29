@@ -1,8 +1,10 @@
+//! Implementation of ART and auxiliary tree routines.
+
 pub mod art;
 pub mod changes;
 mod display;
 pub mod errors;
-pub mod helper_tools;
+pub(crate) mod helper_tools;
 pub mod node_index;
 mod tree_methods;
 

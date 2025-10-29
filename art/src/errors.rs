@@ -1,3 +1,6 @@
+//! This module provides error type, which is returned by the whole crate. Other errors
+//! are converted to it.
+
 use bulletproofs::r1cs::R1CSError;
 use thiserror::Error;
 use zrt_zk::errors::ZKError;

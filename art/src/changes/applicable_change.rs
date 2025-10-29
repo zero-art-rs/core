@@ -12,6 +12,13 @@ use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
 
+
+/// A trait for ART change that can be applied to the ART.
+///
+/// This trait represents an ability of change to update some instance of ART of type `T`.
+///
+/// # Type Parameters
+/// * `T` – The type of the ART tree type being updated.
 pub trait ApplicableChange<T> {
     fn update(&self, art: &mut T) -> Result<(), ArtError>;
 }

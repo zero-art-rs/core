@@ -8,8 +8,7 @@ use std::ops::Mul;
 use zrt_art::TreeMethods;
 use zrt_art::art::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::changes::{ApplicableChange, ProvableChange};
-use zrt_art::changes::VerifiableChange;
+use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
 use zrt_art::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use zrt_art::changes::branch_change::{BranchChange, MergeBranchChange};
 use zrt_art::node_index::NodeIndex;
@@ -35,7 +34,7 @@ fn general_example() {
     let zero_art = PrivateZeroArt::new(art.clone(), &mut zero_art_rng);
 
     // PublicArt implements Derive for serialization.
-    let encoded_representation = to_allocvec(&art.get_public_art()).unwrap();
+    let encoded_representation = to_allocvec(art.get_public_art()).unwrap();
     let public_art: PublicArt<CortadoAffine> = from_bytes(&encoded_representation).unwrap();
 
     // When rhe user receives his art, he can derive a new PrivateArt with his leaf secret key.
@@ -61,7 +60,7 @@ fn general_example() {
     // Any user can update his public art with the next method.
     let output_1 = art_1.update_key(new_secret_key_1).unwrap();
     let change_1 = BranchChange::from(output_1);
-    
+
     // Root key tk is a new common secret. To get common secret, user should use the next method.
     let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
 
@@ -106,7 +105,7 @@ fn general_example() {
     // To verify the change, one pass eligibility_requirement with proof to verify method.
     let eligibility_requirement = EligibilityRequirement::Member(
         art_0
-            .get_node(art_1.get_node_index())
+            .get_node(&changes_4.node_index)
             .unwrap()
             .get_public_key(),
     );

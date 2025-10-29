@@ -8,6 +8,19 @@ use crate::changes::aggregations::{ChangeAggregation, ProverAggregationData};
 use crate::errors::ArtError;
 use crate::changes::branch_change::ArtOperationOutput;
 
+/// A trait for structures that can be proved.
+///
+/// This trait can be used for output of ART update to proof your ability to update it. The
+/// proof generation depends on:
+///   * `art` - The state of the art and random number generator stored exclusively (for now) in PrivateZeroArt.
+///   * `ad` - the associated auxiliary data supplied by the caller
+///   * `eligibility` - the optional eligibility artefact. If None, then the default one will be used if possible.
+///
+/// If proof generation succeeds, an `ArtProof` is returned, else an `ArtError`.
+///
+/// # Type Parameters
+///
+/// * `R` - a random number generator used during the proof generation process.
 pub trait ProvableChange{
     fn prove<'a, R>(
         &self,
@@ -57,7 +70,7 @@ impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> 
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => EligibilityArtefact::Member((
+            None => EligibilityArtefact::Owner((
                 art.get_leaf_secret_key()?,
                 art.get_leaf_public_key()?,
             )),

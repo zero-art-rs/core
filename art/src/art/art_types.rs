@@ -29,14 +29,20 @@ where
     pub(crate) tree_root: ArtNode<G>,
 }
 
+/// ART structure, which stores and operates with some user secrets.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrivateArt<G>
 where
     G: AffineRepr,
 {
+    /// Public part of the art
     pub(crate) public_art: PublicArt<G>,
+
+    /// Set of secret keys on path from the user leaf to the root.
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub(crate) secrets: Vec<G::ScalarField>,
+
+    /// Index of a user leaf.
     pub(crate) node_index: NodeIndex,
 }
 

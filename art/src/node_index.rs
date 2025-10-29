@@ -1,3 +1,5 @@
+//! Module with structures used to point on some node of the tree.
+
 use crate::errors::ArtError;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -10,6 +12,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    /// Returns the opposite direction to `self`.
     pub fn other(&self) -> Self {
         match self {
             Direction::Left => Direction::Right,
@@ -18,17 +21,17 @@ impl Direction {
     }
 }
 
-/// Structure, which identifies the node, in relation to thw root node.
+/// A structure that identifies a node by its position relative to the root.
 #[derive(Debug, Clone, Deserialize, Serialize, Eq)]
 pub enum NodeIndex {
     /// Sequence number of a node in a tree. The root is 1, his children are 2 and 3, and so on,
     /// down to leaves. Binary representation of the index, also denotes the direction, where the
-    /// node is located.
+    /// node is located. If the bit is 0, then go left, else go right.
     Index(u64),
     /// Level (starting from root as 0) and position on level (starting from left as 0) of a node
-    /// in a tree
+    /// in a tree.
     Coordinate(u64, u64),
-    /// Path from the root to the node
+    /// Path from the root to the node.
     Direction(Vec<Direction>),
 }
 

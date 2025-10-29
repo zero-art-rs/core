@@ -1,3 +1,5 @@
+//! Crate with ART types, operations and tools.
+
 mod art_advanced_operations;
 mod art_basic_operations;
 pub mod art_node;

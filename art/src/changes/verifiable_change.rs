@@ -9,7 +9,15 @@ use zrt_zk::aggregated_art::{VerifierAggregationTree};
 use zrt_zk::art::ArtProof;
 use crate::changes::aggregations::PlainChangeAggregation;
 
+/// Describes an ART change, which can be verified.
+///
+/// Verification requires the next input:
+/// - `art` - the current of the ART
+/// - `ad` - the associated auxiliary data used in proof
+/// - `eligibility_requirement` - an eligibility requirement defining the update right of the proof creator
+/// - `proof` - proof which will be verified
 pub trait VerifiableChange<T>: ApplicableChange<T> {
+    /// Fail if proof is invalid. Else returns `Ok(())`.
     fn verify(
         &self,
         art: &T,
@@ -18,6 +26,7 @@ pub trait VerifiableChange<T>: ApplicableChange<T> {
         proof: &ArtProof,
     ) -> Result<(), ArtError>;
 
+    /// If the proof is correct, also updates the provided `art` tree.
     fn verify_then_update(
         &self,
         art: &mut T,

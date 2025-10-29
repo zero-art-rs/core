@@ -1,3 +1,5 @@
+//! Module with branch changes of the ART.
+
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
@@ -32,10 +34,12 @@ where
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_keys: Vec<G>,
 
-    /// index of the target leaf
+    /// Index of the target leaf
     pub node_index: NodeIndex,
 }
 
+/// Helper data structure, which along with the `branch_change` of a the contain additional
+/// artefacts, which can be used to create a proof.
 #[derive(Debug, Clone)]
 pub struct ArtOperationOutput<G>
 where
@@ -44,6 +48,13 @@ where
     pub(crate) branch_change: BranchChange<G>,
     pub(crate) artefacts: ProverArtefacts<G>,
     pub(crate) eligibility: EligibilityArtefact,
+}
+
+fn tmp<G>(a: ArtOperationOutput<G>)
+where
+    G: AffineRepr,
+{
+    
 }
 
 impl<G> ArtOperationOutput<G>
@@ -124,6 +135,8 @@ where
     }
 }
 
+/// Helper data structure, which can combine several changes from different
+/// users into one merge change.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct MergeBranchChange<T, C> {
     pub(crate) applied_helper_data: Option<(T, C)>,
