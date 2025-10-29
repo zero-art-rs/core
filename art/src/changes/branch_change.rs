@@ -61,6 +61,10 @@ where
             eligibility,
         }
     }
+
+    pub fn get_branch_change(&self) -> &BranchChange<G> {
+        &self.branch_change
+    }
 }
 
 impl<G> From<ArtOperationOutput<G>> for BranchChange<G>
