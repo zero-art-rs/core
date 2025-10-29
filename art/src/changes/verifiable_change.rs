@@ -1,7 +1,6 @@
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
-use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::applicable_change::ApplicableChange;
-use crate::changes::branch_change::{BranchChange, VerifiableBranchChange};
+use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;

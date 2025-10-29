@@ -119,7 +119,7 @@ mod tests {
         );
 
         let new_sk = Fr::rand(&mut *rng);
-        let change = group_arts[target_user].update_key(new_sk, None, &[]).unwrap();
+        let change = group_arts[target_user].update_key(new_sk).unwrap();
 
         assert_eq!(
             group_arts[target_user]
@@ -166,7 +166,7 @@ mod tests {
 
         let new_sk = Fr::rand(&mut *rng);
         let change = group_arts[target_user]
-            .add_member(new_sk, None, &[])
+            .add_member(new_sk)
             .unwrap();
 
         assert_eq!(
@@ -248,7 +248,7 @@ mod tests {
         let blank_target_node_index = NodeIndex::from(blank_target_node_path.to_vec());
         let new_sk = Fr::rand(&mut *rng);
         let change = group_arts[target_user]
-            .remove_member(&blank_target_node_index, new_sk, None, &[]).unwrap();
+            .remove_member(&blank_target_node_index, new_sk).unwrap();
 
         assert_eq!(
             group_arts[target_user]

@@ -25,8 +25,6 @@ pub type ProverChangeAggregation<G> = ChangeAggregation<ProverAggregationData<G>
 pub type PlainChangeAggregation<G> = ChangeAggregation<AggregationData<G>>;
 pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
 
-pub type PlainChangeAggregationWithProof<G> = (ChangeAggregation<AggregationData<G>>, ArtProof);
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangeAggregation<D>
 where

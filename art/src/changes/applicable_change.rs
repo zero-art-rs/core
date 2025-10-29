@@ -1,10 +1,9 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::changes::aggregations::aggregated_change::PlainChangeAggregationWithProof;
 use crate::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
 use crate::changes::branch_change::{
-    BranchChange, BranchChangeType, MergeBranchChange, VerifiableBranchChange,
+    BranchChange, BranchChangeType, MergeBranchChange,
 };
 use crate::errors::ArtError;
 use ark_ec::AffineRepr;
@@ -57,11 +56,6 @@ impl ApplicableChange<PublicZeroArt> for BranchChange<CortadoAffine> {
     }
 }
 
-impl ApplicableChange<PublicZeroArt> for VerifiableBranchChange {
-    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        self.branch_change.update(&mut art.public_art)
-    }
-}
 
 impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for BranchChange<CortadoAffine>
 where
@@ -69,15 +63,6 @@ where
 {
     fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
         self.update(&mut art.private_art)
-    }
-}
-
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for VerifiableBranchChange
-where
-    R: Rng + ?Sized,
-{
-    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
-        self.branch_change.update(&mut art.private_art)
     }
 }
 
@@ -152,42 +137,6 @@ where
 {
     fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.private_art)
-    }
-}
-
-impl<G> ApplicableChange<PublicArt<G>> for PlainChangeAggregationWithProof<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn update(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        self.0.update_public_art(art)
-    }
-}
-
-impl<G> ApplicableChange<PrivateArt<G>> for PlainChangeAggregationWithProof<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn update(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
-        self.0.update_private_art(art)
-    }
-}
-
-impl ApplicableChange<PublicZeroArt> for PlainChangeAggregationWithProof<CortadoAffine> {
-    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        self.0.update_public_art(&mut art.public_art)
-    }
-}
-
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>>
-    for PlainChangeAggregationWithProof<CortadoAffine>
-where
-    R: ?Sized + Rng,
-{
-    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
-        self.0.update_private_art(&mut art.private_art)
     }
 }
 

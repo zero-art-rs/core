@@ -3,10 +3,8 @@ use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use cortado::CortadoAffine;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use zrt_zk::art::ArtProof;
 use zrt_zk::EligibilityArtefact;
 use crate::art::ProverArtefacts;
 
@@ -71,28 +69,6 @@ where
 {
     fn from(output: ArtOperationOutput<G>) -> Self {
         output.branch_change
-    }
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(bound = "")]
-pub struct VerifiableBranchChange {
-    pub branch_change: BranchChange<CortadoAffine>,
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub proof: ArtProof,
-}
-
-impl VerifiableBranchChange {
-    pub fn new(branch_change: BranchChange<CortadoAffine>, proof: ArtProof) -> Self {
-        Self { branch_change, proof }
-    }
-}
-
-impl Debug for VerifiableBranchChange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VerifiableBranchChange")
-            .field("branch_change", &self.branch_change)
-            .finish()
     }
 }
 
