@@ -1421,7 +1421,7 @@ mod tests {
         let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
 
         let aux_pk = user0.get_leaf_public_key().unwrap();
-        let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
+        let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
         plain_agg
             .verify(&user0, associated_data, eligibility_requirement, &proof)
             .unwrap();
