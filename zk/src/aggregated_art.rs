@@ -75,10 +75,11 @@ impl CanonicalSerialize for AggregatedTreeProof {
     fn serialize_with_mode<W: std::io::Write>(
         &self,
         mut writer: W,
-        _compress: Compress,
+        compress: Compress,
     ) -> Result<(), SerializationError> {
         let serialized =
             postcard::to_allocvec(&self.0).map_err(|_| SerializationError::InvalidData)?;
+        (self.serialized_size(compress) as u32).serialize_with_mode(&mut writer, compress)?;
         writer.write_all(&serialized)?;
         Ok(())
     }
@@ -97,12 +98,14 @@ impl ark_serialize::Valid for AggregatedTreeProof {
 impl CanonicalDeserialize for AggregatedTreeProof {
     fn deserialize_with_mode<R: std::io::Read>(
         mut reader: R,
-        _compress: ark_serialize::Compress,
-        _validate: ark_serialize::Validate,
+        compress: ark_serialize::Compress,
+        validate: ark_serialize::Validate,
     ) -> Result<Self, ark_serialize::SerializationError> {
-        let mut buf = Vec::new();
+        let proof_len = u32::deserialize_with_mode(&mut reader, compress, validate)? as usize;
+        let mut buf = vec![0u8; proof_len];
+
         reader
-            .read_to_end(&mut buf)
+            .read_exact(&mut buf)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
         let tree: Tree<u64, (Option<R1CSProof>, CompressedRistretto)> = postcard::from_bytes(&buf)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
