@@ -135,11 +135,14 @@ mod tests {
     use crate::node_index::NodeIndex;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
-    use ark_std::rand::SeedableRng;
+    use ark_std::rand::{thread_rng, SeedableRng};
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use zrt_zk::art::ArtProof;
     use zrt_zk::EligibilityRequirement;
+    use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationOutput, ChangeAggregation, VerifierAggregationData};
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
 
@@ -172,6 +175,8 @@ mod tests {
         let proof = key_update_change_output
             .prove(&mut art, associated_data, None)
             .unwrap();
+        let mut proof_bytes = Vec::new();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
         let key_update_change = BranchChange::from(key_update_change_output);
 
         assert_eq!(
@@ -187,8 +192,9 @@ mod tests {
                 .unwrap()
                 .get_public_key(),
         );
+        let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
         let verification_result =
-            key_update_change.verify(&test_art, associated_data, eligibility_requirement, &proof);
+            key_update_change.verify(&test_art, associated_data, eligibility_requirement, &deserialized_proof);
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -374,5 +380,68 @@ mod tests {
             "Must successfully verify, while get {:?} result",
             verification_result
         );
+    }
+
+    #[test]
+    fn test_branch_aggregation_proof_verify() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let group_length = 7;
+        let secrets = (0..group_length)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let mut user0_rng = thread_rng();
+        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user1 =
+            PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
+
+        let target_3 = user0
+            .get_public_art()
+            .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+            .unwrap();
+        // Create aggregation
+        let mut agg = AggregationOutput::default();
+
+        for i in 0..4 {
+            agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        }
+
+        let associated_data = b"data";
+
+        let mut proof_bytes = Vec::new();
+        agg.prove(&mut user0, associated_data, None)
+            .unwrap()
+            .serialize_compressed(&mut proof_bytes)
+            .unwrap();
+
+        let plain_agg = AggregatedChange::try_from(&agg).unwrap();
+
+        let aux_pk = user0.get_leaf_public_key().unwrap();
+        let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
+        let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
+        plain_agg
+            .verify(&user0, associated_data, eligibility_requirement, &decoded_proof)
+            .unwrap();
+
+        let plain_agg =
+            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let fromed_agg =
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+        let extracted_agg = plain_agg.add_co_path(&user0.get_public_art()).unwrap();
+        assert_eq!(
+            fromed_agg, extracted_agg,
+            "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
+            fromed_agg, extracted_agg,
+        );
+
+        plain_agg.update(&mut user1).unwrap();
+
+        assert_eq!(user0.get_private_art(), &user1);
     }
 }

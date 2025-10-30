@@ -21,10 +21,17 @@ use std::fmt::{Display, Formatter};
 use std::ops::Mul;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
+/// Output of ART aggregation with additional data for proof creation.
 pub type AggregationOutput<G> = ChangeAggregation<ProverAggregationData<G>>;
+
+/// Helper data type, which contains necessary data about aggregation. Can be used to update
+/// state of other ART tree.
 pub type AggregatedChange<G> = ChangeAggregation<AggregationData<G>>;
+
+/// Helper data struct for proof verification.
 pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
 
+/// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
 pub struct ChangeAggregation<D>
