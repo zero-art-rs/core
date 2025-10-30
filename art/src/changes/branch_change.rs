@@ -1,5 +1,6 @@
 //! Module with branch changes of the ART.
 
+use crate::art::ProverArtefacts;
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
@@ -8,7 +9,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use zrt_zk::EligibilityArtefact;
-use crate::art::ProverArtefacts;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -54,11 +54,10 @@ fn tmp<G>(a: ArtOperationOutput<G>)
 where
     G: AffineRepr,
 {
-    
 }
 
 impl<G> ArtOperationOutput<G>
-where 
+where
     G: AffineRepr,
 {
     pub fn new(
@@ -98,6 +97,7 @@ where
 {
     RemoveMember {
         /// Public key used for blanking.
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         pk: G,
 
         /// If true, that blanking is the commit blanking, else it is initialisation.
@@ -106,17 +106,21 @@ where
     AddMember {
         /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
         /// of the node, else the node was replaced.
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         ext_pk: Option<G>,
 
         /// New user public key.
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         pk: G,
     },
     UpdateKey {
         /// New public key
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         pk: G,
     },
     Leave {
         /// New public key
+        #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         pk: G,
     },
 }

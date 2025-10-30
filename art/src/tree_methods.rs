@@ -13,7 +13,7 @@ use cortado::CortadoAffine;
 /// If the method takes as input `NodeIndex`, then there is no specific postfixes. If it takes
 /// a slice `[Direction]`, then the postfix is `_at`. The last postfix `_with` is for methods,
 /// which searches for a node with the provided public key.
-/// 
+///
 /// This trait can be implemented to any type, that reefers to `ArtNode`.
 ///
 /// # Type Parameters

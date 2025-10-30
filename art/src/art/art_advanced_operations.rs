@@ -15,10 +15,7 @@ pub trait ArtAdvancedOps<G, R>: ArtBasicOps<G, R>
 where
     G: AffineRepr,
 {
-    fn add_member(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<R, ArtError>;
+    fn add_member(&mut self, new_key: G::ScalarField) -> Result<R, ArtError>;
 
     fn remove_member(
         &mut self,
@@ -26,15 +23,9 @@ where
         new_key: G::ScalarField,
     ) -> Result<R, ArtError>;
 
-    fn leave_group(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<R, ArtError>;
+    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<R, ArtError>;
 
-    fn update_key(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<R, ArtError>;
+    fn update_key(&mut self, new_key: G::ScalarField) -> Result<R, ArtError>;
 }
 
 impl<G> ArtAdvancedOps<G, BranchChange<G>> for PrivateArt<G>
@@ -42,10 +33,7 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    fn add_member(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<BranchChange<G>, ArtError> {
+    fn add_member(&mut self, new_key: G::ScalarField) -> Result<BranchChange<G>, ArtError> {
         self.add_node(new_key).map(|mut change| {
             change.change_type = BranchChangeType::AddMember;
             change
@@ -78,10 +66,7 @@ where
         Ok(change)
     }
 
-    fn leave_group(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<BranchChange<G>, ArtError> {
+    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
         let change = self
             .update_node_key(&index, new_key, false)
@@ -96,23 +81,18 @@ where
         Ok(change)
     }
 
-    fn update_key(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<BranchChange<G>, ArtError> {
+    fn update_key(&mut self, new_key: G::ScalarField) -> Result<BranchChange<G>, ArtError> {
         let index = self.get_node_index().clone();
         self.update_node_key(&index, new_key, false)
     }
 }
 
-impl<'a, R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<'a, R>
+impl<'a, R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>>
+    for PrivateZeroArt<'a, R>
 where
     R: Rng + ?Sized,
 {
-    fn add_member(
-        &mut self,
-        new_key: Fr,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn add_member(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let change = self.add_node(new_key).map(|mut change| {
             change.branch_change.change_type = BranchChangeType::AddMember;
             change
@@ -169,10 +149,7 @@ where
         Ok(output)
     }
 
-    fn leave_group(
-        &mut self,
-        new_key: Fr,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn leave_group(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
         let output = self
             .update_node_key(&index, new_key, false)
@@ -187,10 +164,7 @@ where
         Ok(output)
     }
 
-    fn update_key(
-        &mut self,
-        new_key: Fr,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn update_key(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
         self.update_node_key(&index, new_key, false)
     }
@@ -203,8 +177,8 @@ mod tests {
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
     use crate::changes::aggregations::{
-        AggregationData, AggregationNodeIterWithPath, ChangeAggregation, PlainChangeAggregation,
-        ProverChangeAggregation, VerifierAggregationData,
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationOutput,
+        ChangeAggregation, VerifierAggregationData,
     };
     use crate::changes::branch_change::MergeBranchChange;
     use crate::changes::{ApplicableChange, ProvableChange, VerifiableChange};
@@ -309,14 +283,14 @@ mod tests {
             user0, user1,
             "Both users have different view on the state of the art, as they are not synced yet"
         );
-        assert_eq!(
-            user1.get_leaf_secret_key().unwrap(),
-            secret_key_3,
-        );
+        assert_eq!(user1.get_leaf_secret_key().unwrap(), secret_key_3,);
 
         change_key_update.update(&mut user0).unwrap();
         assert_eq!(
-            user0.get_node(&changes.node_index).unwrap().get_public_key(),
+            user0
+                .get_node(&changes.node_index)
+                .unwrap()
+                .get_public_key(),
             user1.get_leaf_public_key().unwrap(),
         );
 
@@ -1153,7 +1127,7 @@ mod tests {
         );
 
         // Create aggregation
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
 
         let sk1 = Fr::rand(&mut rng);
         let sk2 = Fr::rand(&mut rng);
@@ -1180,7 +1154,7 @@ mod tests {
             let sk_i = Fr::rand(&mut rng);
             agg.add_member(sk_i, &mut user1).unwrap();
 
-            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let aggregation = AggregatedChange::try_from(&agg).unwrap();
 
             let mut user2_clone_rng = thread_rng();
             let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
@@ -1202,7 +1176,7 @@ mod tests {
             agg.remove_member(&path, Fr::rand(&mut rng), &mut user1)
                 .unwrap();
 
-            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let aggregation = AggregatedChange::try_from(&agg).unwrap();
             let verifier_aggregation = aggregation.add_co_path(user2.get_public_art()).unwrap();
 
             let mut user2_clone_rng = thread_rng();
@@ -1222,7 +1196,7 @@ mod tests {
             let sk_i = Fr::rand(&mut rng);
             let (_, change_i, _) = agg.add_member(sk_i, &mut user1).unwrap();
 
-            let aggregation = PlainChangeAggregation::try_from(&agg).unwrap();
+            let aggregation = AggregatedChange::try_from(&agg).unwrap();
 
             let mut user2_clone_rng = thread_rng();
             let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
@@ -1331,7 +1305,7 @@ mod tests {
             .unwrap();
 
         // Create aggregation
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
 
         let sk1 = Fr::rand(&mut rng);
 
@@ -1366,7 +1340,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
 
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -1408,7 +1382,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
 
         for i in 0..4 {
             agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -1418,7 +1392,7 @@ mod tests {
 
         let proof = agg.prove(&mut user0, associated_data, None).unwrap();
 
-        let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
+        let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
         let aux_pk = user0.get_leaf_public_key().unwrap();
         let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
@@ -1457,7 +1431,7 @@ mod tests {
         let mut pub_art = user0.get_public_art().clone();
 
         let mut prover_rng = thread_rng();
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -1466,7 +1440,7 @@ mod tests {
 
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
 
-        let plain_agg = PlainChangeAggregation::<CortadoAffine>::try_from(&agg).unwrap();
+        let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
         plain_agg.update(&mut pub_art).unwrap();
 
         assert_eq!(&pub_art, user0.get_public_art())
@@ -1486,10 +1460,10 @@ mod tests {
 
         let mut pub_art = user0.get_public_art().clone();
 
-        let mut agg = ProverChangeAggregation::default();
+        let mut agg = AggregationOutput::default();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
-        let plain_agg = PlainChangeAggregation::<CortadoAffine>::try_from(&agg).unwrap();
+        let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
 
         plain_agg.update(&mut pub_art).unwrap();
 

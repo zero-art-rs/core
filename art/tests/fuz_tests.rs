@@ -10,18 +10,18 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
+    use postcard::{from_bytes, to_allocvec};
     use std::cmp::{max, min};
     use std::io::ErrorKind::NotADirectory;
     use std::ops::Mul;
-    use postcard::{from_bytes, to_allocvec};
     use tracing::{debug, info, warn};
+    use zrt_art::TreeMethods;
+    use zrt_art::art::ArtAdvancedOps;
     use zrt_art::art::art_node::LeafIterWithPath;
     use zrt_art::art::art_types::{PrivateArt, PublicArt};
-    use zrt_art::art::ArtAdvancedOps;
     use zrt_art::changes::ApplicableChange;
     use zrt_art::errors::ArtError;
     use zrt_art::node_index::NodeIndex;
-    use zrt_art::TreeMethods;
 
     pub const SEED: u64 = 23;
     pub const GROUP_SIZE: usize = 10;
@@ -72,9 +72,11 @@ mod tests {
 
         // Serialise and deserialize art for all the users (including the creator).
         let mut group_arts = Vec::with_capacity(GROUP_SIZE);
-        
+
         for sk in &group_secrets {
-            group_arts.push(PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), *sk).unwrap())
+            group_arts.push(
+                PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), *sk).unwrap(),
+            )
         }
 
         // Assert all the arts are correctly computed
@@ -165,9 +167,7 @@ mod tests {
         );
 
         let new_sk = Fr::rand(&mut *rng);
-        let change = group_arts[target_user]
-            .add_member(new_sk)
-            .unwrap();
+        let change = group_arts[target_user].add_member(new_sk).unwrap();
 
         assert_eq!(
             group_arts[target_user]
@@ -182,8 +182,7 @@ mod tests {
         // Serialise and deserialize art for the new user.
         let public_art_bytes = to_allocvec(&group_arts[target_user].get_public_art()).unwrap();
         let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-        let new_user: PrivateArt<CortadoAffine> =
-            PrivateArt::new(public_art, new_sk).unwrap();
+        let new_user: PrivateArt<CortadoAffine> = PrivateArt::new(public_art, new_sk).unwrap();
 
         info!("    New user node: {:?}.", new_user.get_node_index());
 
@@ -248,7 +247,8 @@ mod tests {
         let blank_target_node_index = NodeIndex::from(blank_target_node_path.to_vec());
         let new_sk = Fr::rand(&mut *rng);
         let change = group_arts[target_user]
-            .remove_member(&blank_target_node_index, new_sk).unwrap();
+            .remove_member(&blank_target_node_index, new_sk)
+            .unwrap();
 
         assert_eq!(
             group_arts[target_user]

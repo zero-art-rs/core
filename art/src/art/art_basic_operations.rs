@@ -19,10 +19,7 @@ where
         append_changes: bool,
     ) -> Result<R, ArtError>;
 
-    fn add_node(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<R, ArtError>;
+    fn add_node(&mut self, new_key: G::ScalarField) -> Result<R, ArtError>;
 }
 
 impl<G> ArtBasicOps<G, BranchChange<G>> for PrivateArt<G>
@@ -40,10 +37,7 @@ where
             .map(|(_, change, _)| change)
     }
 
-    fn add_node(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<BranchChange<G>, ArtError> {
+    fn add_node(&mut self, new_key: G::ScalarField) -> Result<BranchChange<G>, ArtError> {
         self.private_add_node(new_key).map(|(_, change, _)| change)
     }
 }
@@ -58,10 +52,8 @@ where
         new_key: Fr,
         append_changes: bool,
     ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
-        let eligibility = EligibilityArtefact::Member((
-            self.get_leaf_secret_key()?,
-            self.get_leaf_public_key()?,
-        ));
+        let eligibility =
+            EligibilityArtefact::Member((self.get_leaf_secret_key()?, self.get_leaf_public_key()?));
 
         let (_, change, artefacts) =
             self.private_art
@@ -74,14 +66,9 @@ where
         })
     }
 
-    fn add_node(
-        &mut self,
-        new_key: Fr,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
-        let eligibility = EligibilityArtefact::Owner((
-            self.get_leaf_secret_key()?,
-            self.get_leaf_public_key()?,
-        ));
+    fn add_node(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+        let eligibility =
+            EligibilityArtefact::Owner((self.get_leaf_secret_key()?, self.get_leaf_public_key()?));
 
         let (_, change, artefacts) = self.private_art.private_add_node(new_key)?;
 

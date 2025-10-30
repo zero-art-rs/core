@@ -1,12 +1,12 @@
-use ark_std::rand::Rng;
-use cortado::CortadoAffine;
-use zrt_zk::aggregated_art::ProverAggregationTree;
-use zrt_zk::art::ArtProof;
-use zrt_zk::EligibilityArtefact;
 use crate::art::art_types::PrivateZeroArt;
 use crate::changes::aggregations::{ChangeAggregation, ProverAggregationData};
-use crate::errors::ArtError;
 use crate::changes::branch_change::ArtOperationOutput;
+use crate::errors::ArtError;
+use ark_std::rand::Rng;
+use cortado::CortadoAffine;
+use zrt_zk::EligibilityArtefact;
+use zrt_zk::aggregated_art::ProverAggregationTree;
+use zrt_zk::art::ArtProof;
 
 /// A trait for structures that can be proved.
 ///
@@ -21,7 +21,7 @@ use crate::changes::branch_change::ArtOperationOutput;
 /// # Type Parameters
 ///
 /// * `R` - a random number generator used during the proof generation process.
-pub trait ProvableChange{
+pub trait ProvableChange {
     fn prove<'a, R>(
         &self,
         art: &mut PrivateZeroArt<'a, R>,
@@ -29,8 +29,7 @@ pub trait ProvableChange{
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
     where
-        R: Rng + ?Sized,
-    ;
+        R: Rng + ?Sized;
 }
 
 impl ProvableChange for ArtOperationOutput<CortadoAffine> {
@@ -43,7 +42,6 @@ impl ProvableChange for ArtOperationOutput<CortadoAffine> {
     where
         R: Rng + ?Sized,
     {
-
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
             None => self.eligibility.clone(),
@@ -55,7 +53,6 @@ impl ProvableChange for ArtOperationOutput<CortadoAffine> {
         Ok(proof)
     }
 }
-
 
 impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     fn prove<'a, R>(
@@ -70,10 +67,9 @@ impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> 
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => EligibilityArtefact::Owner((
-                art.get_leaf_secret_key()?,
-                art.get_leaf_public_key()?,
-            )),
+            None => {
+                EligibilityArtefact::Owner((art.get_leaf_secret_key()?, art.get_leaf_public_key()?))
+            }
         };
 
         // Get ProverAggregationTree for proof.

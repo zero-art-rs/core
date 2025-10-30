@@ -8,9 +8,9 @@ use std::ops::Mul;
 use zrt_art::TreeMethods;
 use zrt_art::art::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
-use zrt_art::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
+use zrt_art::changes::aggregations::{AggregatedChange, AggregationOutput};
 use zrt_art::changes::branch_change::{BranchChange, MergeBranchChange};
+use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
 use zrt_art::node_index::NodeIndex;
 use zrt_zk::EligibilityRequirement;
 
@@ -96,9 +96,7 @@ fn general_example() {
     // Here is an example for key update:
     let associated_data = b"associated data";
     let some_secret_key4 = Fr::rand(&mut rng);
-    let output_4 = art_1
-        .update_key(some_secret_key4)
-        .unwrap();
+    let output_4 = art_1.update_key(some_secret_key4).unwrap();
     let proof = output_4.prove(&mut art_1, associated_data, None).unwrap();
     let changes_4 = BranchChange::from(output_4);
 
@@ -109,7 +107,8 @@ fn general_example() {
             .unwrap()
             .get_public_key(),
     );
-    let verification_result = changes_4.verify(&art_0, associated_data, eligibility_requirement, &proof);
+    let verification_result =
+        changes_4.verify(&art_0, associated_data, eligibility_requirement, &proof);
 
     assert!(
         matches!(verification_result, Ok(())),
@@ -189,7 +188,7 @@ fn branch_aggregation_proof_verify() {
     let mut zero_art0 = PrivateZeroArt::new(art0, &mut zero_art0_rng);
 
     // Create default aggregation
-    let mut agg = ProverChangeAggregation::default();
+    let mut agg = AggregationOutput::default();
 
     // Perform some changes
     agg.add_member(Fr::rand(&mut rng), &mut zero_art0).unwrap();
@@ -203,12 +202,13 @@ fn branch_aggregation_proof_verify() {
 
     // Create verifiable aggregation.
     let proof = agg.prove(&mut zero_art0, associated_data, None).unwrap();
-    let plain_agg = PlainChangeAggregation::try_from(&agg).unwrap();
+    let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
     // Aggregation verification is similar to usual change aggregation.
     let aux_pk = zero_art0.get_leaf_public_key().unwrap();
     let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
-    plain_agg.verify(&zero_art0, associated_data, eligibility_requirement, &proof)
+    plain_agg
+        .verify(&zero_art0, associated_data, eligibility_requirement, &proof)
         .unwrap();
 
     // Finally update private art with the `extracted_agg` aggregation.
@@ -237,7 +237,7 @@ fn branch_aggregation() {
         .unwrap();
 
     // Create default aggregation
-    let mut agg = PlainChangeAggregation::default();
+    let mut agg = AggregatedChange::default();
 
     // Perform some changes
     agg.add_member(Fr::rand(&mut rng), &mut art0).unwrap();

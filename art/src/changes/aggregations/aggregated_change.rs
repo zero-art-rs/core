@@ -1,7 +1,7 @@
 use crate::art::ArtUpdateOutput;
+use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use crate::art::ProverArtefacts;
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
@@ -15,17 +15,18 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
-use zrt_zk::EligibilityArtefact;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
-use zrt_zk::art::ArtProof;
 
-pub type ProverChangeAggregation<G> = ChangeAggregation<ProverAggregationData<G>>;
-pub type PlainChangeAggregation<G> = ChangeAggregation<AggregationData<G>>;
+pub type AggregationOutput<G> = ChangeAggregation<ProverAggregationData<G>>;
+pub type AggregatedChange<G> = ChangeAggregation<AggregationData<G>>;
 pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
 pub struct ChangeAggregation<D>
 where
     D: RelatedData + Clone,
@@ -368,7 +369,7 @@ impl<'a, D1, D2> TryFrom<&'a ChangeAggregation<D1>> for ChangeAggregation<D2>
 where
     D1: RelatedData + Clone + Default,
     D2: From<D1> + RelatedData + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error =ArtError>,
+    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ArtError>,
 {
     type Error = ArtError;
 
@@ -386,7 +387,7 @@ impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error =ArtError>,
+    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 
@@ -408,30 +409,6 @@ where
             Some(root) => write!(f, "{}", root),
             None => write!(f, "Empty aggregation."),
         }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ChangeAggregationWithRng<'a, D, R>
-where
-    D: RelatedData + Clone,
-    R: Rng + ?Sized,
-{
-    pub(crate) root: Option<AggregationNode<D>>,
-    pub(crate) rng: &'a mut R,
-}
-
-impl<'a, D, R> ChangeAggregationWithRng<'a, D, R>
-where
-    D: RelatedData + Clone,
-    R: Rng + ?Sized,
-{
-    pub fn new(rng: &'a mut R) -> Self {
-        Self { root: None, rng }
-    }
-
-    pub fn get_root(&self) -> Option<&AggregationNode<D>> {
-        self.root.as_ref()
     }
 }
 
@@ -488,10 +465,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     where
         R: Rng + ?Sized,
     {
-        let append_changes = matches!(
-            art.get_node_at(path)?.get_status(),
-            Some(LeafStatus::Blank)
-        );
+        let append_changes = matches!(art.get_node_at(path)?.get_status(), Some(LeafStatus::Blank));
 
         if append_changes {
             return Err(ArtError::InvalidMergeInput);
@@ -647,10 +621,7 @@ where
         temporary_secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
     ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let append_changes = matches!(
-            art.get_node_at(path)?.get_status(),
-            Some(LeafStatus::Blank)
-        );
+        let append_changes = matches!(art.get_node_at(path)?.get_status(), Some(LeafStatus::Blank));
 
         if append_changes {
             return Err(ArtError::InvalidMergeInput);
@@ -744,30 +715,11 @@ where
     }
 }
 
-impl<'a, D1, D2, R> TryFrom<&'a ChangeAggregationWithRng<'a, D1, R>> for ChangeAggregation<D2>
-where
-    D1: RelatedData + Clone + Default,
-    D2: From<D1> + RelatedData + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error =ArtError>,
-    R: Rng + ?Sized,
-{
-    type Error = ArtError;
-
-    fn try_from(value: &'a ChangeAggregationWithRng<'a, D1, R>) -> Result<Self, Self::Error> {
-        match &value.root {
-            None => Ok(ChangeAggregation::default()),
-            Some(root) => Ok(ChangeAggregation {
-                root: Some(AggregationNode::<D2>::try_from(root)?),
-            }),
-        }
-    }
-}
-
 impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error =ArtError>,
+    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 
@@ -777,5 +729,41 @@ where
         } else {
             Err(Self::Error::NoChanges)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+    use crate::changes::aggregations::{AggregatedChange, AggregationOutput};
+    use crate::test_helper_tools::init_tracing;
+    use ark_std::UniformRand;
+    use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::{SeedableRng, thread_rng};
+    use cortado::{CortadoAffine, Fr};
+
+    #[test]
+    fn test_aggregation_serialization() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let mut user0_rng = thread_rng();
+        let mut user0 = PrivateZeroArt::new(
+            PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
+            &mut user0_rng,
+        );
+
+        let mut agg = AggregationOutput::default();
+        for _ in 0..8 {
+            agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        }
+
+        let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
+
+        let bytes = postcard::to_allocvec(&plain_agg).unwrap();
+        let retrieved_agg: AggregatedChange<CortadoAffine> = postcard::from_bytes(&bytes).unwrap();
+
+        assert_eq!(retrieved_agg, plain_agg);
     }
 }

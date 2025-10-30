@@ -1,7 +1,6 @@
 use crate::art::ProverArtefacts;
 use crate::changes::aggregations::{
-    AggregationData, ChangeAggregation, ChangeAggregationWithRng, ProverAggregationData,
-    RelatedData, VerifierAggregationData,
+    AggregationData, ChangeAggregation, ProverAggregationData, RelatedData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ArtError;
@@ -11,13 +10,14 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
+use serde::{Deserialize, Serialize};
 use tree_ds::prelude::Node;
 use zrt_zk::{
     aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
     art::{ProverNodeData, VerifierNodeData},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationNode<D>
 where
     D: RelatedData + Clone,
@@ -435,22 +435,6 @@ where
     D: RelatedData + Clone,
 {
     fn from(value: &'a ChangeAggregation<D>) -> Self {
-        match &value.root {
-            None => AggregationNodeIterWithPath {
-                current_node: None,
-                path: vec![],
-            },
-            Some(root) => Self::new(root),
-        }
-    }
-}
-
-impl<'a, D, R> From<&'a ChangeAggregationWithRng<'a, D, R>> for AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-    R: Rng + ?Sized,
-{
-    fn from(value: &'a ChangeAggregationWithRng<'a, D, R>) -> Self {
         match &value.root {
             None => AggregationNodeIterWithPath {
                 current_node: None,

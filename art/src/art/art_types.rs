@@ -4,7 +4,7 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
-use crate::helper_tools::{iota_function, recompute_artefacts, ark_se, ark_de};
+use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;

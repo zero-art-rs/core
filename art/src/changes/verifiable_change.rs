@@ -1,13 +1,13 @@
 use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
+use crate::changes::aggregations::AggregatedChange;
 use crate::changes::applicable_change::ApplicableChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use zrt_zk::EligibilityRequirement;
-use zrt_zk::aggregated_art::{VerifierAggregationTree};
+use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
-use crate::changes::aggregations::PlainChangeAggregation;
 
 /// Describes an ART change, which can be verified.
 ///
@@ -84,7 +84,7 @@ where
     }
 }
 
-impl VerifiableChange<PublicZeroArt> for PlainChangeAggregation<CortadoAffine> {
+impl VerifiableChange<PublicZeroArt> for AggregatedChange<CortadoAffine> {
     fn verify(
         &self,
         art: &PublicZeroArt,
@@ -102,8 +102,7 @@ impl VerifiableChange<PublicZeroArt> for PlainChangeAggregation<CortadoAffine> {
     }
 }
 
-impl<'a, R> VerifiableChange<PrivateZeroArt<'a, R>>
-    for PlainChangeAggregation<CortadoAffine>
+impl<'a, R> VerifiableChange<PrivateZeroArt<'a, R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -129,6 +128,8 @@ mod tests {
     use crate::TreeMethods;
     use crate::art::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+    use crate::changes::branch_change::BranchChange;
+    use crate::changes::provable_change::ProvableChange;
     use crate::changes::{ApplicableChange, VerifiableChange};
     use crate::init_tracing;
     use crate::node_index::NodeIndex;
@@ -139,8 +140,6 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
     use zrt_zk::EligibilityRequirement;
-    use crate::changes::branch_change::{BranchChange};
-    use crate::changes::provable_change::ProvableChange;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
 
@@ -168,11 +167,11 @@ mod tests {
         let new_secret_key = Fr::rand(&mut rng);
         let associated_data = b"Some data for proof";
 
-        let key_update_change_output = art
-            .update_key(new_secret_key)
-            .unwrap();
+        let key_update_change_output = art.update_key(new_secret_key).unwrap();
 
-        let proof = key_update_change_output.prove(&mut art, associated_data, None).unwrap();
+        let proof = key_update_change_output
+            .prove(&mut art, associated_data, None)
+            .unwrap();
         let key_update_change = BranchChange::from(key_update_change_output);
 
         assert_eq!(
@@ -233,16 +232,15 @@ mod tests {
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
 
-        let proof = make_blank_change_output.prove(&mut art, associated_data, None).unwrap();
+        let proof = make_blank_change_output
+            .prove(&mut art, associated_data, None)
+            .unwrap();
         let make_blank_change = BranchChange::from(make_blank_change_output);
 
         let tk = art.get_root_secret_key().unwrap();
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((
-                art.get_leaf_public_key().unwrap(),
-                vec![],
-            ));
+            EligibilityRequirement::Previleged((art.get_leaf_public_key().unwrap(), vec![]));
         let verification_result =
             make_blank_change.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -280,17 +278,14 @@ mod tests {
 
         let associated_data = &[2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        let append_node_changes_output = art
-            .add_member(new_secret_key)
+        let append_node_changes_output = art.add_member(new_secret_key).unwrap();
+        let proof = append_node_changes_output
+            .prove(&mut art, associated_data, None)
             .unwrap();
-        let proof = append_node_changes_output.prove(&mut art, associated_data, None).unwrap();
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((
-               art.get_leaf_public_key().unwrap(),
-                vec![],
-            ));
+            EligibilityRequirement::Previleged((art.get_leaf_public_key().unwrap(), vec![]));
         let verification_result =
             append_node_changes.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -337,16 +332,19 @@ mod tests {
         let make_blank_changes_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
-        let proof1 = make_blank_changes_output.prove(&mut art, associated_data1, None).unwrap();
+        let proof1 = make_blank_changes_output
+            .prove(&mut art, associated_data1, None)
+            .unwrap();
         let make_blank_changes = BranchChange::from(make_blank_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((
-                art.get_leaf_public_key().unwrap(),
-                vec![],
-            ));
-        let verification_result =
-            make_blank_changes.verify(&test_art, associated_data1, eligibility_requirement, &proof1);
+            EligibilityRequirement::Previleged((art.get_leaf_public_key().unwrap(), vec![]));
+        let verification_result = make_blank_changes.verify(
+            &test_art,
+            associated_data1,
+            eligibility_requirement,
+            &proof1,
+        );
 
         assert!(
             matches!(verification_result, Ok(())),
@@ -356,19 +354,20 @@ mod tests {
 
         make_blank_changes.update(&mut test_art).unwrap();
 
-        let append_node_changes_output = art
-            .add_member(new_secret_key)
+        let append_node_changes_output = art.add_member(new_secret_key).unwrap();
+        let proof2 = append_node_changes_output
+            .prove(&mut art, associated_data2, None)
             .unwrap();
-        let proof2 = append_node_changes_output.prove(&mut art, associated_data2, None).unwrap();
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((
-                art.get_leaf_public_key().unwrap(),
-                vec![],
-            ));
-        let verification_result =
-            append_node_changes.verify(&test_art, associated_data2, eligibility_requirement, &proof2);
+            EligibilityRequirement::Previleged((art.get_leaf_public_key().unwrap(), vec![]));
+        let verification_result = append_node_changes.verify(
+            &test_art,
+            associated_data2,
+            eligibility_requirement,
+            &proof2,
+        );
 
         assert!(
             matches!(verification_result, Ok(())),

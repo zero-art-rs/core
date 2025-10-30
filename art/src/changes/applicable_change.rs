@@ -1,17 +1,14 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::changes::aggregations::{PlainChangeAggregation, ProverChangeAggregation};
-use crate::changes::branch_change::{
-    BranchChange, BranchChangeType, MergeBranchChange,
-};
+use crate::changes::aggregations::{AggregatedChange, AggregationOutput};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, MergeBranchChange};
 use crate::errors::ArtError;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
-
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -63,7 +60,6 @@ impl ApplicableChange<PublicZeroArt> for BranchChange<CortadoAffine> {
     }
 }
 
-
 impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for BranchChange<CortadoAffine>
 where
     R: Rng + ?Sized,
@@ -112,7 +108,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PublicArt<G>> for PlainChangeAggregation<G>
+impl<G> ApplicableChange<PublicArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -122,7 +118,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>> for PlainChangeAggregation<G>
+impl<G> ApplicableChange<PrivateArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -132,13 +128,13 @@ where
     }
 }
 
-impl ApplicableChange<PublicZeroArt> for PlainChangeAggregation<CortadoAffine> {
+impl ApplicableChange<PublicZeroArt> for AggregatedChange<CortadoAffine> {
     fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
         self.update_public_art(&mut art.public_art)
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for PlainChangeAggregation<CortadoAffine>
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -147,41 +143,41 @@ where
     }
 }
 
-impl<G> ApplicableChange<PublicArt<G>> for ProverChangeAggregation<G>
+impl<G> ApplicableChange<PublicArt<G>> for AggregationOutput<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
     fn update(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        let plain_aggregation = AggregatedChange::try_from(self)?;
         plain_aggregation.update_public_art(art)
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>> for ProverChangeAggregation<G>
+impl<G> ApplicableChange<PrivateArt<G>> for AggregationOutput<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
     fn update(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
-        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        let plain_aggregation = AggregatedChange::try_from(self)?;
         plain_aggregation.update_private_art(art)
     }
 }
 
-impl ApplicableChange<PublicZeroArt> for ProverChangeAggregation<CortadoAffine> {
+impl ApplicableChange<PublicZeroArt> for AggregationOutput<CortadoAffine> {
     fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        let plain_aggregation = AggregatedChange::try_from(self)?;
         plain_aggregation.update_public_art(&mut art.public_art)
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for ProverChangeAggregation<CortadoAffine>
+impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for AggregationOutput<CortadoAffine>
 where
     R: ?Sized + Rng,
 {
     fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
-        let plain_aggregation = PlainChangeAggregation::try_from(self)?;
+        let plain_aggregation = AggregatedChange::try_from(self)?;
         plain_aggregation.update_private_art(&mut art.private_art)
     }
 }
@@ -250,9 +246,7 @@ mod test {
         let target_user_public_key = CortadoAffine::generator().mul(secrets[25]).into_affine();
         let target_node_index =
             NodeIndex::from(user3.get_path_to_leaf_with(target_user_public_key).unwrap());
-        let change3 = user3
-            .remove_member(&target_node_index, sk3)
-            .unwrap();
+        let change3 = user3.remove_member(&target_node_index, sk3).unwrap();
 
         let sk4 = Fr::rand(&mut rng);
         let change4 = user4.update_key(sk4).unwrap();

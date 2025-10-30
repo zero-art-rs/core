@@ -1,57 +1,69 @@
 use crate::changes::branch_change::{BranchChangeType, BranchChangesTypeHint};
 use crate::helper_tools::prepare_short_marker;
+use crate::helper_tools::{ark_de, ark_se};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct ProverAggregationData<G>
 where
     G: AffineRepr,
 {
     /// Public keys of the node from all the changes.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_key: G,
 
-    // Public key of the neighbour of the node for every `public_key` except root. For root, if
-    // it is empty.
+    /// Public key of the neighbour of the node for every `public_key` except root. For root, if
+    /// it is empty.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub co_public_key: Option<G>,
 
     /// Secret key of corresponding `public_key`
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub secret_key: G::ScalarField,
 
     /// Blinding value for proof creation.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub blinding_factor: G::ScalarField,
 
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct AggregationData<G>
 where
     G: AffineRepr,
 {
     /// Public keys of the node from all the changes.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_key: G,
 
     /// Change type marker
     pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmptyData {}
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct VerifierAggregationData<G>
 where
     G: AffineRepr,
 {
     /// Public keys of the node from all the changes.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub public_key: G,
 
     // Public key of the neighbour of the node for every `public_key` except root. For root, if is empty.
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub co_public_key: Option<G>,
 
     /// Change type marker
