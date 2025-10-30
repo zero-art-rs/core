@@ -1,6 +1,6 @@
 [package]
 name = "zrt-art"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2024"
 
 [lib]
@@ -10,9 +10,9 @@ path = "src/lib.rs"
 name = "art_example"
 path = "src/bin/simple_workflow.rs"
 
-[[bin]]
-name = "simple_benchmarks"
-path = "src/bin/simple_benchmarks.rs"
+#[[bin]]
+#name = "simple_benchmarks"
+#path = "src/bin/simple_benchmarks.rs"
 
 [[bench]]
 name = "art_benches"
@@ -43,6 +43,7 @@ postcard = { workspace = true, features = ["alloc"] }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+tree-ds = {  version = "0.2.0" }
 
 [dev-dependencies]
 strum ={ workspace = true }

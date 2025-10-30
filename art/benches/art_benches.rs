@@ -4,16 +4,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{UniformRand, rand::SeedableRng, rand::prelude::StdRng};
 use cortado::{CortadoAffine, Fr};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rand::Rng;
 use std::{
     hint::black_box,
     time::{Duration, Instant},
 };
-use zrt_art::{
-    errors::ARTError,
-    traits::{ARTPrivateAPI, ARTPrivateView},
-    types::{PrivateART, PublicART},
-};
+use zrt_art::art::{PrivateART, PublicART};
+use zrt_art::errors::ArtError;
 
 // hardcoded number of leaves in a tree for testing
 // pub const TEST_SAMPLES: [usize; 4] = [16, 64, 256, 1024];
@@ -22,7 +18,7 @@ pub const TEST_SAMPLES: [usize; 2] = [16, 64];
 pub fn get_two_private_arts<G>(
     secrets: &Vec<G::ScalarField>,
     tree: &PublicART<G>,
-) -> Result<(PrivateART<G>, PrivateART<G>), ARTError>
+) -> Result<(PrivateART<G>, PrivateART<G>), ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
@@ -37,7 +33,7 @@ pub fn get_several_private_arts<G>(
     number_of_agents: usize,
     secrets: &Vec<G::ScalarField>,
     tree: &PublicART<G>,
-) -> Result<Vec<PrivateART<G>>, ARTError>
+) -> Result<Vec<PrivateART<G>>, ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
@@ -192,7 +188,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                 let secret = Fr::rand(&mut rng);
                 let (_, changes, _) = private_art1.update_key(&secret).unwrap();
 
-                b.iter(|| private_art2.update_private_art(&changes))
+                b.iter(|| private_art2.update(&changes))
             },
         );
     }
@@ -255,8 +251,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                     iter_with_revert(
                         iters,
                         &mut private_art3,
-                        |art| _ = art.update_private_art(&make_blank_changes),
-                        |art| _ = art.update_private_art(&append_changes),
+                        |art| _ = art.update(&make_blank_changes),
+                        |art| _ = art.update(&append_changes),
                     )
                 })
             },
@@ -292,7 +288,7 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                         .unwrap();
 
                 let lambda = Fr::rand(&mut StdRng::seed_from_u64(rand::random()));
-                let public_key = private_arts[0].node_index.get_path().unwrap();
+                let public_key = private_arts[0].get_node_index().get_path().unwrap();
 
                 let (_, append_changes, _) =
                     private_arts[0].append_or_replace_node(&lambda).unwrap();
@@ -306,8 +302,8 @@ pub fn art_operations_benchmark(c: &mut Criterion) {
                     iter_with_revert(
                         iters,
                         &mut art,
-                        |mut art| _ = PrivateART::update_private_art(&mut art, &append_changes),
-                        |mut art| _ = PrivateART::update_private_art(&mut art, &make_blank_changes),
+                        |mut art| _ = PrivateART::update(&mut art, &append_changes),
+                        |mut art| _ = PrivateART::update(&mut art, &make_blank_changes),
                     )
                 })
             },

@@ -1,7 +1,6 @@
-use crate::errors::ARTError;
-use crate::types::ProverArtefacts;
-use ark_ec::AffineRepr;
-use ark_ec::CurveGroup;
+use crate::art::ProverArtefacts;
+use crate::errors::ArtError;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use curve25519_dalek::Scalar;
@@ -27,34 +26,18 @@ where
     a.map_err(serde::de::Error::custom)
 }
 
-/// Iota function is a function which converts computed public secret to scalar field. It can
+/// Iota function is a function which converts a point to scalar field element. It can
 /// be any function. Here, th function takes x coordinate of affine representation of a point.
 /// If the base field of curve defined on extension of a field, we take the first coefficient.
-pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ARTError>
+pub fn iota_function<G>(point: &G) -> Result<G::ScalarField, ArtError>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::BaseField: PrimeField,
 {
-    let x = point.x().ok_or(ARTError::XCoordinateError)?;
+    let x = point.x().ok_or(ArtError::XCoordinate)?;
     let secret = Scalar::from_bytes_mod_order((&x.into_bigint().to_bytes_le()[..]).try_into()?);
 
     Ok(G::ScalarField::from_le_bytes_mod_order(&secret.to_bytes()))
-}
-
-pub fn to_ark_scalar<G>(point: Scalar) -> G::ScalarField
-where
-    G: AffineRepr,
-{
-    G::ScalarField::from_le_bytes_mod_order(&point.to_bytes())
-}
-
-pub fn to_dalek_scalar<G>(point: G::ScalarField) -> Result<Scalar, ARTError>
-where
-    G: AffineRepr,
-{
-    Ok(Scalar::from_bytes_mod_order(
-        (&point.into_bigint().to_bytes_le()[..]).try_into()?,
-    ))
 }
 
 /// Recompute artefacts using given `secret_key` as leaf secret key, and provided `co_path`
@@ -62,7 +45,7 @@ where
 pub fn recompute_artefacts<G>(
     secret_key: G::ScalarField,
     co_path: &[G],
-) -> Result<ProverArtefacts<G>, ARTError>
+) -> Result<ProverArtefacts<G>, ArtError>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -84,4 +67,9 @@ where
     };
 
     Ok(artefacts)
+}
+
+/// Return first 8 chars from the string with three following dots.
+pub(crate) fn prepare_short_marker(full_marker: &str) -> String {
+    full_marker.chars().take(8).collect::<String>() + "..."
 }
