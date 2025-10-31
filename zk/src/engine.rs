@@ -4,10 +4,12 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use bulletproofs::PedersenGens;
 use cortado::{CortadoAffine, Fr};
 use curve25519_dalek::Scalar;
+use serde::{Deserialize, Serialize};
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ark_to_ristretto255;
 
 /// Engine options for ZeroArt proof system, currently supports setting of multi-threaded mode and scalar multiplication gadget version (1 or 2)
+#[derive(Clone)]
 pub struct ZeroArtEngineOptions {
     pub multi_threaded: bool, // turn on multi-threaded mode, reducing proof generation time but increasing proof size, verifier must use the same mode
     pub scalar_mul_gadget_ver: u8,
@@ -22,6 +24,7 @@ impl Default for ZeroArtEngineOptions {
     }
 }
 
+#[derive(Clone)]
 pub struct ZeroArtProverEngine {
     pub(crate) basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     pub(crate) pc_gens: PedersenGens,
@@ -65,6 +68,7 @@ impl ZeroArtProverEngine {
     }
 }
 
+#[derive(Clone)]
 pub struct ZeroArtVerifierEngine {
     pub(crate) basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
     pub(crate) pc_gens: PedersenGens,

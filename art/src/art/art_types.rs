@@ -28,6 +28,7 @@ where
     pub(crate) tree_root: ArtNode<G>,
 }
 
+// TODO: Remove clone
 /// ART structure, which stores and operates with some user secrets.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(bound = "")]
@@ -51,6 +52,8 @@ pub struct PublicZeroArt {
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
+// TODO: Remove clone
+#[derive(Clone)]
 pub struct PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
