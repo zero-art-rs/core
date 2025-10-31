@@ -31,6 +31,7 @@ where
 
 /// ART structure, which stores and operates with some user secrets.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(bound = "")]
 pub struct PrivateArt<G>
 where
     G: AffineRepr,
@@ -1163,7 +1164,7 @@ mod tests {
 
     #[test]
     /// Test if art serialization -> deserialization works correctly for unchanged arts
-    fn test_art_initial_serialization() {
+    fn test_public_art_initial_serialization() {
         init_tracing();
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -1179,6 +1180,32 @@ mod tests {
             for j in 0..i {
                 let deserialized_art: PrivateArt<CortadoAffine> =
                     PrivateArt::new(from_bytes(&public_art_bytes).unwrap(), secrets[j]).unwrap();
+
+                assert_eq!(
+                    deserialized_art, private_art,
+                    "Both users have the same view on the state of the art",
+                );
+            }
+        }
+    }
+
+    #[test]
+    /// Test if art serialization -> deserialization works correctly for unchanged arts
+    fn test_private_art_initial_serialization() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for i in (TEST_GROUP_SIZE - 1)..TEST_GROUP_SIZE {
+            // debug!("Test ART serialization for group of size: {}", i);
+            let secrets = (0..i).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+            let private_art = PrivateArt::setup(&secrets).unwrap();
+            let private_art_bytes = to_allocvec(&private_art).unwrap();
+
+            // Try to deserialize art for every other user in a group
+            for j in 0..i {
+                let deserialized_art: PrivateArt<CortadoAffine> = from_bytes(&private_art_bytes).unwrap();
 
                 assert_eq!(
                     deserialized_art, private_art,

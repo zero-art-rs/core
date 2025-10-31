@@ -206,7 +206,7 @@ fn branch_aggregation_proof_verify() {
 
     // Aggregation verification is similar to usual change aggregation.
     let aux_pk = zero_art0.get_leaf_public_key().unwrap();
-    let eligibility_requirement = EligibilityRequirement::Member(aux_pk);
+    let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
     plain_agg
         .verify(&zero_art0, associated_data, eligibility_requirement, &proof)
         .unwrap();
