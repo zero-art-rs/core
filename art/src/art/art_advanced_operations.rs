@@ -87,8 +87,7 @@ where
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>>
-    for PrivateZeroArt<R>
+impl<R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
@@ -121,11 +120,11 @@ where
             self.get_node_at(&path)?.get_status(),
             Some(LeafStatus::Active)
         ) {
-            let sk = self.get_leaf_secret_key()?;
-            let pk = self.get_leaf_public_key()?;
+            let sk = self.get_leaf_secret_key();
+            let pk = self.get_leaf_public_key();
             EligibilityArtefact::Owner((sk, pk))
         } else {
-            let sk = self.get_root_secret_key()?;
+            let sk = self.get_root_secret_key();
             let pk = self.get_root().get_public_key();
             EligibilityArtefact::Member((sk, pk))
         };
@@ -172,7 +171,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use crate::TreeMethods;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
@@ -212,7 +210,7 @@ mod tests {
 
         let mut user0 = PrivateArt::setup(&vec![secret_key_0]).unwrap();
         assert_eq!(
-            user0.get_leaf_public_key().unwrap(),
+            user0.get_leaf_public_key(),
             CortadoAffine::generator().mul(secret_key_0).into_affine(),
             "New node is in the art, and it is on the correct path.",
         );
@@ -268,24 +266,24 @@ mod tests {
             "Both users have the same view on the state of the art"
         );
 
-        let tk0 = user0.get_root_secret_key().unwrap();
-        let tk1 = user1.get_root_secret_key().unwrap();
+        let tk0 = user0.get_root_secret_key();
+        let tk1 = user1.get_root_secret_key();
 
         let secret_key_3 = Fr::rand(&mut rng);
 
         // New user updates his key
         let change_key_update = user1.update_key(secret_key_3).unwrap();
-        let tk2 = user1.get_root_secret_key().unwrap();
+        let tk2 = user1.get_root_secret_key();
         assert_ne!(
             tk1,
-            user1.get_root_secret_key().unwrap(),
+            user1.get_root_secret_key(),
             "Sanity check: old tk is different from the stored one."
         );
         assert_ne!(
             user0, user1,
             "Both users have different view on the state of the art, as they are not synced yet"
         );
-        assert_eq!(user1.get_leaf_secret_key().unwrap(), secret_key_3,);
+        assert_eq!(user1.get_leaf_secret_key(), secret_key_3,);
 
         change_key_update.update(&mut user0).unwrap();
         assert_eq!(
@@ -293,7 +291,7 @@ mod tests {
                 .get_node(&changes.node_index)
                 .unwrap()
                 .get_public_key(),
-            user1.get_leaf_public_key().unwrap(),
+            user1.get_leaf_public_key(),
         );
 
         assert_eq!(
@@ -345,10 +343,10 @@ mod tests {
         assert!(user0.eq(&user2), "New user received the same art");
         assert!(user0.eq(&user3), "New user received the same art");
 
-        let tk0 = user0.get_root_secret_key().unwrap();
-        let tk1 = user1.get_root_secret_key().unwrap();
-        let tk2 = user2.get_root_secret_key().unwrap();
-        let tk3 = user2.get_root_secret_key().unwrap();
+        let tk0 = user0.get_root_secret_key();
+        let tk1 = user1.get_root_secret_key();
+        let tk2 = user2.get_root_secret_key();
+        let tk3 = user2.get_root_secret_key();
 
         let blanking_secret_key_1 = Fr::rand(&mut rng);
         let blanking_secret_key_2 = Fr::rand(&mut rng);
@@ -357,7 +355,7 @@ mod tests {
         let remove_member_change1 = user0
             .remove_member(&user2.get_node_index(), blanking_secret_key_1)
             .unwrap();
-        let tk_r1 = user0.get_root_secret_key().unwrap();
+        let tk_r1 = user0.get_root_secret_key();
         assert_ne!(
             tk1, tk_r1,
             "Sanity check: old tk is different from the stored one."
@@ -420,7 +418,7 @@ mod tests {
         let remove_member_change2 = user1
             .remove_member(&user2.get_node_index(), blanking_secret_key_2)
             .unwrap();
-        let tk_r2 = user1.get_root_secret_key().unwrap();
+        let tk_r2 = user1.get_root_secret_key();
         assert_eq!(
             user1
                 .get_public_art()
@@ -443,7 +441,7 @@ mod tests {
         );
         assert_eq!(
             tk_r2,
-            user1.get_root_secret_key().unwrap(),
+            user1.get_root_secret_key(),
             "Sanity check: new tk is the same as the stored one."
         );
         assert_ne!(
@@ -460,8 +458,8 @@ mod tests {
         remove_member_change2.update(&mut user3).unwrap();
 
         assert_eq!(
-            user0.get_root_secret_key().ok(),
-            user1.get_root_secret_key().ok(),
+            user0.get_root_secret_key(),
+            user1.get_root_secret_key(),
             "Both users have the same view on the state of the art"
         );
 
@@ -504,10 +502,10 @@ mod tests {
             users_arts.push(PrivateArt::new(public_art.clone(), secrets[i]).unwrap());
         }
 
-        let root_key = private_art.get_root_secret_key().unwrap();
+        let root_key = private_art.get_root_secret_key();
         for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
             // Assert creator and users computed the same tree key.
-            assert_eq!(users_arts[i].get_root_secret_key().unwrap(), root_key);
+            assert_eq!(users_arts[i].get_root_secret_key(), root_key);
         }
 
         let mut main_user_art = users_arts[main_user_id].clone();
@@ -516,7 +514,7 @@ mod tests {
         let main_old_key = secrets[main_user_id];
         let main_new_key = Fr::rand(&mut rng);
         let changes = main_user_art.update_key(main_new_key).unwrap();
-        assert_ne!(main_user_art.get_leaf_secret_key().unwrap(), main_old_key);
+        assert_ne!(main_user_art.get_leaf_secret_key(), main_old_key);
 
         let mut pub_keys = Vec::new();
         let mut parent = main_user_art.get_root();
@@ -536,24 +534,18 @@ mod tests {
 
         let test_user_id = 12;
         changes.update(&mut users_arts[test_user_id]).unwrap();
-        let new_key = main_user_art.get_root_secret_key().unwrap();
-        assert_eq!(
-            users_arts[test_user_id].get_root_secret_key().unwrap(),
-            new_key
-        );
+        let new_key = main_user_art.get_root_secret_key();
+        assert_eq!(users_arts[test_user_id].get_root_secret_key(), new_key);
 
         let changes = main_user_art.update_key(main_old_key).unwrap();
-        let recomputed_old_key = main_user_art.get_root_secret_key().unwrap();
+        let recomputed_old_key = main_user_art.get_root_secret_key();
 
         assert_eq!(root_key, recomputed_old_key);
 
         for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
             if i != main_user_id {
                 changes.update(&mut users_arts[i]).unwrap();
-                assert_eq!(
-                    users_arts[i].get_root_secret_key().unwrap(),
-                    recomputed_old_key
-                );
+                assert_eq!(users_arts[i].get_root_secret_key(), recomputed_old_key);
             }
         }
     }
@@ -598,10 +590,10 @@ mod tests {
         // User0 updates his key.
         let new_sk0 = Fr::rand(&mut rng);
         let key_update_change0 = user0.update_key(new_sk0).unwrap();
-        let tk_r0 = user0.get_root_secret_key().unwrap();
+        let tk_r0 = user0.get_root_secret_key();
         assert_eq!(
             tk_r0,
-            user0.get_root_secret_key().unwrap(),
+            user0.get_root_secret_key(),
             "Sanity check: new tk is the same as the stored one."
         );
 
@@ -609,10 +601,10 @@ mod tests {
         key_update_change0.update(&mut user1).unwrap();
         let new_sk1 = Fr::rand(&mut rng);
         let key_update_change1 = user1.update_key(new_sk1).unwrap();
-        let tk_r1 = user1.get_root_secret_key().unwrap();
+        let tk_r1 = user1.get_root_secret_key();
         assert_eq!(
             tk_r1,
-            user1.get_root_secret_key().unwrap(),
+            user1.get_root_secret_key(),
             "Sanity check: new tk is the same as the stored one."
         );
 
@@ -621,10 +613,10 @@ mod tests {
         key_update_change1.update(&mut user2).unwrap();
         let new_sk2 = Fr::rand(&mut rng);
         let key_update_change2 = user2.update_key(new_sk2).unwrap();
-        let tk_r2 = user2.get_root_secret_key().unwrap();
+        let tk_r2 = user2.get_root_secret_key();
         assert_eq!(
             tk_r2,
-            user2.get_root_secret_key().unwrap(),
+            user2.get_root_secret_key(),
             "Sanity check: new tk is the same as the stored one."
         );
 
@@ -660,7 +652,7 @@ mod tests {
             secret_key_3,
         ])
         .unwrap();
-        let def_tk = user0.get_root_secret_key().unwrap();
+        let def_tk = user0.get_root_secret_key();
 
         // Serialise and deserialize art for the other users.
         let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
@@ -672,7 +664,7 @@ mod tests {
         // User0 updates his key.
         let new_sk0 = Fr::rand(&mut rng);
         let key_update_change0 = user0.update_key(new_sk0).unwrap();
-        let tk_r0 = user0.get_root_secret_key().unwrap();
+        let tk_r0 = user0.get_root_secret_key();
 
         // Update art for other users.
         key_update_change0.update(&mut user1).unwrap();
@@ -948,10 +940,10 @@ mod tests {
         let changes3 = art3.update_key(new_node3_sk).unwrap();
         let changes4 = art4.update_key(new_node4_sk).unwrap();
 
-        let tk1 = art1.get_root_secret_key().unwrap();
-        let tk2 = art2.get_root_secret_key().unwrap();
-        let tk3 = art3.get_root_secret_key().unwrap();
-        let tk4 = art4.get_root_secret_key().unwrap();
+        let tk1 = art1.get_root_secret_key();
+        let tk2 = art2.get_root_secret_key();
+        let tk3 = art3.get_root_secret_key();
+        let tk4 = art4.get_root_secret_key();
 
         let merged_tk = tk1 + tk2 + tk3 + tk4;
 
@@ -1000,8 +992,8 @@ mod tests {
             art1.get_root().get_public_key(),
             CortadoAffine::generator().mul(merged_tk).into_affine()
         );
-        assert_eq!(merged_tk, art1.get_root_secret_key().unwrap());
-        let tk1_merged = art1.get_root_secret_key().unwrap();
+        assert_eq!(merged_tk, art1.get_root_secret_key());
+        let tk1_merged = art1.get_root_secret_key();
         assert_eq!(
             art1.get_root().get_public_key(),
             CortadoAffine::generator().mul(tk1_merged).into_affine()
@@ -1018,7 +1010,7 @@ mod tests {
             art2.get_root().get_public_key(),
             CortadoAffine::generator().mul(merged_tk).into_affine()
         );
-        assert_eq!(merged_tk, art2.get_root_secret_key().unwrap());
+        assert_eq!(merged_tk, art2.get_root_secret_key());
 
         let mut root_key_from_changes = CortadoAffine::zero();
         for g in &vec![
@@ -1037,7 +1029,7 @@ mod tests {
         assert_eq!(
             art1.get_root().get_public_key(),
             CortadoAffine::generator()
-                .mul(art1.get_root_secret_key().unwrap())
+                .mul(art1.get_root_secret_key())
                 .into_affine(),
         );
 
@@ -1063,7 +1055,7 @@ mod tests {
         for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
             observer_merge_change.update(&mut user_arts[i]).unwrap();
 
-            let tk = user_arts[i].get_root_secret_key().unwrap();
+            let tk = user_arts[i].get_root_secret_key();
 
             assert_eq!(
                 root_key_from_changes,
@@ -1073,7 +1065,7 @@ mod tests {
                 user_arts[i].get_root().get_public_key(),
                 CortadoAffine::generator().mul(tk).into_affine(),
             );
-            assert_eq!(merged_tk, user_arts[i].get_root_secret_key().unwrap());
+            assert_eq!(merged_tk, user_arts[i].get_root_secret_key());
         }
 
         let post_merge_sk = Fr::rand(&mut rng);

@@ -499,22 +499,24 @@ where
         &self.node_index
     }
 
-    pub fn get_leaf_secret_key(&self) -> Result<G::ScalarField, ArtError> {
-        self.secrets.first().copied().ok_or(ArtError::EmptyArt)
+    pub fn get_leaf_secret_key(&self) -> G::ScalarField {
+        self.secrets[0]
     }
 
-    pub fn get_root_secret_key(&self) -> Result<G::ScalarField, ArtError> {
-        self.secrets.last().copied().ok_or(ArtError::EmptyArt)
+    pub fn get_root_secret_key(&self) -> G::ScalarField {
+        self.secrets[self.secrets.len() - 1]
     }
 
     pub fn get_secrets(&self) -> &Vec<G::ScalarField> {
         &self.secrets
     }
 
-    pub fn get_leaf_public_key(&self) -> Result<G, ArtError> {
-        Ok(G::generator()
-            .mul(self.get_leaf_secret_key()?)
-            .into_affine())
+    pub fn get_leaf_public_key(&self) -> G {
+        G::generator().mul(self.get_leaf_secret_key()).into_affine()
+    }
+
+    pub fn get_root_public_key(&self) -> G {
+        self.get_root().get_public_key()
     }
 
     pub fn get_public_art(&self) -> &PublicArt<G> {
@@ -682,7 +684,7 @@ where
 
     /// Updates users node index by researching it in a tree.
     pub(crate) fn update_node_index(&mut self) -> Result<(), ArtError> {
-        let path = self.get_path_to_leaf_with(self.get_leaf_public_key()?)?;
+        let path = self.get_path_to_leaf_with(self.get_leaf_public_key())?;
         self.node_index = NodeIndex::Direction(path).as_index()?;
 
         Ok(())
@@ -1079,26 +1081,20 @@ where
         &self.private_art.node_index
     }
 
-    pub fn get_leaf_secret_key(&self) -> Result<Fr, ArtError> {
-        self.private_art
-            .secrets
-            .first()
-            .copied()
-            .ok_or(ArtError::EmptyArt)
+    pub fn get_leaf_secret_key(&self) -> Fr {
+        self.private_art.get_leaf_secret_key()
     }
 
-    pub fn get_root_secret_key(&self) -> Result<Fr, ArtError> {
-        self.private_art
-            .secrets
-            .last()
-            .copied()
-            .ok_or(ArtError::EmptyArt)
+    pub fn get_root_secret_key(&self) -> Fr {
+        self.private_art.get_root_secret_key()
     }
 
-    pub fn get_leaf_public_key(&self) -> Result<CortadoAffine, ArtError> {
-        Ok(CortadoAffine::generator()
-            .mul(self.get_leaf_secret_key()?)
-            .into_affine())
+    pub fn get_leaf_public_key(&self) -> CortadoAffine {
+        self.private_art.get_leaf_public_key()
+    }
+
+    pub fn get_root_public_key(&self) -> CortadoAffine {
+        self.private_art.get_root_public_key()
     }
 }
 
@@ -1120,7 +1116,7 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         if self.get_root() == other.get_root()
-            && self.get_root_secret_key().ok() == other.get_root_secret_key().ok()
+            && self.get_root_secret_key() == other.get_root_secret_key()
         {
             return true;
         }

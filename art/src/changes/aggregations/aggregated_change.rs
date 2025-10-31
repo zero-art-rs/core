@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use crate::art::ArtUpdateOutput;
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
@@ -18,6 +17,7 @@ use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
 use std::rc::Rc;
@@ -743,8 +743,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
     use crate::changes::aggregations::{AggregatedChange, AggregationOutput};
     use crate::test_helper_tools::init_tracing;
@@ -752,6 +750,8 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn test_aggregation_serialization() {

@@ -62,7 +62,7 @@ fn general_example() {
     let change_1 = BranchChange::from(output_1);
 
     // Root key tk is a new common secret. To get common secret, user should use the next method.
-    let _retrieved_tk_1 = art_0.get_root_secret_key().unwrap();
+    let _retrieved_tk_1 = art_0.get_root_secret_key();
 
     // Other users can use returned change to update local tree. Fot example, this can be done as next:
     change_1.update(&mut art_0).unwrap();
@@ -205,7 +205,7 @@ fn branch_aggregation_proof_verify() {
     let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
     // Aggregation verification is similar to usual change aggregation.
-    let aux_pk = zero_art0.get_leaf_public_key().unwrap();
+    let aux_pk = zero_art0.get_leaf_public_key();
     let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
     plain_agg
         .verify(&zero_art0, associated_data, eligibility_requirement, &proof)
@@ -215,10 +215,7 @@ fn branch_aggregation_proof_verify() {
     plain_agg.update(&mut art1).unwrap();
 
     assert_eq!(zero_art0.get_public_art(), art1.get_public_art());
-    assert_eq!(
-        zero_art0.get_root_secret_key().unwrap(),
-        art1.get_root_secret_key().unwrap()
-    );
+    assert_eq!(zero_art0.get_root_secret_key(), art1.get_root_secret_key());
 }
 
 fn branch_aggregation() {
@@ -251,10 +248,7 @@ fn branch_aggregation() {
     agg.update(&mut art1).unwrap();
 
     assert_eq!(art0.get_public_art(), art1.get_public_art());
-    assert_eq!(
-        art0.get_root_secret_key().unwrap(),
-        art1.get_root_secret_key().unwrap()
-    );
+    assert_eq!(art0.get_root_secret_key(), art1.get_root_secret_key());
 }
 
 fn main() {

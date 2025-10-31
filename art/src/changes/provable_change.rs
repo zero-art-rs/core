@@ -68,7 +68,7 @@ impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> 
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
             None => {
-                EligibilityArtefact::Owner((art.get_leaf_secret_key()?, art.get_leaf_public_key()?))
+                EligibilityArtefact::Owner((art.get_leaf_secret_key(), art.get_leaf_public_key()))
             }
         };
 

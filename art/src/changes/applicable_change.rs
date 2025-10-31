@@ -108,6 +108,44 @@ where
     }
 }
 
+impl ApplicableChange<PublicZeroArt>
+    for MergeBranchChange<PublicArt<CortadoAffine>, BranchChange<CortadoAffine>>
+{
+    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
+        if let Some((base_fork, change)) = &self.applied_helper_data {
+            _ = mem::replace(&mut art.public_art, base_fork.clone());
+            let changes = [vec![change.clone()], self.unapplied_changes.clone()]
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            art.public_art.merge_all(&changes)?;
+        } else {
+            art.public_art.merge_all(&self.unapplied_changes)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<R> ApplicableChange<PrivateZeroArt<R>>
+    for MergeBranchChange<PrivateArt<CortadoAffine>, BranchChange<CortadoAffine>>
+where
+    R: Rng + ?Sized,
+{
+    fn update(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
+        if let Some((base_fork, applied_change)) = &self.applied_helper_data {
+            art.private_art.merge_for_participant(
+                applied_change.clone(),
+                &self.unapplied_changes,
+                base_fork.clone(),
+            )
+        } else {
+            art.private_art.merge_for_observer(&self.unapplied_changes)
+        }
+    }
+}
+
 impl<G> ApplicableChange<PublicArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
@@ -263,11 +301,11 @@ mod test {
         ];
         let all_changes = vec![change0, change2, change3, change4, change5];
 
-        let root_key_sk = user0.get_root_secret_key().unwrap()
-            + user2.get_root_secret_key().unwrap()
-            + user3.get_root_secret_key().unwrap()
-            + user4.get_root_secret_key().unwrap()
-            + user5.get_root_secret_key().unwrap();
+        let root_key_sk = user0.get_root_secret_key()
+            + user2.get_root_secret_key()
+            + user3.get_root_secret_key()
+            + user4.get_root_secret_key()
+            + user5.get_root_secret_key();
 
         // Check correctness of the merge
         let mut art_def0 = user0.clone();
@@ -290,8 +328,8 @@ mod test {
         );
 
         assert_eq!(
-            art_def0.get_root_secret_key().ok(),
-            art_def1.get_root_secret_key().ok(),
+            art_def0.get_root_secret_key(),
+            art_def1.get_root_secret_key(),
             "Observer and participant have the same view on the state of the art."
         );
 
