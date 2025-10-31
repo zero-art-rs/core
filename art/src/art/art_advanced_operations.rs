@@ -87,8 +87,8 @@ where
     }
 }
 
-impl<'a, R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>>
-    for PrivateZeroArt<'a, R>
+impl<R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>>
+    for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
@@ -172,6 +172,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use crate::TreeMethods;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
@@ -193,6 +194,7 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::ops::{Add, Mul};
+    use std::rc::Rc;
     use tracing::warn;
     use zkp::rand::thread_rng;
     use zrt_zk::EligibilityRequirement;
@@ -1100,30 +1102,30 @@ mod tests {
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
 
         // Serialise and deserialize art for the other users.
-        let mut user1_rng = thread_rng();
+        let user1_rng = Box::new(thread_rng());
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[2]).unwrap(),
-            &mut user1_rng,
+            user1_rng,
         );
 
-        let mut user2_rng = thread_rng();
+        let user2_rng = Box::new(thread_rng());
         let mut user2 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[3]).unwrap(),
-            &mut user2_rng,
+            user2_rng,
         );
 
-        let mut user1_2rng = thread_rng();
-        let user1_2 = user1.clone_without_rng(&mut user1_2rng);
+        let user1_2rng = Box::new(thread_rng());
+        let user1_2 = user1.clone_without_rng(user1_2rng);
 
-        let mut user3_rng = thread_rng();
+        let user3_rng = Box::new(thread_rng());
         let mut user3 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[4]).unwrap(),
-            &mut user3_rng,
+            user3_rng,
         );
-        let mut user4_rng = thread_rng();
+        let user4_rng = Box::new(thread_rng());
         let mut user4 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[5]).unwrap(),
-            &mut user4_rng,
+            user4_rng,
         );
 
         // Create aggregation
@@ -1156,8 +1158,8 @@ mod tests {
 
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
 
-            let mut user2_clone_rng = thread_rng();
-            let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
+            let mut user2_clone_rng = Box::new(thread_rng());
+            let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
             aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
@@ -1179,8 +1181,8 @@ mod tests {
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
             let verifier_aggregation = aggregation.add_co_path(user2.get_public_art()).unwrap();
 
-            let mut user2_clone_rng = thread_rng();
-            let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
+            let user2_clone_rng = Box::new(thread_rng());
+            let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
             aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
@@ -1198,8 +1200,8 @@ mod tests {
 
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
 
-            let mut user2_clone_rng = thread_rng();
-            let mut user2_clone = user2.clone_without_rng(&mut user2_clone_rng);
+            let user2_clone_rng = Box::new(thread_rng());
+            let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
             aggregation.update(&mut user2_clone).unwrap();
 
             assert_eq!(
@@ -1257,8 +1259,8 @@ mod tests {
             verifier_aggregation, extracted_verifier_aggregation,
         );
 
-        let mut user1_2_rng = thread_rng();
-        let mut user1_clone = user1_2.clone_without_rng(&mut user1_2_rng);
+        let mut user1_2_rng = Box::new(thread_rng());
+        let mut user1_clone = user1_2.clone_without_rng(user1_2_rng);
         agg.update(&mut user1_clone).unwrap();
         agg.update(&mut user2).unwrap();
 
@@ -1291,8 +1293,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user0_rng = Box::new(thread_rng());
+        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
 
         let user3_path = NodeIndex::from(
             user0
@@ -1330,8 +1332,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user0_rng = Box::new(thread_rng());
+        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
         let mut user1 =
             PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
 
@@ -1367,8 +1369,8 @@ mod tests {
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
         let user0 = PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap();
-        let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user0_rng = Box::new(thread_rng());
+        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
 
         let mut pub_art = user0.get_public_art().clone();
 
@@ -1394,10 +1396,10 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let mut user0_rng = thread_rng();
+        let user0_rng = Box::new(thread_rng());
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
-            &mut user0_rng,
+            user0_rng,
         );
 
         let mut pub_art = user0.get_public_art().clone();

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use crate::art::ArtUpdateOutput;
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
@@ -19,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
+use std::rc::Rc;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Output of ART aggregation with additional data for proof creation.
@@ -441,7 +443,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     pub fn update_key<'a, R>(
         &mut self,
         new_secret_key: Fr,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
     ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
@@ -463,11 +465,11 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, change, artefacts))
     }
 
-    pub fn remove_member<'a, R>(
+    pub fn remove_member<R>(
         &mut self,
         path: &[Direction],
         temporary_secret_key: Fr,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
     ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
@@ -509,10 +511,10 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, change, artefacts))
     }
 
-    pub fn add_member<'a, R>(
+    pub fn add_member<R>(
         &mut self,
         secret_key: Fr,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
     ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
@@ -542,7 +544,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         };
 
         self.extend(
-            &mut art.rng,
+            art.rng.as_mut(),
             &changes,
             &artefacts,
             BranchChangesTypeHint::AddMember {
@@ -554,10 +556,10 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, changes, artefacts))
     }
 
-    pub fn leave<'a, R>(
+    pub fn leave<R>(
         &mut self,
         new_secret_key: Fr,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
     ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
     where
         R: Rng + ?Sized,
@@ -741,6 +743,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
     use crate::changes::aggregations::{AggregatedChange, AggregationOutput};
     use crate::test_helper_tools::init_tracing;
@@ -755,10 +759,10 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let mut user0_rng = thread_rng();
+        let mut user0_rng = Box::new(thread_rng());
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
-            &mut user0_rng,
+            user0_rng,
         );
 
         let mut agg = AggregationOutput::default();

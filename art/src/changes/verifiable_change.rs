@@ -61,13 +61,13 @@ impl VerifiableChange<PublicZeroArt> for BranchChange<CortadoAffine> {
     }
 }
 
-impl<'a, R> VerifiableChange<PrivateZeroArt<'a, R>> for BranchChange<CortadoAffine>
+impl<R> VerifiableChange<PrivateZeroArt<R>> for BranchChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     fn verify(
         &self,
-        art: &PrivateZeroArt<'a, R>,
+        art: &PrivateZeroArt<R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
@@ -102,13 +102,13 @@ impl VerifiableChange<PublicZeroArt> for AggregatedChange<CortadoAffine> {
     }
 }
 
-impl<'a, R> VerifiableChange<PrivateZeroArt<'a, R>> for AggregatedChange<CortadoAffine>
+impl<R> VerifiableChange<PrivateZeroArt<R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     fn verify(
         &self,
-        art: &PrivateZeroArt<'a, R>,
+        art: &PrivateZeroArt<R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
@@ -158,13 +158,13 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
+        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng);
 
-        let mut test_rng = StdRng::seed_from_u64(rand::random());
+        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
-            &mut test_rng,
+            test_rng,
         );
 
         let new_secret_key = Fr::rand(&mut rng);
@@ -215,13 +215,13 @@ mod tests {
         let mut private_art = PrivateArt::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
+        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng);
 
-        let mut test_rng = StdRng::seed_from_u64(rand::random());
+        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
-            &mut test_rng,
+            test_rng,
         );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
@@ -269,13 +269,13 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
+        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng);
 
-        let mut test_rng = StdRng::seed_from_u64(rand::random());
+        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
-            &mut test_rng,
+            test_rng,
         );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
@@ -315,13 +315,13 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = StdRng::seed_from_u64(rand::random());
-        let mut art = PrivateZeroArt::new(private_art.clone(), &mut main_rng);
+        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng);
 
-        let mut test_rng = StdRng::seed_from_u64(rand::random());
+        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let mut test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
-            &mut test_rng,
+            test_rng,
         );
 
         let secret_key = art.get_leaf_secret_key().unwrap();
@@ -394,8 +394,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0_rng = thread_rng();
-        let mut user0 = PrivateZeroArt::new(user0, &mut user0_rng);
+        let mut user0_rng = Box::new(thread_rng());
+        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
         let mut user1 =
             PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
 

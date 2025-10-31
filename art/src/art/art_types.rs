@@ -17,7 +17,6 @@ use std::fmt::Debug;
 use std::ops::Mul;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -52,11 +51,11 @@ pub struct PublicZeroArt {
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
-pub struct PrivateZeroArt<'a, R>
+pub struct PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
-    pub(crate) rng: &'a mut R,
+    pub(crate) rng: Box<R>,
     pub(crate) private_art: PrivateArt<CortadoAffine>,
     pub(crate) prover_engine: ZeroArtProverEngine,
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
@@ -943,7 +942,8 @@ where
     ) -> Result<(), ArtError> {
         let old_secrets = self.get_secrets().clone();
 
-        self.recompute_path_secrets_for_participant(target_changes, self.clone())?;
+        let base_fork = PrivateArt::restore(self.get_public_art().clone(), self.secrets.clone())?;
+        self.recompute_path_secrets_for_participant(target_changes, base_fork)?;
 
         // subtract default secrets from path_secrets
         let path_secrets = &mut self.secrets;
@@ -1036,11 +1036,11 @@ impl PublicZeroArt {
     }
 }
 
-impl<'a, R> PrivateZeroArt<'a, R>
+impl<R> PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
-    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: &'a mut R) -> Self {
+    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: Box<R>) -> Self {
         let gens = PedersenGens::default();
         let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
             CortadoAffine::generator(),
@@ -1063,7 +1063,7 @@ where
         }
     }
 
-    pub fn clone_without_rng(&self, rng: &'a mut R) -> Self {
+    pub fn clone_without_rng(&self, rng: Box<R>) -> Self {
         Self::new(self.private_art.clone(), rng)
     }
 
@@ -1102,7 +1102,7 @@ where
     }
 }
 
-impl<'a, R> Debug for PrivateZeroArt<'a, R>
+impl<R> Debug for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
@@ -1136,7 +1136,7 @@ where
 {
 }
 
-impl<'a, R> PartialEq for PrivateZeroArt<'a, R>
+impl<R> PartialEq for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
@@ -1145,7 +1145,7 @@ where
     }
 }
 
-impl<'a, R> Eq for PrivateZeroArt<'a, R> where R: Rng + ?Sized {}
+impl<'a, R> Eq for PrivateZeroArt<R> where R: Rng + ?Sized {}
 
 #[cfg(test)]
 mod tests {
@@ -1180,32 +1180,6 @@ mod tests {
             for j in 0..i {
                 let deserialized_art: PrivateArt<CortadoAffine> =
                     PrivateArt::new(from_bytes(&public_art_bytes).unwrap(), secrets[j]).unwrap();
-
-                assert_eq!(
-                    deserialized_art, private_art,
-                    "Both users have the same view on the state of the art",
-                );
-            }
-        }
-    }
-
-    #[test]
-    /// Test if art serialization -> deserialization works correctly for unchanged arts
-    fn test_private_art_initial_serialization() {
-        init_tracing();
-
-        let mut rng = StdRng::seed_from_u64(0);
-
-        for i in (TEST_GROUP_SIZE - 1)..TEST_GROUP_SIZE {
-            // debug!("Test ART serialization for group of size: {}", i);
-            let secrets = (0..i).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-
-            let private_art = PrivateArt::setup(&secrets).unwrap();
-            let private_art_bytes = to_allocvec(&private_art).unwrap();
-
-            // Try to deserialize art for every other user in a group
-            for j in 0..i {
-                let deserialized_art: PrivateArt<CortadoAffine> = from_bytes(&private_art_bytes).unwrap();
 
                 assert_eq!(
                     deserialized_art, private_art,

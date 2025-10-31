@@ -30,8 +30,8 @@ fn general_example() {
 
     // For new art, creator provides the next method with set of secrets and some generator.
     let art = PrivateArt::setup(&secrets).unwrap();
-    let mut zero_art_rng = thread_rng();
-    let zero_art = PrivateZeroArt::new(art.clone(), &mut zero_art_rng);
+    let mut zero_art_rng = Box::new(thread_rng());
+    let zero_art = PrivateZeroArt::new(art.clone(), zero_art_rng);
 
     // PublicArt implements Derive for serialization.
     let encoded_representation = to_allocvec(art.get_public_art()).unwrap();
@@ -39,21 +39,21 @@ fn general_example() {
 
     // When rhe user receives his art, he can derive a new PrivateArt with his leaf secret key.
     let recovered_private_art = PrivateArt::new(public_art.clone(), secrets[0]).unwrap();
-    let mut recovered_art_rng = thread_rng();
-    let recovered_art = PrivateZeroArt::new(recovered_private_art, &mut recovered_art_rng);
+    let mut recovered_art_rng = Box::new(thread_rng());
+    let recovered_art = PrivateZeroArt::new(recovered_private_art, recovered_art_rng);
 
     assert_eq!(recovered_art, zero_art);
 
     // Assume art_i is i-th user art, which also knows i-th secret key.
-    let mut art_0_rng = thread_rng();
+    let mut art_0_rng = Box::new(thread_rng());
     let mut art_0 = PrivateZeroArt::new(
         PrivateArt::new(public_art.clone(), secrets[0]).unwrap(),
-        &mut art_0_rng,
+        art_0_rng,
     );
-    let mut art_1_rng = thread_rng();
+    let mut art_1_rng = Box::new(thread_rng());
     let mut art_1 = PrivateZeroArt::new(
         PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
-        &mut art_1_rng,
+        art_1_rng,
     );
     let new_secret_key_1 = Fr::rand(&mut rng);
 
@@ -184,8 +184,8 @@ fn branch_aggregation_proof_verify() {
         .unwrap();
 
     // Create zero_art to create proofs.
-    let mut zero_art0_rng = thread_rng();
-    let mut zero_art0 = PrivateZeroArt::new(art0, &mut zero_art0_rng);
+    let mut zero_art0_rng = Box::new(thread_rng());
+    let mut zero_art0 = PrivateZeroArt::new(art0, zero_art0_rng);
 
     // Create default aggregation
     let mut agg = AggregationOutput::default();

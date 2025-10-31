@@ -22,9 +22,9 @@ use zrt_zk::art::ArtProof;
 ///
 /// * `R` - a random number generator used during the proof generation process.
 pub trait ProvableChange {
-    fn prove<'a, R>(
+    fn prove<R>(
         &self,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
@@ -33,9 +33,9 @@ pub trait ProvableChange {
 }
 
 impl ProvableChange for ArtOperationOutput<CortadoAffine> {
-    fn prove<'a, R>(
+    fn prove<R>(
         &self,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
@@ -55,9 +55,9 @@ impl ProvableChange for ArtOperationOutput<CortadoAffine> {
 }
 
 impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> {
-    fn prove<'a, R>(
+    fn prove<R>(
         &self,
-        art: &mut PrivateZeroArt<'a, R>,
+        art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>

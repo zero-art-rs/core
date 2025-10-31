@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<'a, R> ArtBasicOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<'a, R>
+impl<R> ArtBasicOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<R>
 where
     R: ?Sized + Rng,
 {

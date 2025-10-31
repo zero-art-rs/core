@@ -60,11 +60,11 @@ impl ApplicableChange<PublicZeroArt> for BranchChange<CortadoAffine> {
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for BranchChange<CortadoAffine>
+impl<R> ApplicableChange<PrivateZeroArt<R>> for BranchChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
-    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
+    fn update(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
         self.update(&mut art.private_art)
     }
 }
@@ -134,11 +134,11 @@ impl ApplicableChange<PublicZeroArt> for AggregatedChange<CortadoAffine> {
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for AggregatedChange<CortadoAffine>
+impl<R> ApplicableChange<PrivateZeroArt<R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
-    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
+    fn update(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.private_art)
     }
 }
@@ -172,11 +172,11 @@ impl ApplicableChange<PublicZeroArt> for AggregationOutput<CortadoAffine> {
     }
 }
 
-impl<'a, R> ApplicableChange<PrivateZeroArt<'a, R>> for AggregationOutput<CortadoAffine>
+impl<R> ApplicableChange<PrivateZeroArt<R>> for AggregationOutput<CortadoAffine>
 where
     R: ?Sized + Rng,
 {
-    fn update(&self, art: &mut PrivateZeroArt<'a, R>) -> Result<(), ArtError> {
+    fn update(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
         let plain_aggregation = AggregatedChange::try_from(self)?;
         plain_aggregation.update_private_art(&mut art.private_art)
     }

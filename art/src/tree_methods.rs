@@ -152,7 +152,7 @@ impl TreeMethods<CortadoAffine> for PublicZeroArt {
     }
 }
 
-impl<'a, R> TreeMethods<CortadoAffine> for PrivateZeroArt<'a, R>
+impl<R> TreeMethods<CortadoAffine> for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
