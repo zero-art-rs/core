@@ -146,6 +146,44 @@ where
     }
 }
 
+impl ApplicableChange<PublicZeroArt>
+for MergeBranchChange<PublicZeroArt, BranchChange<CortadoAffine>>
+{
+    fn update(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
+        if let Some((base_fork, change)) = &self.applied_helper_data {
+            _ = mem::replace(&mut art.public_art, base_fork.public_art.clone());
+            let changes = [vec![change.clone()], self.unapplied_changes.clone()]
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            art.public_art.merge_all(&changes)?;
+        } else {
+            art.public_art.merge_all(&self.unapplied_changes)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<R> ApplicableChange<PrivateZeroArt<R>>
+for MergeBranchChange<PrivateZeroArt<R>, BranchChange<CortadoAffine>>
+where
+    R: Rng + ?Sized,
+{
+    fn update(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
+        if let Some((base_fork, applied_change)) = &self.applied_helper_data {
+            art.private_art.merge_for_participant(
+                applied_change.clone(),
+                &self.unapplied_changes,
+                base_fork.private_art.clone(),
+            )
+        } else {
+            art.private_art.merge_for_observer(&self.unapplied_changes)
+        }
+    }
+}
+
 impl<G> ApplicableChange<PublicArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
