@@ -25,6 +25,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 use tracing::debug;
+use tracing_subscriber::field::debug;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, CanonicalSerialize, CanonicalDeserialize)]
@@ -454,7 +455,8 @@ impl<'a> ZeroArtProverContext<'a> {
         let commitments = commitments
             .iter()
             .map(|(a_commitment, _)| a_commitment.clone())
-            .chain(std::iter::once(commitments.last().unwrap().1.clone()))
+            //.chain(std::iter::once(commitments.last().unwrap().1.clone()))
+            .chain(commitments.last().map(|last| last.1.clone()).into_iter())
             .collect::<Vec<_>>();
 
         debug!(
@@ -551,7 +553,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
             1,
         );
 
-        assert!(k == commitments.len() - 1, "length mismatch");
+        assert!(k == 0 || (k == commitments.len() - 1), "length mismatch");
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad);
         let mut verifier = Verifier::new(&mut transcript);
@@ -597,8 +599,8 @@ impl<'a> ZeroArtVerifierContext<'a> {
             estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
             1,
         );
-        assert!(k == commitments.len() - 1, "length mismatch");
 
+        assert!(k == 0 || (k == commitments.len() - 1), "length mismatch");
         let bp_gens = Arc::new(bp_gens.clone());
         let bp_gens = Arc::clone(&bp_gens);
 
@@ -848,7 +850,7 @@ mod tests {
             .with_target(false)
             .try_init();
 
-        for i in 1..16 {
+        for i in 0..16 {
             art_roundtrip(i).unwrap();
         }
     }
