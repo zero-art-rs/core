@@ -1,7 +1,7 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::changes::aggregations::{AggregatedChange, AggregationContext};
+use crate::changes::aggregations::{AggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, MergeBranchChange};
 use crate::errors::ArtError;
 use ark_ec::AffineRepr;
@@ -216,45 +216,6 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.private_art)
-    }
-}
-
-impl<G> ApplicableChange<PublicArt<G>> for AggregationContext<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(self)?;
-        plain_aggregation.update_public_art(art)
-    }
-}
-
-impl<G> ApplicableChange<PrivateArt<G>> for AggregationContext<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(self)?;
-        plain_aggregation.update_private_art(art)
-    }
-}
-
-impl ApplicableChange<PublicZeroArt> for AggregationContext<CortadoAffine> {
-    fn apply(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(self)?;
-        plain_aggregation.update_public_art(&mut art.public_art)
-    }
-}
-
-impl<R> ApplicableChange<PrivateZeroArt<R>> for AggregationContext<CortadoAffine>
-where
-    R: ?Sized + Rng,
-{
-    fn apply(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(self)?;
-        plain_aggregation.update_private_art(&mut art.private_art)
     }
 }
 

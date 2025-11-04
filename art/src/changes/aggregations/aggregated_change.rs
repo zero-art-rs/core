@@ -1,4 +1,4 @@
-use crate::art::ArtUpdateOutput;
+use crate::art::{AggregationContext, ArtUpdateOutput};
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
@@ -18,10 +18,11 @@ use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
+use curve25519_dalek::digest::generic_array::sequence::Concat;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
-/// Output of ART aggregation with additional data for proof creation.
-pub type AggregationContext<G> = ChangeAggregation<ProverAggregationData<G>>;
+// /// Output of ART aggregation with additional data for proof creation.
+// pub type AggregationContext<G> = ChangeAggregation<ProverAggregationData<G>>;
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
@@ -419,7 +420,7 @@ where
 }
 
 impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
-    pub fn extend<R>(
+    pub(crate) fn extend<R>(
         &mut self,
         rng: &mut R,
         changes: &BranchChange<CortadoAffine>,
@@ -437,7 +438,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
-    pub fn update_key<'a, R>(
+    pub(crate) fn update_key<'a, R>(
         &mut self,
         new_secret_key: Fr,
         art: &mut PrivateZeroArt<R>,
@@ -462,7 +463,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, change, artefacts))
     }
 
-    pub fn remove_member<R>(
+    pub(crate) fn remove_member<R>(
         &mut self,
         path: &[Direction],
         temporary_secret_key: Fr,
@@ -508,7 +509,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, change, artefacts))
     }
 
-    pub fn add_member<R>(
+    pub(crate) fn add_member<R>(
         &mut self,
         secret_key: Fr,
         art: &mut PrivateZeroArt<R>,
@@ -553,7 +554,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, changes, artefacts))
     }
 
-    pub fn leave<R>(
+    pub(crate) fn leave<R>(
         &mut self,
         new_secret_key: Fr,
         art: &mut PrivateZeroArt<R>,
@@ -741,7 +742,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::changes::aggregations::{AggregatedChange, AggregationContext};
+    use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;
@@ -754,13 +755,13 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let mut user0_rng = Box::new(thread_rng());
+        let user0_rng = Box::new(thread_rng());
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
             user0_rng,
         );
 
-        let mut agg = AggregationContext::default();
+        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
         for _ in 0..8 {
             agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         }

@@ -6,9 +6,9 @@ use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
 use zrt_art::TreeMethods;
-use zrt_art::art::ArtAdvancedOps;
+use zrt_art::art::{AggregationContext, ArtAdvancedOps};
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::changes::aggregations::{AggregatedChange, AggregationContext};
+use zrt_art::changes::aggregations::{AggregatedChange};
 use zrt_art::changes::branch_change::{BranchChange, MergeBranchChange};
 use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
 use zrt_art::node_index::NodeIndex;
@@ -182,20 +182,21 @@ fn branch_aggregation_proof_verify() {
     let target_3 = art0
         .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
         .unwrap();
+    let target_3_index = NodeIndex::from(target_3);
 
     // Create zero_art to create proofs.
     let mut zero_art0_rng = Box::new(thread_rng());
     let mut zero_art0 = PrivateZeroArt::new(art0, zero_art0_rng);
 
     // Create default aggregation
-    let mut agg = AggregationContext::default();
+    let mut agg = AggregationContext::new(zero_art0.clone());
 
     // Perform some changes
-    agg.add_member(Fr::rand(&mut rng), &mut zero_art0).unwrap();
-    agg.remove_member(&target_3, Fr::rand(&mut rng), &mut zero_art0)
+    agg.add_member(Fr::rand(&mut rng)).unwrap();
+    agg.remove_member(&target_3_index, Fr::rand(&mut rng))
         .unwrap();
-    agg.add_member(Fr::rand(&mut rng), &mut zero_art0).unwrap();
-    agg.leave(Fr::rand(&mut rng), &mut zero_art0).unwrap();
+    agg.add_member(Fr::rand(&mut rng)).unwrap();
+    agg.leave_group(Fr::rand(&mut rng)).unwrap();
 
     // Gather associated data
     let associated_data = b"associated data";

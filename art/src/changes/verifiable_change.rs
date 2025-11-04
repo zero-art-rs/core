@@ -126,10 +126,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
-    use crate::art::ArtAdvancedOps;
+    use crate::art::{AggregationContext, ArtAdvancedOps};
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, AggregationContext, ChangeAggregation,
+        AggregatedChange, AggregationData, ChangeAggregation,
         VerifierAggregationData,
     };
     use crate::changes::branch_change::BranchChange;
@@ -403,10 +403,10 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = AggregationContext::default();
+        let mut agg = AggregationContext::new(user0.clone());
 
         for i in 0..4 {
-            agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+            agg.add_member(Fr::rand(&mut rng)).unwrap();
         }
 
         let associated_data = b"data";
@@ -435,9 +435,9 @@ mod tests {
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let fromed_agg =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg.prover_aggregation).unwrap();
 
-        let extracted_agg = plain_agg.add_co_path(&user0.get_public_art()).unwrap();
+        let extracted_agg = plain_agg.add_co_path(&agg.operation_tree.get_public_art()).unwrap();
         assert_eq!(
             fromed_agg, extracted_agg,
             "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
@@ -446,6 +446,6 @@ mod tests {
 
         plain_agg.apply(&mut user1).unwrap();
 
-        assert_eq!(user0.get_private_art(), &user1);
+        assert_eq!(agg.operation_tree.get_private_art(), &user1);
     }
 }

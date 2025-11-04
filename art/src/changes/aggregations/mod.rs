@@ -8,7 +8,7 @@ pub mod aggregated_node;
 pub mod aggregation_data;
 pub mod related_data;
 
-pub use aggregated_change::{AggregatedChange, AggregationContext, ChangeAggregation};
+pub use aggregated_change::{AggregatedChange, ChangeAggregation};
 pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};
 pub use aggregation_data::{
     AggregationData, EmptyData, ProverAggregationData, VerifierAggregationData,

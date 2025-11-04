@@ -21,26 +21,25 @@ use zrt_zk::art::ArtProof;
 /// # Type Parameters
 ///
 /// * `R` - a random number generator used during the proof generation process.
-pub trait ProvableChange {
-    fn prove<R>(
+pub trait ProvableChange<T> {
+    fn prove(
         &self,
-        art: &mut PrivateZeroArt<R>,
+        art: &mut T,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
-    ) -> Result<ArtProof, ArtError>
-    where
-        R: Rng + ?Sized;
+    ) -> Result<ArtProof, ArtError>;
 }
 
-impl ProvableChange for ArtOperationOutput<CortadoAffine> {
-    fn prove<R>(
+impl<R> ProvableChange<PrivateZeroArt<R>> for ArtOperationOutput<CortadoAffine>
+where
+    R: Rng + ?Sized,
+{
+    fn prove(
         &self,
         art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
-    where
-        R: Rng + ?Sized,
     {
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
@@ -54,15 +53,16 @@ impl ProvableChange for ArtOperationOutput<CortadoAffine> {
     }
 }
 
-impl ProvableChange for ChangeAggregation<ProverAggregationData<CortadoAffine>> {
-    fn prove<R>(
+impl<R> ProvableChange<PrivateZeroArt<R>> for ChangeAggregation<ProverAggregationData<CortadoAffine>>
+where
+    R: Rng + ?Sized,
+{
+    fn prove(
         &self,
         art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
-    where
-        R: Rng + ?Sized,
     {
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
