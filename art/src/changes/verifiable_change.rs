@@ -35,7 +35,7 @@ pub trait VerifiableChange<T>: ApplicableChange<T> {
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
         self.verify(&*art, ad, eligibility_requirement, proof)?;
-        self.update(art)?;
+        self.apply(art)?;
 
         Ok(())
     }
@@ -129,7 +129,7 @@ mod tests {
     use crate::art::ArtAdvancedOps;
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, AggregationOutput, ChangeAggregation,
+        AggregatedChange, AggregationData, AggregationContext, ChangeAggregation,
         VerifierAggregationData,
     };
     use crate::changes::branch_change::BranchChange;
@@ -357,7 +357,7 @@ mod tests {
             verification_result
         );
 
-        make_blank_changes.update(&mut test_art).unwrap();
+        make_blank_changes.apply(&mut test_art).unwrap();
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
         let proof2 = append_node_changes_output
@@ -403,7 +403,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
 
         for i in 0..4 {
             agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -444,7 +444,7 @@ mod tests {
             fromed_agg, extracted_agg,
         );
 
-        plain_agg.update(&mut user1).unwrap();
+        plain_agg.apply(&mut user1).unwrap();
 
         assert_eq!(user0.get_private_art(), &user1);
     }

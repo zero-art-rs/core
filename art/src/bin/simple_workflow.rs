@@ -8,7 +8,7 @@ use std::ops::Mul;
 use zrt_art::TreeMethods;
 use zrt_art::art::ArtAdvancedOps;
 use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use zrt_art::changes::aggregations::{AggregatedChange, AggregationOutput};
+use zrt_art::changes::aggregations::{AggregatedChange, AggregationContext};
 use zrt_art::changes::branch_change::{BranchChange, MergeBranchChange};
 use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
 use zrt_art::node_index::NodeIndex;
@@ -65,7 +65,7 @@ fn general_example() {
     let _retrieved_tk_1 = art_0.get_root_secret_key();
 
     // Other users can use returned change to update local tree. Fot example, this can be done as next:
-    change_1.update(&mut art_0).unwrap();
+    change_1.apply(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
     // Other art modifications include addition and blanking.
@@ -74,7 +74,7 @@ fn general_example() {
     let output_2 = art_1.add_member(new_node1_secret_key).unwrap();
     let changes_2 = BranchChange::from(output_2);
 
-    changes_2.update(&mut art_0).unwrap();
+    changes_2.apply(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
     // Remove member from the tree, by making his node temporary.
@@ -89,7 +89,7 @@ fn general_example() {
         .remove_member(&target_node_index, some_secret_key1)
         .unwrap();
     let changes_3 = BranchChange::from(output_3);
-    changes_3.update(&mut art_0).unwrap();
+    changes_3.apply(&mut art_0).unwrap();
     assert_eq!(art_0, art_1);
 
     // For proof generation, use pass required data for proof creation, to change creation method.
@@ -154,12 +154,12 @@ fn merge_conflict_changes() {
         applied_change.clone(),
         all_but_0_changes.clone(),
     );
-    participant_merge_change.update(&mut participant).unwrap();
+    participant_merge_change.apply(&mut participant).unwrap();
 
     // Merge for users which only observed the merge conflict
     let mut observer = art1.clone();
     let observer_merge_change = MergeBranchChange::new_for_observer(all_changes);
-    observer_merge_change.update(&mut observer).unwrap();
+    observer_merge_change.apply(&mut observer).unwrap();
 
     assert_eq!(
         participant, observer,
@@ -188,7 +188,7 @@ fn branch_aggregation_proof_verify() {
     let mut zero_art0 = PrivateZeroArt::new(art0, zero_art0_rng);
 
     // Create default aggregation
-    let mut agg = AggregationOutput::default();
+    let mut agg = AggregationContext::default();
 
     // Perform some changes
     agg.add_member(Fr::rand(&mut rng), &mut zero_art0).unwrap();
@@ -212,7 +212,7 @@ fn branch_aggregation_proof_verify() {
         .unwrap();
 
     // Finally update private art with the `extracted_agg` aggregation.
-    plain_agg.update(&mut art1).unwrap();
+    plain_agg.apply(&mut art1).unwrap();
 
     assert_eq!(zero_art0.get_public_art(), art1.get_public_art());
     assert_eq!(zero_art0.get_root_secret_key(), art1.get_root_secret_key());
@@ -245,7 +245,7 @@ fn branch_aggregation() {
     agg.leave(Fr::rand(&mut rng), &mut art0).unwrap();
 
     // Finally update private art with the `agg` plain aggregation.
-    agg.update(&mut art1).unwrap();
+    agg.apply(&mut art1).unwrap();
 
     assert_eq!(art0.get_public_art(), art1.get_public_art());
     assert_eq!(art0.get_root_secret_key(), art1.get_root_secret_key());

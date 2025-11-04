@@ -50,12 +50,6 @@ where
     pub(crate) eligibility: EligibilityArtefact,
 }
 
-fn tmp<G>(a: ArtOperationOutput<G>)
-where
-    G: AffineRepr,
-{
-}
-
 impl<G> ArtOperationOutput<G>
 where
     G: AffineRepr,

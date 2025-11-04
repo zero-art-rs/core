@@ -15,16 +15,13 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::ops::Mul;
-use std::rc::Rc;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Output of ART aggregation with additional data for proof creation.
-pub type AggregationOutput<G> = ChangeAggregation<ProverAggregationData<G>>;
+pub type AggregationContext<G> = ChangeAggregation<ProverAggregationData<G>>;
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
@@ -744,14 +741,12 @@ where
 #[cfg(test)]
 mod tests {
     use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::changes::aggregations::{AggregatedChange, AggregationOutput};
+    use crate::changes::aggregations::{AggregatedChange, AggregationContext};
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     #[test]
     fn test_aggregation_serialization() {
@@ -765,7 +760,7 @@ mod tests {
             user0_rng,
         );
 
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
         for _ in 0..8 {
             agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         }

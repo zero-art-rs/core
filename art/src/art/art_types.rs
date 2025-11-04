@@ -421,6 +421,38 @@ where
 
         Ok(())
     }
+
+    pub(crate) fn merge_by_marker(&mut self, public_keys: &[G], path: &[Direction]) -> Result<(), ArtError> {
+        let mut parent_node = self.get_mut_root();
+        let mut merge_key = parent_node.is_marked();
+
+        parent_node.set_public_key_with_options(public_keys[0], merge_key);
+        parent_node.set_marker(true);
+
+
+        // let path =  change.node_index.get_path()?;
+        for (dir, pk) in path.iter().zip(public_keys[1..].iter()) {
+            if !merge_key {
+                let neighbour_node = parent_node.get_mut_child(dir.other()).ok_or(ArtError::PathNotExists)?;
+                neighbour_node.set_marker(false);
+            }
+
+            let child_node = parent_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
+
+            child_node.set_public_key_with_options(*pk, child_node.is_marked() && merge_key);
+            child_node.set_marker(true);
+
+            parent_node = child_node;
+
+            if merge_key && !parent_node.is_marked() {
+                    merge_key = false;
+            }
+        }
+
+
+
+        Ok(())
+    }
 }
 
 impl<G> PrivateArt<G>

@@ -176,7 +176,7 @@ mod tests {
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationOutput,
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationContext,
         ChangeAggregation, VerifierAggregationData,
     };
     use crate::changes::branch_change::MergeBranchChange;
@@ -285,7 +285,7 @@ mod tests {
         );
         assert_eq!(user1.get_leaf_secret_key(), secret_key_3,);
 
-        change_key_update.update(&mut user0).unwrap();
+        change_key_update.apply(&mut user0).unwrap();
         assert_eq!(
             user0
                 .get_node(&changes.node_index)
@@ -381,10 +381,10 @@ mod tests {
         );
 
         // Sync other users art
-        remove_member_change1.update(&mut user1).unwrap();
-        remove_member_change1.update(&mut user3).unwrap();
+        remove_member_change1.apply(&mut user1).unwrap();
+        remove_member_change1.apply(&mut user3).unwrap();
 
-        let err = remove_member_change1.update(&mut user2).err();
+        let err = remove_member_change1.apply(&mut user2).err();
         assert!(
             matches!(err, Some(ArtError::InapplicableBlanking)),
             "Must fail to perform art update using blank leaf, but got {:?}.",
@@ -454,8 +454,8 @@ mod tests {
         );
 
         // Sync other users art
-        remove_member_change2.update(&mut user0).unwrap();
-        remove_member_change2.update(&mut user3).unwrap();
+        remove_member_change2.apply(&mut user0).unwrap();
+        remove_member_change2.apply(&mut user3).unwrap();
 
         assert_eq!(
             user0.get_root_secret_key(),
@@ -533,7 +533,7 @@ mod tests {
         }
 
         let test_user_id = 12;
-        changes.update(&mut users_arts[test_user_id]).unwrap();
+        changes.apply(&mut users_arts[test_user_id]).unwrap();
         let new_key = main_user_art.get_root_secret_key();
         assert_eq!(users_arts[test_user_id].get_root_secret_key(), new_key);
 
@@ -544,7 +544,7 @@ mod tests {
 
         for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
             if i != main_user_id {
-                changes.update(&mut users_arts[i]).unwrap();
+                changes.apply(&mut users_arts[i]).unwrap();
                 assert_eq!(users_arts[i].get_root_secret_key(), recomputed_old_key);
             }
         }
@@ -598,7 +598,7 @@ mod tests {
         );
 
         // User1 updates his art.
-        key_update_change0.update(&mut user1).unwrap();
+        key_update_change0.apply(&mut user1).unwrap();
         let new_sk1 = Fr::rand(&mut rng);
         let key_update_change1 = user1.update_key(new_sk1).unwrap();
         let tk_r1 = user1.get_root_secret_key();
@@ -609,8 +609,8 @@ mod tests {
         );
 
         // User2 updates his art.
-        key_update_change0.update(&mut user2).unwrap();
-        key_update_change1.update(&mut user2).unwrap();
+        key_update_change0.apply(&mut user2).unwrap();
+        key_update_change1.apply(&mut user2).unwrap();
         let new_sk2 = Fr::rand(&mut rng);
         let key_update_change2 = user2.update_key(new_sk2).unwrap();
         let tk_r2 = user2.get_root_secret_key();
@@ -621,9 +621,9 @@ mod tests {
         );
 
         // Update art for other users.
-        key_update_change1.update(&mut user3).unwrap();
-        key_update_change0.update(&mut user3).unwrap();
-        key_update_change2.update(&mut user3).unwrap();
+        key_update_change1.apply(&mut user3).unwrap();
+        key_update_change0.apply(&mut user3).unwrap();
+        key_update_change2.apply(&mut user3).unwrap();
 
         assert_ne!(
             user3.get_root(),
@@ -667,8 +667,8 @@ mod tests {
         let tk_r0 = user0.get_root_secret_key();
 
         // Update art for other users.
-        key_update_change0.update(&mut user1).unwrap();
-        key_update_change0.update(&mut user1).unwrap();
+        key_update_change0.apply(&mut user1).unwrap();
+        key_update_change0.apply(&mut user1).unwrap();
 
         assert_eq!(
             user0, user1,
@@ -788,7 +788,7 @@ mod tests {
 
         // User1 fails to update his art.
         assert!(matches!(
-            key_update_change0.update(&mut user1),
+            key_update_change0.apply(&mut user1),
             Err(ArtError::InapplicableKeyUpdate)
         ));
     }
@@ -1053,7 +1053,7 @@ mod tests {
         let all_changes = vec![changes1, changes2, changes3, changes4];
         let observer_merge_change = MergeBranchChange::new_for_observer(all_changes.clone());
         for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
-            observer_merge_change.update(&mut user_arts[i]).unwrap();
+            observer_merge_change.apply(&mut user_arts[i]).unwrap();
 
             let tk = user_arts[i].get_root_secret_key();
 
@@ -1071,12 +1071,12 @@ mod tests {
         let post_merge_sk = Fr::rand(&mut rng);
         let post_change = art1.update_key(post_merge_sk).unwrap();
 
-        post_change.update(&mut art2).unwrap();
+        post_change.apply(&mut art2).unwrap();
 
         assert_eq!(art1, art2);
 
         for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
-            post_change.update(&mut user_arts[i]).unwrap();
+            post_change.apply(&mut user_arts[i]).unwrap();
             assert_eq!(art1, art2);
         }
     }
@@ -1121,7 +1121,7 @@ mod tests {
         );
 
         // Create aggregation
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
 
         let sk1 = Fr::rand(&mut rng);
         let sk2 = Fr::rand(&mut rng);
@@ -1152,7 +1152,7 @@ mod tests {
 
             let mut user2_clone_rng = Box::new(thread_rng());
             let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
-            aggregation.update(&mut user2_clone).unwrap();
+            aggregation.apply(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -1175,7 +1175,7 @@ mod tests {
 
             let user2_clone_rng = Box::new(thread_rng());
             let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
-            aggregation.update(&mut user2_clone).unwrap();
+            aggregation.apply(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -1194,7 +1194,7 @@ mod tests {
 
             let user2_clone_rng = Box::new(thread_rng());
             let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
-            aggregation.update(&mut user2_clone).unwrap();
+            aggregation.apply(&mut user2_clone).unwrap();
 
             assert_eq!(
                 user1,
@@ -1253,8 +1253,8 @@ mod tests {
 
         let mut user1_2_rng = Box::new(thread_rng());
         let mut user1_clone = user1_2.clone_without_rng(user1_2_rng);
-        agg.update(&mut user1_clone).unwrap();
-        agg.update(&mut user2).unwrap();
+        agg.apply(&mut user1_clone).unwrap();
+        agg.apply(&mut user2).unwrap();
 
         assert_eq!(
             user1,
@@ -1299,7 +1299,7 @@ mod tests {
             .unwrap();
 
         // Create aggregation
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
 
         let sk1 = Fr::rand(&mut rng);
 
@@ -1334,7 +1334,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
 
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -1349,7 +1349,7 @@ mod tests {
         let plain_agg =
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
-        plain_agg.update(&mut user1).unwrap();
+        plain_agg.apply(&mut user1).unwrap();
 
         assert_eq!(user0.get_private_art(), &user1);
     }
@@ -1367,7 +1367,7 @@ mod tests {
         let mut pub_art = user0.get_public_art().clone();
 
         let mut prover_rng = thread_rng();
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
@@ -1377,7 +1377,7 @@ mod tests {
         agg.update_key(Fr::rand(&mut rng), &mut user0).unwrap();
 
         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
-        plain_agg.update(&mut pub_art).unwrap();
+        plain_agg.apply(&mut pub_art).unwrap();
 
         assert_eq!(&pub_art, user0.get_public_art())
     }
@@ -1396,12 +1396,12 @@ mod tests {
 
         let mut pub_art = user0.get_public_art().clone();
 
-        let mut agg = AggregationOutput::default();
+        let mut agg = AggregationContext::default();
         agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
 
         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
 
-        plain_agg.update(&mut pub_art).unwrap();
+        plain_agg.apply(&mut pub_art).unwrap();
 
         assert_eq!(
             &pub_art,

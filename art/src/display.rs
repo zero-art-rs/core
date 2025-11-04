@@ -4,6 +4,7 @@ use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
+use crate::helper_tools::prepare_short_marker;
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {
@@ -36,21 +37,27 @@ where
         };
 
         let pk_marker = match node.get_public_key().x() {
-            Some(x) => x.to_string(),
+            Some(x) => prepare_short_marker(&x.to_string()),
             None => "None".to_string(),
+        };
+
+        let mark_marker = match node.is_marked() {
+            true => "+",
+            false => "-",
         };
 
         match node {
             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
                 public_key: format!(
-                    "{} leaf of weight: {}, x: {}",
+                    "{} {} leaf of weight: {}, x: {}",
+                    mark_marker,
                     blank_marker,
                     node.get_weight(),
                     pk_marker,
                 ),
             },
             ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-                public_key: format!("Node of weight: {}, x: {}", node.get_weight(), pk_marker,),
+                public_key: format!("{} node of weight: {}, x: {}", mark_marker, node.get_weight(), pk_marker,),
                 left: Box::new(ARTDisplayTree::from(l.as_ref())),
                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
             },

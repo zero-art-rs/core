@@ -137,7 +137,7 @@ mod tests {
             let old_sk = group_arts[i].get_secrets()[0];
 
             if i != target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                change.apply(&mut group_arts[i]).unwrap()
             }
 
             assert_eq!(
@@ -191,7 +191,7 @@ mod tests {
             let old_sk = group_arts[i].get_secrets()[0];
 
             if i != target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                change.apply(&mut group_arts[i]).unwrap()
             }
 
             assert_eq!(
@@ -208,8 +208,8 @@ mod tests {
                 group_arts[i].get_node_index(),
             );
             assert_eq!(
-                group_arts[target_user].get_root_secret_key().unwrap(),
-                group_arts[i].get_root_secret_key().unwrap(),
+                group_arts[target_user].get_root_secret_key(),
+                group_arts[i].get_root_secret_key(),
                 "Both users have the same view on the state of the art.",
             );
             assert_eq!(
@@ -270,7 +270,7 @@ mod tests {
             }
 
             if i != target_user && i != blank_target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                change.apply(&mut group_arts[i]).unwrap()
             }
 
             assert_eq!(

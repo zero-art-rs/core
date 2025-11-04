@@ -5,10 +5,12 @@ mod art_basic_operations;
 pub mod art_node;
 pub mod art_types;
 mod artefacts;
+mod merge_context;
 
 pub use art_advanced_operations::ArtAdvancedOps;
 pub use art_basic_operations::ArtBasicOps;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
+pub use merge_context::{PublicMergeContext, PrivateMergeContext};
 
 /// Helper data type, returned after the most art update operations.
 pub(crate) type ArtLevel<G> = (
