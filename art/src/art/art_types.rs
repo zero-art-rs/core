@@ -14,7 +14,7 @@ use bulletproofs::PedersenGens;
 use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::ops::Mul;
+use std::rc::Rc;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
@@ -60,7 +60,7 @@ where
 {
     pub(crate) rng: Box<R>,
     pub(crate) private_art: PrivateArt<CortadoAffine>,
-    pub(crate) prover_engine: ZeroArtProverEngine,
+    pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
@@ -1089,10 +1089,10 @@ where
         Self {
             rng,
             private_art,
-            prover_engine: ZeroArtProverEngine::new(
+            prover_engine: Rc::new(ZeroArtProverEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
-            ),
+            )),
             verifier_engine: ZeroArtVerifierEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),

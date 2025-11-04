@@ -7,8 +7,13 @@ use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
+use curve25519_dalek::digest::generic_array::sequence::Concat;
+use cortado::CortadoAffine;
+use zrt_zk::art::ProverNodeData;
 use zrt_zk::EligibilityArtefact;
+use zrt_zk::engine::ZeroArtProverEngine;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -40,30 +45,36 @@ where
 
 /// Helper data structure, which along with the `branch_change` of a the contain additional
 /// artefacts, which can be used to create a proof.
-#[derive(Debug, Clone)]
-pub struct ArtOperationOutput<G>
+#[derive(Clone)]
+pub struct PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
     pub(crate) branch_change: BranchChange<G>,
-    pub(crate) artefacts: ProverArtefacts<G>,
+    pub(crate) prover_branch: Vec<ProverNodeData<G>>,
     pub(crate) eligibility: EligibilityArtefact,
+    pub(crate) secret: G::ScalarField,
+    pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
 }
 
-impl<G> ArtOperationOutput<G>
+impl<G> PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
     pub fn new(
         branch_change: BranchChange<G>,
-        artefacts: ProverArtefacts<G>,
+        prover_branch: Vec<ProverNodeData<G>>,
         eligibility: EligibilityArtefact,
-    ) -> Self {
-        Self {
+        secret: G::ScalarField,
+        prover_engine: Rc<ZeroArtProverEngine>,
+    ) -> Result<Self, ArtError> {
+        Ok(Self {
             branch_change,
-            artefacts,
+            prover_branch,
             eligibility,
-        }
+            secret,
+            prover_engine,
+        })
     }
 
     pub fn get_branch_change(&self) -> &BranchChange<G> {
@@ -75,11 +86,11 @@ where
     }
 }
 
-impl<G> From<ArtOperationOutput<G>> for BranchChange<G>
+impl<G> From<PrivateBranchChange<G>> for BranchChange<G>
 where
     G: AffineRepr,
 {
-    fn from(output: ArtOperationOutput<G>) -> Self {
+    fn from(output: PrivateBranchChange<G>) -> Self {
         output.branch_change
     }
 }

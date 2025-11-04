@@ -97,7 +97,7 @@ fn general_example() {
     let associated_data = b"associated data";
     let some_secret_key4 = Fr::rand(&mut rng);
     let output_4 = art_1.update_key(some_secret_key4).unwrap();
-    let proof = output_4.prove(&mut art_1, associated_data, None).unwrap();
+    let proof = output_4.prove(associated_data, None).unwrap();
     let changes_4 = BranchChange::from(output_4);
 
     // To verify the change, one pass eligibility_requirement with proof to verify method.
@@ -202,7 +202,7 @@ fn branch_aggregation_proof_verify() {
     let associated_data = b"associated data";
 
     // Create verifiable aggregation.
-    let proof = agg.prove(&mut zero_art0, associated_data, None).unwrap();
+    let proof = agg.prove(associated_data, None).unwrap();
     let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
     // Aggregation verification is similar to usual change aggregation.

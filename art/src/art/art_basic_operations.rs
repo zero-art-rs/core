@@ -1,5 +1,5 @@
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::changes::branch_change::{ArtOperationOutput, BranchChange};
+use crate::changes::branch_change::{PrivateBranchChange, BranchChange};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<R> ArtBasicOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<R>
+impl<R> ArtBasicOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<R>
 where
     R: ?Sized + Rng,
 {
@@ -51,7 +51,7 @@ where
         target_leaf: &NodeIndex,
         new_key: Fr,
         append_changes: bool,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let eligibility =
             EligibilityArtefact::Member((self.get_leaf_secret_key(), self.get_leaf_public_key()));
 
@@ -59,23 +59,27 @@ where
             self.private_art
                 .private_update_node_key(target_leaf, new_key, append_changes)?;
 
-        Ok(ArtOperationOutput {
+        Ok(PrivateBranchChange {
             branch_change: change,
-            artefacts,
+            prover_branch: artefacts.to_prover_branch(&mut self.rng)?,
             eligibility,
+            secret: new_key,
+            prover_engine: self.prover_engine.clone(),
         })
     }
 
-    fn add_node(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn add_node(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let eligibility =
             EligibilityArtefact::Owner((self.get_leaf_secret_key(), self.get_leaf_public_key()));
 
         let (_, change, artefacts) = self.private_art.private_add_node(new_key)?;
 
-        Ok(ArtOperationOutput {
+        Ok(PrivateBranchChange {
             branch_change: change,
-            artefacts,
+            prover_branch: artefacts.to_prover_branch(&mut self.rng)?,
             eligibility,
+            secret: new_key,
+            prover_engine: self.prover_engine.clone(),
         })
     }
 }

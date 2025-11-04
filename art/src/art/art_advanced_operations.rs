@@ -1,7 +1,7 @@
 use crate::art::ArtBasicOps;
 use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-use crate::changes::branch_change::{ArtOperationOutput, BranchChange, BranchChangeType};
+use crate::changes::branch_change::{PrivateBranchChange, BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use crate::tree_methods::TreeMethods;
@@ -87,11 +87,11 @@ where
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, ArtOperationOutput<CortadoAffine>> for PrivateZeroArt<R>
+impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
-    fn add_member(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn add_member(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let change = self.add_node(new_key).map(|mut change| {
             change.branch_change.change_type = BranchChangeType::AddMember;
             change
@@ -109,7 +109,7 @@ where
         &mut self,
         target_leaf: &NodeIndex,
         new_key: Fr,
-    ) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
             self.get_node_at(&path)?.get_status(),
@@ -148,7 +148,7 @@ where
         Ok(output)
     }
 
-    fn leave_group(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn leave_group(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
         let output = self
             .update_node_key(&index, new_key, false)
@@ -163,7 +163,7 @@ where
         Ok(output)
     }
 
-    fn update_key(&mut self, new_key: Fr) -> Result<ArtOperationOutput<CortadoAffine>, ArtError> {
+    fn update_key(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let index = self.private_art.get_node_index().clone();
         self.update_node_key(&index, new_key, false)
     }

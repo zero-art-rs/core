@@ -102,13 +102,30 @@ where
     }
 }
 
-impl<R> ProvableChange<PrivateZeroArt<R>> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ProvableChange for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: Rng + ?Sized
 {
-    fn prove(&self, art: &mut PrivateZeroArt<R>, ad: &[u8], eligibility: Option<EligibilityArtefact>) -> Result<ArtProof, ArtError>
+    fn prove(&self, ad: &[u8], eligibility: Option<EligibilityArtefact>) -> Result<ArtProof, ArtError>
     {
-        self.prover_aggregation.prove(art, ad, eligibility)
+        // Use some auxiliary keys for proof
+        let eligibility = match eligibility {
+            Some(eligibility) => eligibility,
+            None => {
+                EligibilityArtefact::Owner((
+                    self.operation_tree.get_leaf_secret_key(),
+                    self.operation_tree.get_leaf_public_key())
+                )
+            }
+        };
+
+        // Get ProverAggregationTree for proof.
+        let prover_tree = ProverAggregationTree::try_from(self)?;
+
+        let context = self.operation_tree.prover_engine.new_context(ad, eligibility);
+        let proof = context.prove_aggregated(&prover_tree)?;
+
+        Ok(proof)
     }
 }
 

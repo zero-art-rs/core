@@ -21,9 +21,6 @@ use std::ops::Mul;
 use curve25519_dalek::digest::generic_array::sequence::Concat;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
-// /// Output of ART aggregation with additional data for proof creation.
-// pub type AggregationContext<G> = ChangeAggregation<ProverAggregationData<G>>;
-
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
 pub type AggregatedChange<G> = ChangeAggregation<AggregationData<G>>;

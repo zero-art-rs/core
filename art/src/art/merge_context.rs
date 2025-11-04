@@ -1,12 +1,7 @@
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
-use tracing::debug;
-use zrt_zk::art::ArtProof;
-use zrt_zk::EligibilityRequirement;
-use crate::art::art_node::ArtNode;
 use crate::art::art_types::{PrivateArt, PublicArt};
-use crate::art::ProverArtefacts;
-use crate::changes::{ApplicableChange, VerifiableChange};
+use crate::changes::ApplicableChange;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::recompute_artefacts;

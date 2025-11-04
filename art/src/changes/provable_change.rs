@@ -1,12 +1,13 @@
 use crate::art::art_types::PrivateZeroArt;
 use crate::changes::aggregations::{ChangeAggregation, ProverAggregationData};
-use crate::changes::branch_change::ArtOperationOutput;
+use crate::changes::branch_change::PrivateBranchChange;
 use crate::errors::ArtError;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::ArtProof;
+use crate::art::AggregationContext;
 
 /// A trait for structures that can be proved.
 ///
@@ -19,24 +20,17 @@ use zrt_zk::art::ArtProof;
 /// If proof generation succeeds, an `ArtProof` is returned, else an `ArtError`.
 ///
 /// # Type Parameters
-///
-/// * `R` - a random number generator used during the proof generation process.
-pub trait ProvableChange<T> {
+pub trait ProvableChange {
     fn prove(
         &self,
-        art: &mut T,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>;
 }
 
-impl<R> ProvableChange<PrivateZeroArt<R>> for ArtOperationOutput<CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
+impl ProvableChange for PrivateBranchChange<CortadoAffine> {
     fn prove(
         &self,
-        art: &mut PrivateZeroArt<R>,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
     ) -> Result<ArtProof, ArtError>
@@ -46,37 +40,8 @@ where
             None => self.eligibility.clone(),
         };
 
-        let context = art.prover_engine.new_context(ad, eligibility);
-        let proof = context.prove(&self.artefacts.to_prover_branch(&mut art.rng)?)?;
-
-        Ok(proof)
-    }
-}
-
-impl<R> ProvableChange<PrivateZeroArt<R>> for ChangeAggregation<ProverAggregationData<CortadoAffine>>
-where
-    R: Rng + ?Sized,
-{
-    fn prove(
-        &self,
-        art: &mut PrivateZeroArt<R>,
-        ad: &[u8],
-        eligibility: Option<EligibilityArtefact>,
-    ) -> Result<ArtProof, ArtError>
-    {
-        // Use some auxiliary keys for proof
-        let eligibility = match eligibility {
-            Some(eligibility) => eligibility,
-            None => {
-                EligibilityArtefact::Owner((art.get_leaf_secret_key(), art.get_leaf_public_key()))
-            }
-        };
-
-        // Get ProverAggregationTree for proof.
-        let prover_tree = ProverAggregationTree::try_from(self)?;
-
-        let context = art.prover_engine.new_context(ad, eligibility);
-        let proof = context.prove_aggregated(&prover_tree)?;
+        let context = self.prover_engine.new_context(ad, eligibility);
+        let proof = context.prove(&self.prover_branch)?;
 
         Ok(proof)
     }

@@ -174,7 +174,7 @@ mod tests {
         let key_update_change_output = art.update_key(new_secret_key).unwrap();
 
         let proof = key_update_change_output
-            .prove(&mut art, associated_data, None)
+            .prove(associated_data, None)
             .unwrap();
         let mut proof_bytes = Vec::new();
         proof.serialize_compressed(&mut proof_bytes).unwrap();
@@ -242,7 +242,7 @@ mod tests {
             .unwrap();
 
         let proof = make_blank_change_output
-            .prove(&mut art, associated_data, None)
+            .prove(associated_data, None)
             .unwrap();
         let make_blank_change = BranchChange::from(make_blank_change_output);
 
@@ -287,7 +287,7 @@ mod tests {
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
         let proof = append_node_changes_output
-            .prove(&mut art, associated_data, None)
+            .prove(associated_data, None)
             .unwrap();
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
@@ -338,7 +338,7 @@ mod tests {
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
         let proof1 = make_blank_changes_output
-            .prove(&mut art, associated_data1, None)
+            .prove(associated_data1, None)
             .unwrap();
         let make_blank_changes = BranchChange::from(make_blank_changes_output);
 
@@ -361,7 +361,7 @@ mod tests {
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
         let proof2 = append_node_changes_output
-            .prove(&mut art, associated_data2, None)
+            .prove(associated_data2, None)
             .unwrap();
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
@@ -412,7 +412,7 @@ mod tests {
         let associated_data = b"data";
 
         let mut proof_bytes = Vec::new();
-        agg.prove(&mut user0, associated_data, None)
+        agg.prove(associated_data, None)
             .unwrap()
             .serialize_compressed(&mut proof_bytes)
             .unwrap();
