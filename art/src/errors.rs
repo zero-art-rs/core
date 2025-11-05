@@ -47,4 +47,6 @@ pub enum ArtError {
     R1CS(#[from] R1CSError),
     #[error("ZKError: {0}")]
     Zk(#[from] ZKError),
+    #[error("Invalid marker tree used")]
+    InvalidMarkerTree,
 }

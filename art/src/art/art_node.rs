@@ -7,7 +7,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::mem;
-use tracing::debug;
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone, Copy, Eq, PartialEq)]
 #[serde(bound = "")]
@@ -26,7 +25,6 @@ pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
         public_key: G,
         status: LeafStatus,
         metadata: Vec<u8>,
-        marker: bool,
     },
     Internal {
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
@@ -34,7 +32,6 @@ pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
         l: Box<ArtNode<G>>,
         r: Box<ArtNode<G>>,
         weight: usize,
-        marker: bool,
     },
 }
 
@@ -57,7 +54,6 @@ where
             public_key,
             status: LeafStatus::Active,
             metadata: vec![],
-            marker: false,
         }
     }
 
@@ -70,7 +66,6 @@ where
             l,
             r,
             weight,
-            marker: false,
         }
     }
 
@@ -183,7 +178,6 @@ where
             l: Box::new(tmp),
             r: Box::new(other),
             weight: new_weight,
-            marker: false,
         };
 
         mem::swap(&mut new_self, self);
@@ -209,20 +203,6 @@ where
         }
 
         Ok(())
-    }
-
-    pub fn is_marked(&self) -> bool {
-        match self {
-            ArtNode::Leaf { marker, .. } => *marker,
-            ArtNode::Internal { marker, .. } => *marker,
-        }
-    }
-
-    pub fn set_marker(&mut self, new_marker: bool) {
-        match self {
-            ArtNode::Leaf { marker, .. } => *marker = new_marker,
-            ArtNode::Internal { marker, .. } => *marker = new_marker,
-        }
     }
 }
 

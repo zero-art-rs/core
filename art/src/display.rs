@@ -41,23 +41,17 @@ where
             None => "None".to_string(),
         };
 
-        let mark_marker = match node.is_marked() {
-            true => "+",
-            false => "-",
-        };
-
         match node {
             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
                 public_key: format!(
-                    "{} {} leaf of weight: {}, x: {}",
-                    mark_marker,
+                    "{} leaf of weight: {}, x: {}",
                     blank_marker,
                     node.get_weight(),
                     pk_marker,
                 ),
             },
             ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-                public_key: format!("{} node of weight: {}, x: {}", mark_marker, node.get_weight(), pk_marker,),
+                public_key: format!("Node of weight: {}, x: {}", node.get_weight(), pk_marker,),
                 left: Box::new(ARTDisplayTree::from(l.as_ref())),
                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
             },

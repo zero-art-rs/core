@@ -18,6 +18,7 @@ use std::rc::Rc;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
+use crate::changes::aggregations::AggregationNode;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
@@ -422,29 +423,30 @@ where
         Ok(())
     }
 
-    pub(crate) fn merge_by_marker(&mut self, public_keys: &[G], path: &[Direction]) -> Result<(), ArtError> {
+    pub(crate) fn merge_by_marker(&mut self, public_keys: &[G], path: &[Direction], marker_tree: &mut AggregationNode<bool>) -> Result<(), ArtError> {
         let mut parent_node = self.get_mut_root();
-        let mut merge_key = parent_node.is_marked();
+        let mut parent_marker_node = marker_tree;
+        let mut merge_key = parent_marker_node.data;
 
         parent_node.set_public_key_with_options(public_keys[0], merge_key);
-        parent_node.set_marker(true);
-
-
-        // let path =  change.node_index.get_path()?;
+        parent_marker_node.data = true;
+        
         for (dir, pk) in path.iter().zip(public_keys[1..].iter()) {
             if !merge_key {
-                let neighbour_node = parent_node.get_mut_child(dir.other()).ok_or(ArtError::PathNotExists)?;
-                neighbour_node.set_marker(false);
+                let neighbour_marker_node = parent_marker_node.get_mut_child(dir.other()).ok_or(ArtError::InvalidMarkerTree)?;
+                neighbour_marker_node.data = false;
             }
 
             let child_node = parent_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
+            let child_marker_node = parent_marker_node.get_mut_child(*dir).ok_or(ArtError::InvalidMarkerTree)?;
 
-            child_node.set_public_key_with_options(*pk, child_node.is_marked() && merge_key);
-            child_node.set_marker(true);
+            child_node.set_public_key_with_options(*pk, child_marker_node.data && merge_key);
+            child_marker_node.data = true;
 
             parent_node = child_node;
+            parent_marker_node = child_marker_node;
 
-            if merge_key && !parent_node.is_marked() {
+            if merge_key && !parent_marker_node.data {
                     merge_key = false;
             }
         }
@@ -556,6 +558,65 @@ where
 
     pub fn get_public_art(&self) -> &PublicArt<G> {
         &self.public_art
+    }
+
+    pub(crate) fn update_pubic_keys_on_path(
+        &mut self,
+        path: &[Direction],
+        public_keys: &[G],
+        append_changes: bool,
+    ) -> Result<(), ArtError> {
+        if path.len() + 1 != public_keys.len() {
+            return Err(ArtError::InvalidInput);
+        }
+
+        let mut root = self.get_mut_root();
+        root.set_public_key_with_options(*public_keys.first().ok_or(ArtError::EmptyArt)?, append_changes);
+        if let Some(remaining_public_keys) = public_keys.get(1..) {
+            for (dir, pk) in path.iter().zip(remaining_public_keys.iter().rev()) {
+                root.set_public_key_with_options(*pk, append_changes);
+                root = root.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn ephemeral_update_art_branch_with_leaf_secret_key(
+        &mut self,
+        secret_key: G::ScalarField,
+        path: &[Direction],
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
+        let co_path = self.public_art.get_co_path_values(path)?;
+        let artefacts = recompute_artefacts(secret_key, &co_path)?;
+
+        let changes = BranchChange {
+            change_type: BranchChangeType::UpdateKey,
+            public_keys: artefacts.path.iter().rev().cloned().collect(),
+            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(path)?),
+        };
+
+        Ok((
+            artefacts.secrets[artefacts.secrets.len() - 1],
+            changes,
+            artefacts,
+        ))
+    }
+
+    pub(crate) fn temp_update_art_branch_with_leaf_secret_key(
+        &mut self,
+        secret_key: G::ScalarField,
+        path: &[Direction],
+        append_changes: bool,
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
+        let (tk, change, artefacts) = self.ephemeral_update_art_branch_with_leaf_secret_key(
+            secret_key,
+            path,
+        )?;
+
+        self.update_pubic_keys_on_path(path, &change.public_keys, append_changes)?;
+
+        Ok((tk, change, artefacts))
     }
 
     /// This method will update all public keys on a path from the root to node. Using provided
@@ -744,6 +805,25 @@ where
         Ok((tk, changes, artefacts))
     }
 
+    pub(crate) fn private_ephemeral_update_node_key(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: G::ScalarField,
+        append_changes: bool,
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
+        let path = target_leaf.get_path()?;
+        let (tk, changes, artefacts) =
+            self.update_art_branch_with_leaf_secret_key(new_key, &path, append_changes)?;
+
+        self.zip_update_path_secrets(
+            artefacts.secrets.clone(),
+            &changes.node_index,
+            append_changes,
+        )?;
+
+        Ok((tk, changes, artefacts))
+    }
+
     pub(crate) fn private_add_node(
         &mut self,
         new_key: G::ScalarField,
@@ -782,6 +862,37 @@ where
         self.zip_update_path_secrets(artefacts.secrets.clone(), &changes.node_index, false)?;
 
         Ok((tk, changes, artefacts))
+    }
+
+    pub(crate) fn ephemeral_private_add_node(
+        &mut self,
+        new_key: G::ScalarField,
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
+        let path = match self.public_art.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => self.public_art.find_path_to_lowest_leaf()?,
+        };
+
+        let target_leaf = self.get_node_at(&path)?;
+        let target_public_key = target_leaf.get_public_key();
+
+        if !target_leaf.is_leaf() {
+            return Err(ArtError::LeafOnly);
+        }
+
+
+        let mut co_path = self.get_public_art().get_co_path_values(&path)?;
+
+        let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
+        if extend_node {
+            co_path.push(target_public_key);
+        }
+
+        let artefacts = recompute_artefacts(new_key, &co_path)?;
+        let change = artefacts.derive_branch_change(BranchChangeType::AddMember, NodeIndex::from(path))?;
+        let tk = *artefacts.secrets.last().ok_or(ArtError::NoChanges)?;
+
+        Ok((tk, change, artefacts))
     }
 
     /// Update ART with `target_changes` for the user, which didnt participated it the

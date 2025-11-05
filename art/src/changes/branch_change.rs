@@ -1,16 +1,13 @@
 //! Module with branch changes of the ART.
 
-use crate::art::ProverArtefacts;
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug};
 use std::rc::Rc;
-use curve25519_dalek::digest::generic_array::sequence::Concat;
-use cortado::CortadoAffine;
 use zrt_zk::art::ProverNodeData;
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::ZeroArtProverEngine;
@@ -84,6 +81,14 @@ where
     pub fn get_eligibility(&self) -> &EligibilityArtefact {
         &self.eligibility
     }
+
+    pub fn get_secret(&self) -> G::ScalarField {
+        self.secret
+    }
+    
+    pub fn get_prover_branch(&self) -> &Vec<ProverNodeData<G>> {
+        &self.prover_branch
+    }
 }
 
 impl<G> From<PrivateBranchChange<G>> for BranchChange<G>
@@ -140,44 +145,6 @@ where
             BranchChangesTypeHint::AddMember { .. } => BranchChangeType::AddMember,
             BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
             BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
-        }
-    }
-}
-
-/// Helper data structure, which can combine several changes from different
-/// users into one merge change.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct MergeBranchChange<T, C> {
-    pub(crate) applied_helper_data: Option<(T, C)>,
-    pub(crate) unapplied_changes: Vec<C>,
-}
-
-impl<T, C> MergeBranchChange<T, C> {
-    pub fn new(
-        base_fork: Option<T>,
-        applied_change: Option<C>,
-        unapplied_changes: Vec<C>,
-    ) -> Result<Self, ArtError> {
-        Ok(match (base_fork, applied_change) {
-            (Some(base_fork), Some(applied_change)) => {
-                Self::new_for_participant(base_fork, applied_change, unapplied_changes)
-            }
-            (None, None) => Self::new_for_observer(unapplied_changes),
-            _ => return Err(ArtError::InvalidMergeInput),
-        })
-    }
-
-    pub fn new_for_observer(unapplied_changes: Vec<C>) -> Self {
-        MergeBranchChange {
-            applied_helper_data: None,
-            unapplied_changes,
-        }
-    }
-
-    pub fn new_for_participant(base_fork: T, applied_change: C, unapplied_changes: Vec<C>) -> Self {
-        MergeBranchChange {
-            applied_helper_data: Some((base_fork, applied_change)),
-            unapplied_changes,
         }
     }
 }

@@ -16,11 +16,13 @@ use zrt_zk::{
     aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
     art::{ProverNodeData, VerifierNodeData},
 };
+use crate::art::art_node::{ArtNode, NodeIterWithPath};
+use crate::TreeMethods;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationNode<D>
-where
-    D: RelatedData + Clone,
+// where
+//     D: RelatedData + Clone,
 {
     pub l: Option<Box<Self>>,
     pub r: Option<Box<Self>>,
@@ -28,8 +30,8 @@ where
 }
 
 impl<D> AggregationNode<D>
-where
-    D: RelatedData + Clone + Default,
+// where
+    // D: RelatedData + Clone + Default,
 {
     pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;
@@ -94,14 +96,20 @@ where
 
     /// Returns a mutable reference on a child at the given direction `dir`. If it is None, then
     /// Create a new one, and return a mutable reference on a new child.
-    fn get_or_insert_default(&mut self, dir: Direction) -> &mut Self {
+    fn get_or_insert_default(&mut self, dir: Direction) -> &mut Self
+    where
+        Self: Default,
+    {
         match dir {
             Direction::Left => self.l.get_or_insert_default(),
             Direction::Right => self.r.get_or_insert_default(),
         }
     }
 
-    fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self {
+    fn set_child(&mut self, dir: Direction, node: Self) -> &mut Self
+    where
+        Self: Default,
+    {
         let child = match dir {
             Direction::Left => self.l.get_or_insert_default(),
             Direction::Right => self.r.get_or_insert_default(),
@@ -273,8 +281,8 @@ where
 
 // impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
 impl<D> AggregationNode<D>
-where
-    D: RelatedData + Clone + Default,
+// where
+//     D: RelatedData + Clone + Default,
 {
     /// Return a reference on a child on the given direction. Return None, if there is no
     /// child there.
@@ -289,7 +297,7 @@ where
 
     /// Return a mutable reference on a child on the given direction. Return None,
     /// if there is no child there.
-    fn get_mut_child(&mut self, dir: Direction) -> Option<&mut Self> {
+    pub(crate) fn get_mut_child(&mut self, dir: Direction) -> Option<&mut Self> {
         let child = match dir {
             Direction::Right => self.r.as_mut(),
             Direction::Left => self.l.as_mut(),
@@ -301,7 +309,7 @@ where
 
 impl<D> From<D> for AggregationNode<D>
 where
-    D: RelatedData + Clone + Default,
+    // D: RelatedData + Clone + Default,
 {
     fn from(data: D) -> Self {
         Self {
@@ -331,6 +339,33 @@ where
             if let Some(last_dir) = node_path.pop() {
                 let verifier_data = D2::from(node.data.clone());
                 let next_node = AggregationNode::from(verifier_data);
+
+                if let Ok(child) = aggregation.get_mut_node(&node_path) {
+                    child.set_child(last_dir, next_node);
+                }
+            }
+        }
+
+        Ok(aggregation)
+    }
+}
+
+impl<G> TryFrom<&ArtNode<G>> for AggregationNode<bool>
+where
+    G: AffineRepr,
+{
+    type Error = ArtError;
+
+    fn try_from(prover_aggregation: &ArtNode<G>) -> Result<Self, Self::Error> {
+        let mut iter = NodeIterWithPath::new(prover_aggregation);
+        let (_, _) = iter.next().ok_or(ArtError::EmptyArt)?;
+
+        let mut aggregation = AggregationNode::from(false);
+
+        for (_, path) in iter {
+            let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            if let Some(last_dir) = node_path.pop() {
+                let next_node = AggregationNode::from(false);
 
                 if let Ok(child) = aggregation.get_mut_node(&node_path) {
                     child.set_child(last_dir, next_node);

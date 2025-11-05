@@ -6,6 +6,8 @@ use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
+use crate::node_index::NodeIndex;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
 pub struct ProverArtefacts<G>
@@ -72,6 +74,14 @@ where
         }
 
         Ok(prover_nodes)
+    }
+    
+    pub fn derive_branch_change(&self, change_type: BranchChangeType, node_index: NodeIndex) -> Result<BranchChange<G>, ArtError> {
+        Ok(BranchChange {
+            change_type,
+            public_keys: self.path.iter().rev().cloned().collect(),
+            node_index: node_index.as_index()?,
+        })
     }
 }
 
