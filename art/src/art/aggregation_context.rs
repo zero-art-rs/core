@@ -6,14 +6,13 @@ use zrt_zk::art::{ArtProof};
 use zrt_zk::EligibilityArtefact;
 use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
 use crate::art::{ArtAdvancedOps};
-use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData, RelatedData};
+use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
 use crate::changes::{ApplicableChange, ProvableChange};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 
 pub struct AggregationContext<T, G>
 where
-    // T: PublicArtHolder<G>,
     G: AffineRepr,
 {
     pub(crate) prover_aggregation: ChangeAggregation<ProverAggregationData<G>>,
@@ -22,7 +21,6 @@ where
 
 impl<T, G> AggregationContext<T, G>
 where
-    // T: PublicArtHolder<G>,
     G: AffineRepr,
 {
     pub fn new(operation_tree: T) -> Self {
@@ -62,7 +60,7 @@ where
     }
 }
 
-impl<R> ApplicableChange<PublicArt<CortadoAffine>> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ApplicableChange<PublicArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -72,7 +70,7 @@ where
     }
 }
 
-impl<R> ApplicableChange<PrivateArt<CortadoAffine>> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ApplicableChange<PrivateArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -82,7 +80,7 @@ where
     }
 }
 
-impl<R> ApplicableChange<PublicZeroArt> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ApplicableChange<PublicZeroArt, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -92,7 +90,7 @@ where
     }
 }
 
-impl<R> ApplicableChange<PrivateZeroArt<R>> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ApplicableChange<PrivateZeroArt<R>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: ?Sized + Rng,
 {

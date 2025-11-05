@@ -1,16 +1,19 @@
 //! Module with branch changes of the ART.
 
 use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se};
+use crate::helper_tools::{ark_de, ark_se, recompute_artefacts};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug};
 use std::rc::Rc;
+use ark_ff::PrimeField;
+use ark_std::rand::Rng;
 use zrt_zk::art::ProverNodeData;
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::ZeroArtProverEngine;
+use crate::art::PrivateMergeContext;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -23,7 +26,7 @@ pub enum BranchChangeType {
 
 /// Helper data type, which contains information about ART change. Can be used to apply this
 /// change to the different ART.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, Eq, PartialEq)]
 #[serde(bound = "")]
 pub struct BranchChange<G>
 where
@@ -85,9 +88,30 @@ where
     pub fn get_secret(&self) -> G::ScalarField {
         self.secret
     }
-    
+
     pub fn get_prover_branch(&self) -> &Vec<ProverNodeData<G>> {
         &self.prover_branch
+    }
+
+    pub(crate) fn apply_own_key_update<R>(&self, art: &mut PrivateMergeContext<G, R>, new_secret_key: G::ScalarField) -> Result<(), ArtError>
+    where
+        R: Rng + ?Sized,
+        G: AffineRepr,
+        G::BaseField: PrimeField,
+    {
+        let target_art = &mut art.upstream_art;
+
+        let path = target_art.get_node_index().get_path()?;
+        let co_path = target_art.get_public_art().get_co_path_values(&path)?;
+        let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
+
+        // target_art.update_pubic_keys_on_path(&path, &artefacts.path, false)?;
+        let marker_tree = &mut art.marker_tree;
+        target_art.public_art.merge_by_marker(&artefacts.path.iter().rev().cloned().collect::<Vec<_>>(), &path, marker_tree)?;
+
+        target_art.secrets = artefacts.secrets;
+
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::{AggregationNode, RelatedData};
+use crate::changes::aggregations::{AggregationNode};
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
@@ -101,7 +101,7 @@ pub enum AggregationDisplayTree {
 
 impl<D> Display for AggregationNode<D>
 where
-    D: RelatedData + Clone + Display + Default,
+    D: Clone + Display + Default,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -119,7 +119,7 @@ where
 
 impl<D> From<&Box<AggregationNode<D>>> for AggregationDisplayTree
 where
-    D: RelatedData + Clone + Display,
+    D: Clone + Display,
 {
     fn from(value: &Box<AggregationNode<D>>) -> Self {
         AggregationDisplayTree::from(value.as_ref())
@@ -128,7 +128,7 @@ where
 
 impl<D> From<&AggregationNode<D>> for AggregationDisplayTree
 where
-    D: RelatedData + Display + Clone,
+    D: Display + Clone,
 {
     fn from(value: &AggregationNode<D>) -> Self {
         match (value.l.as_ref(), value.r.as_ref()) {

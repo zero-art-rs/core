@@ -16,7 +16,7 @@ use zrt_zk::art::ArtProof;
 /// - `ad` - the associated auxiliary data used in proof
 /// - `eligibility_requirement` - an eligibility requirement defining the update right of the proof creator
 /// - `proof` - proof which will be verified
-pub trait VerifiableChange<T>: ApplicableChange<T> {
+pub trait VerifiableChange<T>{
     /// Fail if proof is invalid. Else returns `Ok(())`.
     fn verify(
         &self,
@@ -25,20 +25,6 @@ pub trait VerifiableChange<T>: ApplicableChange<T> {
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
     ) -> Result<(), ArtError>;
-
-    /// If the proof is correct, also updates the provided `art` tree.
-    fn verify_then_update(
-        &self,
-        art: &mut T,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError> {
-        self.verify(&*art, ad, eligibility_requirement, proof)?;
-        self.apply(art)?;
-
-        Ok(())
-    }
 }
 
 impl VerifiableChange<PublicZeroArt> for BranchChange<CortadoAffine> {

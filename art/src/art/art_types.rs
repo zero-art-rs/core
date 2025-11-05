@@ -423,6 +423,7 @@ where
         Ok(())
     }
 
+    /// Updates Public keys on path utilizing the given marker tree, to decide, which nodes should be merged together.
     pub(crate) fn merge_by_marker(&mut self, public_keys: &[G], path: &[Direction], marker_tree: &mut AggregationNode<bool>) -> Result<(), ArtError> {
         let mut parent_node = self.get_mut_root();
         let mut parent_marker_node = marker_tree;
@@ -430,7 +431,7 @@ where
 
         parent_node.set_public_key_with_options(public_keys[0], merge_key);
         parent_marker_node.data = true;
-        
+
         for (dir, pk) in path.iter().zip(public_keys[1..].iter()) {
             if !merge_key {
                 let neighbour_marker_node = parent_marker_node.get_mut_child(dir.other()).ok_or(ArtError::InvalidMarkerTree)?;
@@ -558,28 +559,6 @@ where
 
     pub fn get_public_art(&self) -> &PublicArt<G> {
         &self.public_art
-    }
-
-    pub(crate) fn update_pubic_keys_on_path(
-        &mut self,
-        path: &[Direction],
-        public_keys: &[G],
-        append_changes: bool,
-    ) -> Result<(), ArtError> {
-        if path.len() + 1 != public_keys.len() {
-            return Err(ArtError::InvalidInput);
-        }
-
-        let mut root = self.get_mut_root();
-        root.set_public_key_with_options(*public_keys.first().ok_or(ArtError::EmptyArt)?, append_changes);
-        if let Some(remaining_public_keys) = public_keys.get(1..) {
-            for (dir, pk) in path.iter().zip(remaining_public_keys.iter().rev()) {
-                root.set_public_key_with_options(*pk, append_changes);
-                root = root.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
-            }
-        }
-
-        Ok(())
     }
 
     pub(crate) fn ephemeral_update_art_branch_with_leaf_secret_key(

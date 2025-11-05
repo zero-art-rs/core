@@ -36,7 +36,7 @@ where
     pub fn new(base_art: PublicArt<G>) -> Result<Self, ArtError> {
         let upstream_art = base_art.clone();
         let marker_tree = AggregationNode::<bool>::try_from(base_art.get_root())?;
-        
+
         Ok(Self {
             base_art,
             upstream_art,
@@ -56,7 +56,7 @@ where
 }
 
 
-impl<G> ApplicableChange<PublicMergeContext<G>> for BranchChange<G>
+impl<G> ApplicableChange<PublicMergeContext<G>, G> for BranchChange<G>
 where
     G: AffineRepr
 {
@@ -69,6 +69,8 @@ where
     }
 }
 
+// TODO: Remove clone
+#[derive(Clone)]
 pub struct PrivateMergeContext<G, R>
 where
     G: AffineRepr,
@@ -161,20 +163,44 @@ where
     }
 }
 
-impl<G, R> ApplicableChange<PrivateMergeContext<G, R>> for BranchChange<G>
+impl<G, R> ApplicableChange<PrivateMergeContext<G, R>, G> for BranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
     fn apply(&self, art: &mut PrivateMergeContext<G, R>) -> Result<(), ArtError> {
-        if let BranchChangeType::AddMember = self.change_type {
+        if let BranchChangeType::AddMember = &self.change_type {
             return Err(ArtError::InvalidMergeInput)
         }
 
         let merge_key = art.marker_tree.data;
         art.upstream_art.public_art.merge_by_marker(&self.public_keys, &self.node_index.get_path()?, &mut art.marker_tree)?;
         art.update_secrets(self, merge_key)?;
+
+        Ok(())
+    }
+}
+
+impl<G, R> ApplicableChange<PrivateMergeContext<G, R>, G> for PrivateBranchChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn apply(&self, art: &mut PrivateMergeContext<G, R>) -> Result<(), ArtError> {
+        if let BranchChangeType::AddMember = &self.branch_change.change_type {
+            return Err(ArtError::InvalidMergeInput)
+        }
+
+        if self.branch_change.change_type == BranchChangeType::UpdateKey
+            || art.base_art.node_index == self.branch_change.node_index {
+            return self.apply_own_key_update(art, self.secret);
+        }
+
+        let merge_key = art.marker_tree.data;
+        art.upstream_art.public_art.merge_by_marker(&self.branch_change.public_keys, &self.branch_change.node_index.get_path()?, &mut art.marker_tree)?;
+        art.update_secrets(&self.branch_change, merge_key)?;
 
         Ok(())
     }
@@ -190,7 +216,7 @@ where
         }
 
         let eligibility =
-            EligibilityArtefact::Member((self.base_art.get_leaf_secret_key(), self.base_art.get_leaf_public_key()));
+            EligibilityArtefact::Member((self.upstream_art.get_leaf_secret_key(), self.upstream_art.get_leaf_public_key()));
 
         let (_, change, artefacts) = self.upstream_art.ephemeral_update_art_branch_with_leaf_secret_key(
             new_key,
@@ -212,9 +238,9 @@ where
         }
 
         let eligibility =
-            EligibilityArtefact::Member((self.base_art.get_leaf_secret_key(), self.base_art.get_leaf_public_key()));
+            EligibilityArtefact::Member((self.upstream_art.get_leaf_secret_key(), self.upstream_art.get_leaf_public_key()));
 
-        let (_, change, artefacts) = self.base_art.ephemeral_private_add_node(new_key)?;
+        let (_, change, artefacts) = self.upstream_art.ephemeral_private_add_node(new_key)?;
 
         Ok(PrivateBranchChange {
             branch_change: change,
@@ -272,7 +298,7 @@ where
     }
 
     fn update_key(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let index = self.base_art.get_node_index().clone();
+        let index = self.upstream_art.get_node_index().clone();
         self.update_node_key(&index, new_key, false)
     }
 }
@@ -284,7 +310,7 @@ mod test {
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::ApplicableChange;
     use crate::init_tracing;
-    use crate::node_index::Direction;
+    use crate::node_index::{Direction, NodeIndex};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
@@ -292,9 +318,72 @@ mod test {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::ops::{Add, Mul};
+    use itertools::Itertools;
     use rand::random;
+    use tracing::debug;
+    use tracing::field::debug;
+    use crate::changes::branch_change::BranchChange;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
+
+    #[test]
+    fn test_if_change_and_ephemeral_change_are_the_same() {
+        init_tracing();
+
+        let seed = 0;
+        let mut rng = &mut StdRng::seed_from_u64(seed);
+        let secrets = (0..100)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+        let mut merge_context0 = PrivateMergeContext::new(
+            art0.clone(),
+            Box::new(StdRng::seed_from_u64(random()))
+        ).unwrap();
+
+        let new_sk = Fr::rand(&mut rng);
+        let change_a = art0.update_key(new_sk).unwrap();
+        let change_b = merge_context0.update_key(new_sk).unwrap().branch_change;
+
+        assert_eq!(
+            change_a, change_b,
+            "fail to assert_eq on tree1:\n{:#?}\n and merge context:\n{:#?}",
+            change_a, change_b,
+        );
+    }
+
+    #[test]
+    fn test_if_changes_are_applied_the_same_for_context_and_art() {
+        init_tracing();
+
+        let seed = 0;
+        let mut rng = &mut StdRng::seed_from_u64(seed);
+        let secrets = (0..100)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+        let mut art1 = PrivateArt::new(art0.public_art.clone(), secrets[1]).unwrap();
+        let mut merge_context0 = PrivateMergeContext::new(
+            art0.clone(),
+            Box::new(StdRng::seed_from_u64(random()))
+        ).unwrap();
+
+        for _ in 0..10 {
+            let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
+
+            change.apply(&mut merge_context0).unwrap();
+            merge_context0.commit();
+            change.apply(&mut art0).unwrap();
+
+            assert_eq!(
+                &art1, &merge_context0.base_art,
+                "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
+                &art1.get_root(), &merge_context0.base_art.get_root(),
+            );
+        }
+    }
 
     #[test]
     fn test_apply_usual_change() {
@@ -318,140 +407,196 @@ mod test {
             &art1, &merge_context0.base_art,
             "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
             &art1.get_root(), &merge_context0.base_art.get_root(),
-        )
+        );
+
+        let new_sk = Fr::rand(&mut rng);
+        let private_change = merge_context0.update_key(new_sk).unwrap();
+        let change = private_change.branch_change.clone();
+        assert_eq!(new_sk, private_change.secret);
+
+        // change.apply_own_key_update(&mut merge_context0, private_change.get_secret()).unwrap();
+        private_change.apply(&mut merge_context0).unwrap();
+        merge_context0.commit();
+        change.apply(&mut art1).unwrap();
+
+        assert_eq!(
+            &art1.get_root(), &merge_context0.base_art.get_root(),
+            "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
+            &art1.get_root(), &merge_context0.base_art.get_root(),
+        );
+
+        assert_eq!(
+            &art1.secrets[1..], &merge_context0.base_art.secrets[1..],
+            "fail to assert_eq on tree1:\n{:#?}\n and merge context:\n{:#?}",
+            &art1.secrets[1..], &merge_context0.base_art.secrets[1..],
+        );
+
+        assert_eq!(
+            &art1, &merge_context0.base_art,
+            "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
+            &art1.get_root(), &merge_context0.base_art.get_root(),
+        );
     }
 
-    // #[test]
-    // fn test_changes_ordering_for_merge() {
-    //     init_tracing();
-    //
-    //     let seed = 0;
-    //     let mut rng = &mut StdRng::seed_from_u64(seed);
-    //     let secrets = (0..100)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //
-    //     let art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
-    //
-    //     // Serialise and deserialize art for the new user.
-    //     let public_art_bytes = to_allocvec(&art0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let mut user0: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[0]).unwrap();
-    //     let user0_merge_context = PrivateMergeContext::new(user0);
-    //
-    //     let art1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[1]).unwrap();
-    //
-    //     let mut user2: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[2]).unwrap();
-    //
-    //     let mut user3: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[8]).unwrap();
-    //
-    //     let mut user4: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[10]).unwrap();
-    //
-    //     let mut user5: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secrets[67]).unwrap();
-    //
-    //     let sk0 = Fr::rand(&mut rng);
-    //     let change0 = user0.update_key(sk0).unwrap();
-    //
-    //     let sk2 = Fr::rand(&mut rng);
-    //     let change2 = user2.update_key(sk2).unwrap();
-    //
-    //     let sk3 = Fr::rand(&mut rng);
-    //     let target_user_public_key = CortadoAffine::generator().mul(secrets[25]).into_affine();
-    //     let target_node_index =
-    //         NodeIndex::from(user3.get_path_to_leaf_with(target_user_public_key).unwrap());
-    //     let change3 = user3.remove_member(&target_node_index, sk3).unwrap();
-    //
-    //     let sk4 = Fr::rand(&mut rng);
-    //     let change4 = user4.update_key(sk4).unwrap();
-    //
-    //     let sk5 = Fr::rand(&mut rng);
-    //     let change5 = user5.update_key(sk5).unwrap();
-    //
-    //     let applied_change = change0.clone();
-    //     let all_but_0_changes = vec![
-    //         change2.clone(),
-    //         change3.clone(),
-    //         change4.clone(),
-    //         change5.clone(),
-    //     ];
-    //     let all_changes = vec![change0, change2, change3, change4, change5];
-    //
-    //     let root_key_sk = user0.get_root_secret_key()
-    //         + user2.get_root_secret_key()
-    //         + user3.get_root_secret_key()
-    //         + user4.get_root_secret_key()
-    //         + user5.get_root_secret_key();
-    //
-    //     // Check correctness of the merge
-    //     let mut art_def0 = user0.clone();
-    //     let merge_change_but_0 = MergeBranchChange::new_for_participant(
-    //         art0.clone(),
-    //         applied_change.clone(),
-    //         all_but_0_changes.clone(),
-    //     );
-    //     merge_change_but_0.apply(&mut art_def0).unwrap();
-    //
-    //     let mut art_def1 = art1.clone();
-    //     let merge_all_change = MergeBranchChange::new_for_observer(all_changes.clone());
-    //     merge_all_change.apply(&mut art_def1).unwrap();
-    //     // art_def1.merge_for_observer(&all_changes).unwrap();
-    //
-    //     assert_eq!(
-    //         art_def0.get_root(),
-    //         art_def1.get_root(),
-    //         "Observer and participant have the same view on the state of the art."
-    //     );
-    //
-    //     assert_eq!(
-    //         art_def0.get_root_secret_key(),
-    //         art_def1.get_root_secret_key(),
-    //         "Observer and participant have the same view on the state of the art."
-    //     );
-    //
-    //     assert_eq!(
-    //         art_def0, art_def1,
-    //         "Observer and participant have the same view on the state of the art."
-    //     );
-    //
-    //     for permutation in all_but_0_changes
-    //         .iter()
-    //         .cloned()
-    //         .permutations(all_but_0_changes.len())
-    //     {
-    //         let merge_change_but_0 = MergeBranchChange::new_for_participant(
-    //             art0.clone(),
-    //             applied_change.clone(),
-    //             permutation,
-    //         );
-    //
-    //         let mut art_0_analog = user0.clone();
-    //         merge_change_but_0.apply(&mut art_0_analog).unwrap();
-    //
-    //         assert_eq!(
-    //             art_0_analog, art_def0,
-    //             "The order of changes applied doesn't affect the result."
-    //         );
-    //     }
-    //
-    //     for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
-    //         let merge_all_change = MergeBranchChange::new_for_observer(permutation);
-    //
-    //         let mut art_1_analog = art1.clone();
-    //         merge_all_change.apply(&mut art_1_analog).unwrap();
-    //
-    //         assert_eq!(
-    //             art_1_analog, art_def0,
-    //             "The order of changes applied doesn't affect the result."
-    //         );
-    //     }
-    // }
+    #[test]
+    fn test_changes_ordering_for_merge() {
+        init_tracing();
+
+        let seed = 0;
+        let mut rng = &mut StdRng::seed_from_u64(seed);
+        let secrets = (0..7)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let def_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+
+        let mut user1 = PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[1]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+
+        let mut user2= PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[2]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+
+        let mut user3 = PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[3]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+
+        let mut user4 = PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[4]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+
+        let mut user5 = PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[5]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+
+        let sk0 = Fr::rand(&mut rng);
+        let private_change1 = user1.update_key(sk0).unwrap();
+        let change1 = private_change1.branch_change.clone();
+
+        let sk2 = Fr::rand(&mut rng);
+        let change2 = user2.update_key(sk2).unwrap().branch_change;
+
+        let sk3 = Fr::rand(&mut rng);
+        let target_user_public_key = CortadoAffine::generator().mul(secrets[6]).into_affine();
+        let target_node_index =
+            NodeIndex::from(user3.base_art.get_path_to_leaf_with(target_user_public_key).unwrap());
+        let change3 = user3.remove_member(&target_node_index, sk3).unwrap().branch_change;
+
+        let sk4 = Fr::rand(&mut rng);
+        let change4 = user4.update_key(sk4).unwrap().branch_change;
+
+        let sk5 = Fr::rand(&mut rng);
+        let change5 = user5.update_key(sk5).unwrap().branch_change;
+
+        let all_but_1_changes: Vec<BranchChange<CortadoAffine>> = vec![
+            change2.clone(),
+            change3.clone(),
+            change4.clone(),
+            change5.clone(),
+        ];
+        let all_changes = vec![
+            change1.clone(),
+            change2.clone(),
+            change3.clone(),
+            change4.clone(),
+            change5.clone()
+        ];
+
+        let root_key_sk = user1.upstream_art.get_root_secret_key()
+            + user2.upstream_art.get_root_secret_key()
+            + user3.upstream_art.get_root_secret_key()
+            + user4.upstream_art.get_root_secret_key()
+            + user5.upstream_art.get_root_secret_key();
+
+        // Check correctness of the merge
+        let mut user0_test_art = PrivateMergeContext::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        ).unwrap();
+        for change in &all_changes {
+            change.apply(&mut user0_test_art).unwrap();
+        }
+        user0_test_art.commit();
+
+        let mut user1_test_art = user1.clone();
+        private_change1.apply(&mut user1_test_art).unwrap();
+        for change in &all_but_1_changes {
+            change.apply(&mut user1_test_art).unwrap()
+        }
+        user1_test_art.commit();
+
+        assert_eq!(
+            user0_test_art.marker_tree,
+            user1_test_art.marker_tree,
+            "Observer and participant have the same view on the state of the art.\
+            User0 is:\n{}\nuser1 is:\n{}",
+            user0_test_art.marker_tree,
+            user1_test_art.marker_tree,
+        );
+
+        assert_eq!(
+            user0_test_art.upstream_art,
+            user1_test_art.upstream_art,
+            "Observer and participant have the same view on the state of the art.\
+            User0 is:\n{}\nuser1 is:\n{}",
+            user0_test_art.upstream_art.get_root(),
+            user1_test_art.upstream_art.get_root(),
+        );
+
+        assert_eq!(
+            user1_test_art.upstream_art, user0_test_art.upstream_art,
+            "Observer and participant have the same view on the state of the art."
+        );
+
+        for permutation in all_but_1_changes
+            .iter()
+            .cloned()
+            .permutations(all_but_1_changes.len())
+        {
+            let mut art_0_analog = user1.clone();
+            private_change1.apply(&mut art_0_analog).unwrap();
+            for change in &permutation {
+                change.apply(&mut art_0_analog).unwrap()
+            }
+            art_0_analog.commit();
+
+
+            assert_eq!(
+                art_0_analog.upstream_art.get_root(),
+                user0_test_art.upstream_art.get_root(),
+                "Observer and participant have the same view on the state of the art.\
+                User0 is:\n{}\nUser1 is:\n{}",
+                art_0_analog.upstream_art.get_root(),
+                user0_test_art.upstream_art.get_root(),
+            );
+        }
+
+        for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
+            let mut art_1_analog = PrivateMergeContext::new(
+                PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
+                Box::new(StdRng::seed_from_u64(random())),
+            ).unwrap();
+            for change in permutation {
+                change.apply(&mut art_1_analog).unwrap();
+            }
+            art_1_analog.commit();
+
+            assert_eq!(
+                art_1_analog.upstream_art.get_root(),
+                user1_test_art.upstream_art.get_root(),
+                "Observer and participant have the same view on the state of the art.\
+                User0 is:\n{}\nUser1 is:\n{}",
+                art_1_analog.upstream_art.get_root(),
+                user1_test_art.upstream_art.get_root(),
+            );
+        }
+    }
 
     // #[test]
     // fn test_merge_for_key_update() {
