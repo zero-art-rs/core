@@ -1,6 +1,5 @@
-use crate::art::art_types::{PrivateZeroArt, PublicZeroArt};
+use crate::art::art_types::{PrivateZeroArt};
 use crate::changes::aggregations::AggregatedChange;
-use crate::changes::applicable_change::ApplicableChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
 use ark_std::rand::Rng;
@@ -8,6 +7,7 @@ use cortado::CortadoAffine;
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
+use crate::art::PublicZeroArt;
 
 /// Describes an ART change, which can be verified.
 ///
@@ -27,16 +27,16 @@ pub trait VerifiableChange<T>{
     ) -> Result<(), ArtError>;
 }
 
-impl VerifiableChange<PublicZeroArt> for BranchChange<CortadoAffine> {
+impl VerifiableChange<PublicZeroArt<CortadoAffine>> for BranchChange<CortadoAffine> {
     fn verify(
         &self,
-        art: &PublicZeroArt,
+        art: &PublicZeroArt<CortadoAffine>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
         let verification_branch = art
-            .get_public_art()
+            .base_art
             .compute_artefacts_for_verification(self)?
             .to_verifier_branch()?;
 
@@ -70,15 +70,15 @@ where
     }
 }
 
-impl VerifiableChange<PublicZeroArt> for AggregatedChange<CortadoAffine> {
+impl VerifiableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
     fn verify(
         &self,
-        art: &PublicZeroArt,
+        art: &PublicZeroArt<CortadoAffine>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
-        let extracted_agg = self.add_co_path(&art.public_art)?;
+        let extracted_agg = self.add_co_path(&art.base_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 
         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);

@@ -1,5 +1,5 @@
 use crate::art::art_node::{ArtNode, NodeIterWithPath};
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
@@ -138,16 +138,6 @@ where
     }
 
     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-        self.public_art.tree_root.get_mut_root()
-    }
-}
-
-impl TreeMethods<CortadoAffine> for PublicZeroArt {
-    fn get_root(&self) -> &ArtNode<CortadoAffine> {
-        self.public_art.tree_root.get_root()
-    }
-
-    fn get_mut_root(&mut self) -> &mut ArtNode<CortadoAffine> {
         self.public_art.tree_root.get_mut_root()
     }
 }

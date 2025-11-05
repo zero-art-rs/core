@@ -8,7 +8,7 @@ use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use cortado::{CortadoAffine, Fr};
 use zrt_zk::EligibilityArtefact;
-use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine};
+use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::art::{ArtAdvancedOps, ArtBasicOps};
 use crate::art::art_node::LeafStatus;
@@ -16,20 +16,21 @@ use crate::changes::aggregations::AggregationNode;
 use crate::changes::ApplicableChange;
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
-use crate::helper_tools::recompute_artefacts;
+use crate::helper_tools::{default_verifier_engine, recompute_artefacts};
 use crate::node_index::NodeIndex;
 use crate::TreeMethods;
 
-pub struct PublicMergeContext<G>
+pub struct PublicZeroArt<G>
 where
     G: AffineRepr,
 {
     pub(crate) base_art: PublicArt<G>,
     pub(crate) upstream_art: PublicArt<G>,
     pub(crate) marker_tree: AggregationNode<bool>,
+    pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
-impl<G> PublicMergeContext<G>
+impl<G> PublicZeroArt<G>
 where
     G: AffineRepr,
 {
@@ -41,6 +42,7 @@ where
             base_art,
             upstream_art,
             marker_tree,
+            verifier_engine: default_verifier_engine(),
         })
     }
 
@@ -56,11 +58,15 @@ where
 }
 
 
-impl<G> ApplicableChange<PublicMergeContext<G>, G> for BranchChange<G>
+impl<G> ApplicableChange<PublicZeroArt<G>, G> for BranchChange<G>
 where
     G: AffineRepr
 {
-    fn apply(&self, art: &mut PublicMergeContext<G>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PublicZeroArt<G>) -> Result<(), ArtError> {
+        if art.marker_tree.data {
+            return Err(ArtError::InvalidMergeInput)
+        }
+        
         if let BranchChangeType::AddMember = self.change_type {
             return Err(ArtError::InvalidMergeInput)
         }
@@ -320,8 +326,6 @@ mod test {
     use std::ops::{Add, Mul};
     use itertools::Itertools;
     use rand::random;
-    use tracing::debug;
-    use tracing::field::debug;
     use crate::changes::branch_change::BranchChange;
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;

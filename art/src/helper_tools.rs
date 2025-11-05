@@ -1,10 +1,16 @@
 use crate::art::ProverArtefacts;
 use crate::errors::ArtError;
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_ed25519::EdwardsAffine;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+use bulletproofs::PedersenGens;
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
+use zkp::toolbox::cross_dleq::PedersenBasis;
+use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+use cortado::CortadoAffine;
+use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -72,4 +78,28 @@ where
 /// Return first 8 chars from the string with three following dots.
 pub(crate) fn prepare_short_marker(full_marker: &str) -> String {
     full_marker.chars().take(8).collect::<String>() + "..."
+}
+
+pub(crate) fn default_proof_basis() -> PedersenBasis<CortadoAffine, EdwardsAffine> {
+    let gens = PedersenGens::default();
+    PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
+        CortadoAffine::generator(),
+        CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
+        ristretto255_to_ark(gens.B).unwrap(),
+        ristretto255_to_ark(gens.B_blinding).unwrap(),
+    )
+}
+
+pub(crate) fn default_verifier_engine() -> ZeroArtVerifierEngine {
+    ZeroArtVerifierEngine::new(
+        default_proof_basis(),
+        ZeroArtEngineOptions::default(),
+    )
+}
+
+pub(crate) fn default_prover_engine() -> ZeroArtProverEngine {
+    ZeroArtProverEngine::new(
+        default_proof_basis(),
+        ZeroArtEngineOptions::default(),
+    )
 }

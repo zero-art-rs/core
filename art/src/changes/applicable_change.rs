@@ -1,6 +1,6 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
 use crate::changes::aggregations::{AggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
@@ -8,6 +8,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine};
+use crate::art::PublicZeroArt;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -57,12 +58,6 @@ where
     }
 }
 
-impl ApplicableChange<PublicZeroArt, CortadoAffine> for BranchChange<CortadoAffine> {
-    fn apply(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        self.apply(&mut art.public_art)
-    }
-}
-
 impl<R> ApplicableChange<PrivateZeroArt<R>, CortadoAffine> for BranchChange<CortadoAffine>
 where
     R: Rng + ?Sized,
@@ -92,9 +87,9 @@ where
     }
 }
 
-impl ApplicableChange<PublicZeroArt, CortadoAffine> for AggregatedChange<CortadoAffine> {
-    fn apply(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
-        self.update_public_art(&mut art.public_art)
+impl ApplicableChange<PublicZeroArt<CortadoAffine>, CortadoAffine> for AggregatedChange<CortadoAffine> {
+    fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
+        self.update_public_art(&mut art.upstream_art)
     }
 }
 

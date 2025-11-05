@@ -4,7 +4,7 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
+use crate::helper_tools::{ark_de, ark_se, default_proof_basis, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
@@ -48,10 +48,10 @@ where
     pub(crate) node_index: NodeIndex,
 }
 
-pub struct PublicZeroArt {
-    pub(crate) public_art: PublicArt<CortadoAffine>,
-    pub(crate) verifier_engine: ZeroArtVerifierEngine,
-}
+// pub struct PublicZeroArt {
+//     pub(crate) public_art: PublicArt<CortadoAffine>,
+//     pub(crate) verifier_engine: ZeroArtVerifierEngine,
+// }
 
 // TODO: Remove clone
 #[derive(Clone)]
@@ -580,22 +580,6 @@ where
             changes,
             artefacts,
         ))
-    }
-
-    pub(crate) fn temp_update_art_branch_with_leaf_secret_key(
-        &mut self,
-        secret_key: G::ScalarField,
-        path: &[Direction],
-        append_changes: bool,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let (tk, change, artefacts) = self.ephemeral_update_art_branch_with_leaf_secret_key(
-            secret_key,
-            path,
-        )?;
-
-        self.update_pubic_keys_on_path(path, &change.public_keys, append_changes)?;
-
-        Ok((tk, change, artefacts))
     }
 
     /// This method will update all public keys on a path from the root to node. Using provided
@@ -1139,42 +1123,13 @@ where
     }
 }
 
-impl PublicZeroArt {
-    pub fn new(public_art: PublicArt<CortadoAffine>) -> Self {
-        let gens = PedersenGens::default();
-        let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
-            CortadoAffine::generator(),
-            CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
-            ristretto255_to_ark(gens.B).unwrap(),
-            ristretto255_to_ark(gens.B_blinding).unwrap(),
-        );
-
-        Self {
-            public_art,
-            verifier_engine: ZeroArtVerifierEngine::new(
-                proof_basis.clone(),
-                ZeroArtEngineOptions::default(),
-            ),
-        }
-    }
-
-    pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {
-        &self.public_art
-    }
-}
-
 impl<R> PrivateZeroArt<R>
 where
     R: Rng + ?Sized,
 {
     pub fn new(private_art: PrivateArt<CortadoAffine>, rng: Box<R>) -> Self {
-        let gens = PedersenGens::default();
-        let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
-            CortadoAffine::generator(),
-            CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
-            ristretto255_to_ark(gens.B).unwrap(),
-            ristretto255_to_ark(gens.B_blinding).unwrap(),
-        );
+        let proof_basis = default_proof_basis();
+        
 
         Self {
             rng,

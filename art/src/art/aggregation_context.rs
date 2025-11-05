@@ -4,8 +4,8 @@ use cortado::{CortadoAffine, Fr};
 use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::{ArtProof};
 use zrt_zk::EligibilityArtefact;
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt};
-use crate::art::{ArtAdvancedOps};
+use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use crate::art::{ArtAdvancedOps, PublicZeroArt};
 use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
 use crate::changes::{ApplicableChange, ProvableChange};
 use crate::errors::ArtError;
@@ -80,13 +80,13 @@ where
     }
 }
 
-impl<R> ApplicableChange<PublicZeroArt, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<R> ApplicableChange<PublicZeroArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
 where
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PublicZeroArt) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
         let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.update_public_art(&mut art.public_art)
+        plain_aggregation.update_public_art(&mut art.upstream_art)
     }
 }
 

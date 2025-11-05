@@ -33,6 +33,8 @@ pub enum ArtError {
     InapplicableKeyUpdate,
     #[error("Can't apply leave operation update change to itself.")]
     InapplicableLeave,
+    #[error("Can't apply aggregation change.")]
+    InapplicableAggregation,
     #[error("The method can't be applied to the non leaf node.")]
     LeafOnly,
     #[error("The method can't be applied to the leaf node.")]
