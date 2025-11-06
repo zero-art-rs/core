@@ -12,9 +12,8 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::cmp::{max, min};
-    use std::io::ErrorKind::NotADirectory;
     use std::ops::Mul;
-    use tracing::{debug, info, warn};
+    use tracing::{info, warn};
     use zrt_art::TreeMethods;
     use zrt_art::art::ArtAdvancedOps;
     use zrt_art::art::art_node::LeafIterWithPath;
