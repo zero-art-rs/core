@@ -94,8 +94,12 @@ impl NodeIndex {
     }
 
     pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ArtError> {
+        self.is_subpath_of_vec(&other.get_path()?)
+    }
+
+    pub fn is_subpath_of_vec(&self, other: &[Direction]) -> Result<bool, ArtError> {
         let mut is_subpath = true;
-        for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
+        for (a, b) in self.get_path()?.iter().zip(other) {
             if a != b {
                 is_subpath = false;
                 break;

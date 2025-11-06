@@ -443,6 +443,23 @@ where
 
         Ok(())
     }
+
+    pub(crate) fn change_leaf_status_by_change_type(
+        target_node: &mut ArtNode<G>,
+        change_type: &BranchChangeType,
+    ) -> Result<(), ArtError> {
+        let target_leaf_status = match change_type {
+            BranchChangeType::UpdateKey => Some(LeafStatus::Active),
+            BranchChangeType::AddMember => None,
+            BranchChangeType::RemoveMember => Some(LeafStatus::Blank),
+            BranchChangeType::Leave => Some(LeafStatus::PendingRemoval),
+        };
+        if let Some(target_leaf_status) = target_leaf_status {
+            target_node.set_status(target_leaf_status)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<G> PrivateArt<G>

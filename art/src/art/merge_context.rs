@@ -1,21 +1,17 @@
 use crate::TreeMethods;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PublicArt};
-use crate::art::{ArtAdvancedOps, ArtBasicOps, ArtUpdateOutput};
-use crate::changes::ApplicableChange;
+use crate::art::{ArtBasicOps, ArtUpdateOutput};
 use crate::changes::aggregations::AggregationNode;
-use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use cortado::{CortadoAffine, Fr};
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
-use tracing::trace;
-use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 pub struct PublicZeroArt<G>
@@ -217,12 +213,6 @@ where
 
         Ok((tk, change, artefacts))
     }
-
-    /// Move current node down to left child, and append other node to the right.
-    pub(crate) fn extend_marker_node(parent: &mut AggregationNode<bool>, other: bool) {
-        parent.l = Some(Box::new(AggregationNode::from(parent.data)));
-        parent.r = Some(Box::new(AggregationNode::from(other)));
-    }
 }
 
 impl<G, R> PartialEq for PrivateZeroArt<G, R>
@@ -259,6 +249,75 @@ where
             .field("marker_tree", &self.marker_tree)
             .finish()
     }
+}
+
+/// Move current node down to left child, and append other node to the right.
+pub(crate) fn extend_marker_node(parent: &mut AggregationNode<bool>, other: bool) {
+    parent.l = Some(Box::new(AggregationNode::from(parent.data)));
+    parent.r = Some(Box::new(AggregationNode::from(other)));
+}
+
+pub(crate) fn insert_first_secret_at_start_if_need<G>(
+    upstream_art: &mut PrivateArt<G>,
+    target_node_path: &[Direction],
+) -> Result<(), ArtError>
+where
+    G: AffineRepr,
+{
+    // if true, then add member was with extension (instead of replacement).
+    if upstream_art
+        .node_index
+        .is_subpath_of_vec(target_node_path)?
+    {
+        let secret = upstream_art
+            .secrets
+            .first()
+            .ok_or(ArtError::EmptyArt)?
+            .clone();
+
+        upstream_art.secrets.insert(0, secret);
+    }
+
+    Ok(())
+}
+
+/// Extends target node and return true, if target node is leaf. if target node isn't a
+/// leaf, return false.
+pub(crate) fn handle_potential_art_node_extension_on_add_member<G>(
+    upstream_art: &mut PublicArt<G>,
+    target_node_path: &[Direction],
+    last_direction: Direction,
+) -> Result<bool, ArtError>
+where
+    G: AffineRepr,
+{
+    let parent_art_node = upstream_art.get_mut_node_at(&target_node_path)?;
+
+    // if true, then add member was with extension (instead of replacement).
+    if parent_art_node.get_child(last_direction).is_none() {
+        parent_art_node.extend(ArtNode::default());
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+// If marker to the leaf doesn't exists, extend the parent. If parent doesn't exist,
+// return error.
+pub(crate) fn handle_potential_marker_tree_node_extension_on_add_member(
+    marker_tree: &mut AggregationNode<bool>,
+    target_node_path: &[Direction],
+    last_direction: Direction,
+) -> Result<bool, ArtError> {
+    let parent_marker_node = marker_tree.get_mut_node(&target_node_path)?;
+
+    if parent_marker_node.get_child(last_direction).is_none() {
+        extend_marker_node(parent_marker_node, true);
+
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 #[cfg(test)]
