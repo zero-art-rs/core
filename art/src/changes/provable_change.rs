@@ -1,5 +1,4 @@
 use ark_std::rand::Rng;
-use tracing::trace;
 use crate::changes::branch_change::PrivateBranchChange;
 use crate::errors::ArtError;
 use cortado::CortadoAffine;
@@ -39,9 +38,6 @@ impl ProvableChange for PrivateBranchChange<CortadoAffine> {
             Some(eligibility) => eligibility,
             None => self.eligibility.clone(),
         };
-
-        trace!("prover_branch: {:#?}", self.prover_branch);
-        trace!("eligibility: {:#?}", eligibility);
 
         let context = self.prover_engine.new_context(ad, eligibility);
         let proof = context.prove(&self.prover_branch)?;

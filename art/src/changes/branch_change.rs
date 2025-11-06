@@ -7,7 +7,6 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug};
-use std::mem;
 use std::rc::Rc;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;

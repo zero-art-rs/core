@@ -4,16 +4,12 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine};
 use zrt_zk::aggregated_art::ProverAggregationTree;
-use zrt_zk::art::{ArtProof};
-use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::ZeroArtProverEngine;
 use crate::art::art_types::{PrivateArt};
-use crate::art::{ArtAdvancedOps, PrivateZeroArt};
+use crate::art::{PrivateZeroArt};
 use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
-use crate::changes::{ApplicableChange, ProvableChange};
 use crate::errors::ArtError;
 use crate::helper_tools::default_prover_engine;
-use crate::node_index::NodeIndex;
 
 pub struct AggregationContext<T, G, R>
 where
@@ -62,48 +58,6 @@ where
             prover_engine: Rc::clone(&operation_tree.prover_engine),
             rng,
         }
-    }
-}
-
-impl<G, R> ArtAdvancedOps<G, ()> for AggregationContext<PrivateArt<G>, G, R>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-    R: Rng + ?Sized,
-{
-    fn add_member(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_add_member(new_key, &mut self.operation_tree, &mut self.rng)?;
-
-        Ok(())
-    }
-
-    fn remove_member(&mut self, target_leaf: &NodeIndex, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_remove_member(&target_leaf.get_path()?, new_key, &mut self.operation_tree, &mut self.rng)?;
-
-        Ok(())
-    }
-
-    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_leave_group(new_key, &mut self.operation_tree, &mut self.rng)?;
-
-        Ok(())
-    }
-
-    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_update_key(new_key, &mut self.operation_tree, &mut self.rng)?;
-
-        Ok(())
-    }
-}
-
-impl<T1, T2, R> ApplicableChange<T1> for AggregationContext<T2, CortadoAffine, R>
-where
-    R: Rng + ?Sized,
-    AggregatedChange<CortadoAffine>: ApplicableChange<T1>,
-{
-    fn apply(&self, art: &mut T1) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.apply(art)
     }
 }
 
