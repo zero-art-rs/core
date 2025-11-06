@@ -8,6 +8,7 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
 use std::rc::Rc;
+use tracing::debug;
 use zrt_zk::EligibilityArtefact;
 
 pub trait ArtBasicOps<G, R>
@@ -55,10 +56,6 @@ where
         new_key: Fr,
         _: bool,
     ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        if self.marker_tree.data {
-            return Err(ArtError::InvalidInput);
-        }
-
         let eligibility = EligibilityArtefact::Member((
             self.upstream_art.get_leaf_secret_key(),
             self.upstream_art.get_leaf_public_key(),

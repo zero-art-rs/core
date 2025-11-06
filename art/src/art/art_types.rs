@@ -79,7 +79,9 @@ where
                     .ok_or(ArtError::InvalidInput)?
                     .get_public_key(),
             );
-            parent = parent.get_child(*direction).ok_or(ArtError::InvalidInput)?;
+            parent = parent
+                .get_child(*direction)
+                .ok_or(ArtError::PathNotExists)?;
         }
 
         co_path_values.reverse();

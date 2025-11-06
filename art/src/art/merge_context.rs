@@ -7,7 +7,7 @@ use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
-use ark_ec::{AffineRepr};
+use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use std::fmt::{Debug, Formatter};
@@ -114,6 +114,10 @@ where
         &self.upstream_art
     }
 
+    pub fn get_marker_tree(&self) -> &AggregationNode<bool> {
+        &self.marker_tree
+    }
+
     pub fn get_node_index(&self) -> &NodeIndex {
         self.get_base_art().get_node_index()
     }
@@ -147,12 +151,6 @@ where
             };
         partial_co_path.append(&mut target_art.public_art.get_co_path_values(&intersection)?);
 
-        // trace!("art: \n{}", self.get_upstream_art().get_root());
-
-        // trace!(
-        //     "public_key of level_sk: {}",
-        //     G::generator().mul(target_art.secrets[target_art.secrets.len() - partial_co_path.len()]).into_affine(),
-        // );
         let level_sk = target_art.secrets
             [(target_art.secrets.len() - partial_co_path.len()).saturating_sub(1)];
 
@@ -163,7 +161,7 @@ where
 
     pub(crate) fn update_secrets(
         &mut self,
-        updated_secrets: &Vec<G::ScalarField>,
+        updated_secrets: &[G::ScalarField],
         merge_key: bool,
     ) -> Result<(), ArtError> {
         for (sk, i) in updated_secrets
@@ -260,7 +258,7 @@ pub(crate) fn extend_marker_node(parent: &mut AggregationNode<bool>, other: bool
 pub(crate) fn insert_first_secret_at_start_if_need<G>(
     upstream_art: &mut PrivateArt<G>,
     target_node_path: &[Direction],
-) -> Result<(), ArtError>
+) -> Result<bool, ArtError>
 where
     G: AffineRepr,
 {
@@ -276,9 +274,10 @@ where
             .clone();
 
         upstream_art.secrets.insert(0, secret);
+        return Ok(true);
     }
 
-    Ok(())
+    Ok(false)
 }
 
 /// Extends target node and return true, if target node is leaf. if target node isn't a

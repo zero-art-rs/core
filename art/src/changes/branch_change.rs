@@ -103,21 +103,35 @@ where
         G: AffineRepr,
         G::BaseField: PrimeField,
     {
-        let target_art = &mut art.upstream_art;
-
-        let path = target_art.get_node_index().get_path()?;
-        let co_path = target_art.get_public_art().get_co_path_values(&path)?;
+        let path = art.get_node_index().get_path()?;
+        let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
         let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
 
-        // target_art.update_pubic_keys_on_path(&path, &artefacts.path, false)?;
+        // get updates secrets length
+        let mut parent = &art.marker_tree;
+        let mut updated_secrets_length = parent.data as usize;
+        if parent.data {
+            for dir in &path {
+                parent = parent.get_child(*dir).ok_or(ArtError::PathNotExists)?;
+                if parent.data {
+                    updated_secrets_length += 1;
+                }
+            }
+        }
+
         let marker_tree = &mut art.marker_tree;
-        target_art.public_art.merge_by_marker(
+        art.upstream_art.public_art.merge_by_marker(
             &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
             &path,
             marker_tree,
         )?;
 
-        target_art.secrets = artefacts.secrets;
+        let old_secrets = art.upstream_art.secrets.clone();
+        art.upstream_art.secrets = artefacts.secrets;
+
+        let start = old_secrets.len() - updated_secrets_length;
+        let finish = old_secrets.len();
+        art.update_secrets(&old_secrets[start..finish], true)?;
 
         Ok(())
     }

@@ -1,18 +1,21 @@
 use crate::TreeMethods;
-use crate::art::art_node::{LeafStatus};
+use crate::art::art_node::LeafStatus;
 use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::art::{
-    AggregationContext, PrivateZeroArt, PublicZeroArt, handle_potential_marker_tree_node_extension_on_add_member,
-    handle_potential_art_node_extension_on_add_member, insert_first_secret_at_start_if_need,
+    AggregationContext, PrivateZeroArt, PublicZeroArt,
+    handle_potential_art_node_extension_on_add_member,
+    handle_potential_marker_tree_node_extension_on_add_member,
+    insert_first_secret_at_start_if_need,
 };
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
+use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
-use crate::node_index::Direction;
+use std::mem;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -102,14 +105,31 @@ where
     }
 }
 
-impl<T1, T2, R> ApplicableChange<T1> for AggregationContext<T2, CortadoAffine, R>
+impl<G, R1, R2> ApplicableChange<PrivateZeroArt<G, R1>> for AggregationContext<PrivateArt<G>, G, R2>
 where
-    R: Rng + ?Sized,
-    AggregatedChange<CortadoAffine>: ApplicableChange<T1>,
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R1: Rng + ?Sized,
+    R2: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut T1) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.apply(art)
+    fn apply(&self, art: &mut PrivateZeroArt<G, R1>) -> Result<(), ArtError> {
+        art.upstream_art = self.operation_tree.clone();
+        art.commit();
+
+        Ok(())
+    }
+}
+
+impl<G, R> ApplicableChange<PrivateArt<G>> for AggregationContext<PrivateArt<G>, G, R>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
+        let _ = mem::replace(art, self.operation_tree.clone());
+
+        Ok(())
     }
 }
 
@@ -183,8 +203,11 @@ where
             )?;
 
             if extension_was_performed {
-                art.upstream_art.node_index.push(Direction::Left);
-                insert_first_secret_at_start_if_need(&mut art.upstream_art, &target_path)?;
+                let insertion_was_performed =
+                    insert_first_secret_at_start_if_need(&mut art.upstream_art, &target_path)?;
+                if insertion_was_performed {
+                    art.upstream_art.node_index.push(Direction::Left);
+                }
             }
         }
 
@@ -231,6 +254,6 @@ where
             return self.inner_apply_own_key_update(art, self.secret);
         }
 
-       self.branch_change.apply(art)
+        self.branch_change.apply(art)
     }
 }

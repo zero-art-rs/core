@@ -57,10 +57,7 @@ where
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => EligibilityArtefact::Owner((
-                self.operation_tree.get_leaf_secret_key(),
-                self.operation_tree.get_leaf_public_key(),
-            )),
+            None => self.eligibility.clone(),
         };
 
         // Get ProverAggregationTree for proof.

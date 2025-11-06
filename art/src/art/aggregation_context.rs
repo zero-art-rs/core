@@ -8,6 +8,7 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::rc::Rc;
+use zrt_zk::EligibilityArtefact;
 use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::engine::ZeroArtProverEngine;
 
@@ -20,6 +21,7 @@ where
     pub(crate) operation_tree: T,
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
     pub(crate) rng: Box<R>,
+    pub(crate) eligibility: EligibilityArtefact,
 }
 
 impl<T, G, R> AggregationContext<T, G, R>
@@ -32,31 +34,43 @@ where
     }
 }
 
-impl<G, R> AggregationContext<PrivateArt<G>, G, R>
+impl<R> AggregationContext<PrivateArt<CortadoAffine>, CortadoAffine, R>
 where
-    G: AffineRepr,
     R: Rng + ?Sized,
 {
-    pub fn new(operation_tree: PrivateArt<G>, rng: Box<R>) -> Self {
+    pub fn new(operation_tree: PrivateArt<CortadoAffine>, rng: Box<R>) -> Self {
+        let eligibility = EligibilityArtefact::Owner((
+            operation_tree.get_leaf_secret_key(),
+            operation_tree.get_leaf_public_key(),
+        ));
+
         Self {
             prover_aggregation: Default::default(),
             operation_tree,
             prover_engine: Rc::new(default_prover_engine()),
             rng,
+            eligibility,
         }
     }
 
-    pub fn from_private_zero_art<RT>(operation_tree: &PrivateZeroArt<G, RT>, rng: Box<R>) -> Self
+    pub fn from_private_zero_art<RT>(
+        operation_tree: &PrivateZeroArt<CortadoAffine, RT>,
+        rng: Box<R>,
+    ) -> Self
     where
-        G: AffineRepr,
-        G::BaseField: PrimeField,
         RT: Rng + ?Sized,
     {
+        let eligibility = EligibilityArtefact::Owner((
+            operation_tree.get_base_art().get_leaf_secret_key(),
+            operation_tree.get_base_art().get_leaf_public_key(),
+        ));
+
         Self {
             prover_aggregation: Default::default(),
             operation_tree: operation_tree.get_base_art().clone(),
             prover_engine: Rc::clone(&operation_tree.prover_engine),
             rng,
+            eligibility,
         }
     }
 }
