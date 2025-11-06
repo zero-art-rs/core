@@ -1,12 +1,12 @@
-use ark_std::rand::Rng;
+use crate::art::art_types::PrivateArt;
+use crate::art::{AggregationContext, PrivateZeroArt};
 use crate::changes::branch_change::PrivateBranchChange;
 use crate::errors::ArtError;
+use ark_std::rand::Rng;
 use cortado::CortadoAffine;
-use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::EligibilityArtefact;
+use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::ArtProof;
-use crate::art::{AggregationContext, PrivateZeroArt};
-use crate::art::art_types::PrivateArt;
 
 /// A trait for structures that can be proved.
 ///
@@ -32,8 +32,7 @@ impl ProvableChange for PrivateBranchChange<CortadoAffine> {
         &self,
         ad: &[u8],
         eligibility: Option<EligibilityArtefact>,
-    ) -> Result<ArtProof, ArtError>
-    {
+    ) -> Result<ArtProof, ArtError> {
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
             None => self.eligibility.clone(),
@@ -48,19 +47,20 @@ impl ProvableChange for PrivateBranchChange<CortadoAffine> {
 
 impl<R> ProvableChange for AggregationContext<PrivateArt<CortadoAffine>, CortadoAffine, R>
 where
-    R: Rng + ?Sized
+    R: Rng + ?Sized,
 {
-    fn prove(&self, ad: &[u8], eligibility: Option<EligibilityArtefact>) -> Result<ArtProof, ArtError>
-    {
+    fn prove(
+        &self,
+        ad: &[u8],
+        eligibility: Option<EligibilityArtefact>,
+    ) -> Result<ArtProof, ArtError> {
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => {
-                EligibilityArtefact::Owner((
-                    self.operation_tree.get_leaf_secret_key(),
-                    self.operation_tree.get_leaf_public_key())
-                )
-            }
+            None => EligibilityArtefact::Owner((
+                self.operation_tree.get_leaf_secret_key(),
+                self.operation_tree.get_leaf_public_key(),
+            )),
         };
 
         // Get ProverAggregationTree for proof.
@@ -75,25 +75,29 @@ where
 
 impl<R> ProvableChange for AggregationContext<PrivateZeroArt<CortadoAffine, R>, CortadoAffine, R>
 where
-    R: Rng + ?Sized
+    R: Rng + ?Sized,
 {
-    fn prove(&self, ad: &[u8], eligibility: Option<EligibilityArtefact>) -> Result<ArtProof, ArtError>
-    {
+    fn prove(
+        &self,
+        ad: &[u8],
+        eligibility: Option<EligibilityArtefact>,
+    ) -> Result<ArtProof, ArtError> {
         // Use some auxiliary keys for proof
         let eligibility = match eligibility {
             Some(eligibility) => eligibility,
-            None => {
-                EligibilityArtefact::Owner((
-                    self.operation_tree.get_upstream_art().get_leaf_secret_key(),
-                    self.operation_tree.get_upstream_art().get_leaf_public_key())
-                )
-            }
+            None => EligibilityArtefact::Owner((
+                self.operation_tree.get_upstream_art().get_leaf_secret_key(),
+                self.operation_tree.get_upstream_art().get_leaf_public_key(),
+            )),
         };
 
         // Get ProverAggregationTree for proof.
         let prover_tree = ProverAggregationTree::try_from(self)?;
 
-        let context = self.operation_tree.prover_engine.new_context(ad, eligibility);
+        let context = self
+            .operation_tree
+            .prover_engine
+            .new_context(ad, eligibility);
         let proof = context.prove_aggregated(&prover_tree)?;
 
         Ok(proof)

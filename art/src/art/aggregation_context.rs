@@ -1,15 +1,15 @@
-use std::rc::Rc;
-use ark_ec::{AffineRepr};
-use ark_ff::PrimeField;
-use ark_std::rand::Rng;
-use cortado::{CortadoAffine};
-use zrt_zk::aggregated_art::ProverAggregationTree;
-use zrt_zk::engine::ZeroArtProverEngine;
-use crate::art::art_types::{PrivateArt};
-use crate::art::{PrivateZeroArt};
+use crate::art::PrivateZeroArt;
+use crate::art::art_types::PrivateArt;
 use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
 use crate::errors::ArtError;
 use crate::helper_tools::default_prover_engine;
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
+use ark_std::rand::Rng;
+use cortado::CortadoAffine;
+use std::rc::Rc;
+use zrt_zk::aggregated_art::ProverAggregationTree;
+use zrt_zk::engine::ZeroArtProverEngine;
 
 pub struct AggregationContext<T, G, R>
 where
@@ -61,7 +61,8 @@ where
     }
 }
 
-impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>> for ProverAggregationTree<CortadoAffine>
+impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>>
+    for ProverAggregationTree<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -72,7 +73,8 @@ where
     }
 }
 
-impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>> for AggregatedChange<CortadoAffine>
+impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>>
+    for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
@@ -85,24 +87,27 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Mul;
-    use ark_ec::{AffineRepr, CurveGroup};
-    use ark_std::rand::prelude::StdRng;
-    use ark_std::rand::{thread_rng, SeedableRng};
-    use ark_std::UniformRand;
-    use tracing::debug;
-    use cortado::{CortadoAffine, Fr};
-    use zrt_zk::aggregated_art::ProverAggregationTree;
-    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+    use crate::TreeMethods;
     use crate::art::art_node::LeafIterWithPath;
-    use crate::art::art_types::{PrivateArt};
-    use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation, VerifierAggregationData};
+    use crate::art::art_types::PrivateArt;
+    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
     use crate::changes::ApplicableChange;
+    use crate::changes::aggregations::{
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation,
+        VerifierAggregationData,
+    };
     use crate::errors::ArtError;
     use crate::helper_tools::iota_function;
     use crate::node_index::NodeIndex;
     use crate::test_helper_tools::init_tracing;
-    use crate::TreeMethods;
+    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_std::UniformRand;
+    use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::{SeedableRng, thread_rng};
+    use cortado::{CortadoAffine, Fr};
+    use std::ops::Mul;
+    use tracing::debug;
+    use zrt_zk::aggregated_art::ProverAggregationTree;
 
     /// Test if non-mergable changes (without blank for the second time) can be aggregated and
     /// applied correctly.
@@ -120,12 +125,14 @@ mod tests {
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[2]).unwrap(),
             Box::new(thread_rng()),
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut user2 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[3]).unwrap(),
             Box::new(thread_rng()),
-        ).unwrap();
+        )
+        .unwrap();
 
         let user1_2rng = Box::new(thread_rng());
         let user1_2 = user1.clone_without_rng(user1_2rng);
@@ -133,11 +140,13 @@ mod tests {
         let mut user3 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[4]).unwrap(),
             Box::new(thread_rng()),
-        ).unwrap();
+        )
+        .unwrap();
         let mut user4 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[5]).unwrap(),
             Box::new(thread_rng()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create aggregation
         let mut agg = AggregationContext::new(user1.get_base_art().clone(), Box::new(thread_rng()));
@@ -147,11 +156,9 @@ mod tests {
         let sk3 = Fr::rand(&mut rng);
         let sk4 = Fr::rand(&mut rng);
 
-        agg.remove_member(&user3.get_node_index(), sk1)
-            .unwrap();
+        agg.remove_member(&user3.get_node_index(), sk1).unwrap();
 
-        agg.remove_member(&user4.get_node_index(), sk1)
-            .unwrap();
+        agg.remove_member(&user4.get_node_index(), sk1).unwrap();
 
         agg.add_member(sk2).unwrap();
 
@@ -190,7 +197,9 @@ mod tests {
                 .unwrap();
 
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
-            let verifier_aggregation = aggregation.add_co_path(user2.base_art.get_public_art()).unwrap();
+            let verifier_aggregation = aggregation
+                .add_co_path(user2.base_art.get_public_art())
+                .unwrap();
 
             let user2_clone_rng = Box::new(thread_rng());
             let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
@@ -246,7 +255,10 @@ mod tests {
         }
 
         let verifier_aggregation =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg.prover_aggregation).unwrap();
+            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(
+                &agg.prover_aggregation,
+            )
+            .unwrap();
 
         let aggregation_from_prover =
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
@@ -322,10 +334,7 @@ mod tests {
         user0.commit();
 
         // Create aggregation
-        let mut agg = AggregationContext::new(
-            user0.get_base_art().clone(),
-            Box::new(thread_rng()),
-        );
+        let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
 
         debug!("agg operation_tree:\n{}", agg.operation_tree.get_root());
 
@@ -353,8 +362,11 @@ mod tests {
 
         let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0 = PrivateZeroArt::new(user0, Box::new(thread_rng())).unwrap();
-        let mut user1 =
-            PrivateArt::<CortadoAffine>::new(user0.get_base_art().get_public_art().clone(), secrets[1]).unwrap();
+        let mut user1 = PrivateArt::<CortadoAffine>::new(
+            user0.get_base_art().get_public_art().clone(),
+            secrets[1],
+        )
+        .unwrap();
 
         let target_3 = user0
             .get_base_art()
@@ -363,10 +375,7 @@ mod tests {
             .unwrap();
         let target_3_index = NodeIndex::Direction(target_3.to_vec());
         // Create aggregation
-        let mut agg = AggregationContext::new(
-            user0.base_art.clone(),
-            Box::new(thread_rng()),
-        );
+        let mut agg = AggregationContext::new(user0.base_art.clone(), Box::new(thread_rng()));
 
         agg.add_member(Fr::rand(&mut rng)).unwrap();
         agg.add_member(Fr::rand(&mut rng)).unwrap();
@@ -395,15 +404,13 @@ mod tests {
 
         let user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
-            Box::new(thread_rng())
-        ).unwrap();
+            Box::new(thread_rng()),
+        )
+        .unwrap();
 
         let mut pub_art = user0.get_base_art().get_public_art().clone();
 
-        let mut agg = AggregationContext::new(
-            user0.base_art.clone(),
-            Box::new(thread_rng()),
-        );
+        let mut agg = AggregationContext::new(user0.base_art.clone(), Box::new(thread_rng()));
         agg.add_member(Fr::rand(&mut rng)).unwrap();
 
         agg.update_key(Fr::rand(&mut rng)).unwrap();
@@ -428,14 +435,12 @@ mod tests {
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
             user0_rng,
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut pub_art = user0.get_base_art().get_public_art().clone();
 
-        let mut agg = AggregationContext::new(
-            user0.base_art.clone(),
-            Box::new(thread_rng()),
-        );
+        let mut agg = AggregationContext::new(user0.base_art.clone(), Box::new(thread_rng()));
         agg.add_member(Fr::rand(&mut rng)).unwrap();
 
         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();

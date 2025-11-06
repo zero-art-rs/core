@@ -1,10 +1,10 @@
 use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::{AggregationNode};
+use crate::changes::aggregations::AggregationNode;
+use crate::helper_tools::prepare_short_marker;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
-use crate::helper_tools::prepare_short_marker;
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {

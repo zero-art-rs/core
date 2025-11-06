@@ -1,22 +1,22 @@
-use std::fmt::{Debug, Formatter};
-use std::rc::Rc;
-use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::PrimeField;
-use ark_std::rand::Rng;
-use tracing::trace;
-use cortado::{CortadoAffine, Fr};
-use zrt_zk::EligibilityArtefact;
-use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
+use crate::TreeMethods;
+use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::art::{ArtAdvancedOps, ArtBasicOps, ArtUpdateOutput};
-use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::AggregationNode;
 use crate::changes::ApplicableChange;
+use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
-use crate::TreeMethods;
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::PrimeField;
+use ark_std::rand::Rng;
+use cortado::{CortadoAffine, Fr};
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
+use tracing::trace;
+use zrt_zk::EligibilityArtefact;
+use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 pub struct PublicZeroArt<G>
 where
@@ -95,7 +95,7 @@ where
             verifier_engine: ZeroArtVerifierEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
-            )
+            ),
         })
     }
 
@@ -138,14 +138,17 @@ where
         changes: &BranchChange<G>,
     ) -> Result<Vec<G::ScalarField>, ArtError> {
         let target_art = &self.base_art;
-        let intersection = target_art.get_node_index().intersect_with(&changes.node_index)?;
+        let intersection = target_art
+            .get_node_index()
+            .intersect_with(&changes.node_index)?;
 
-        let mut partial_co_path = if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {
-            vec![public_key.clone()]
-        } else {
-            // else it is or self update or AddMember, which is forbidden.
-            vec![]
-        };
+        let mut partial_co_path =
+            if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {
+                vec![public_key.clone()]
+            } else {
+                // else it is or self update or AddMember, which is forbidden.
+                vec![]
+            };
         partial_co_path.append(&mut target_art.public_art.get_co_path_values(&intersection)?);
 
         // trace!("art: \n{}", self.get_upstream_art().get_root());
@@ -154,15 +157,24 @@ where
         //     "public_key of level_sk: {}",
         //     G::generator().mul(target_art.secrets[target_art.secrets.len() - partial_co_path.len()]).into_affine(),
         // );
-        let level_sk = target_art.secrets[(target_art.secrets.len() - partial_co_path.len()).saturating_sub(1)];
+        let level_sk = target_art.secrets
+            [(target_art.secrets.len() - partial_co_path.len()).saturating_sub(1)];
 
         let secrets = recompute_artefacts(level_sk, &partial_co_path)?.secrets;
 
         Ok(secrets[1..].to_vec())
     }
 
-    pub(crate) fn update_secrets(&mut self, updated_secrets: &Vec<G::ScalarField>, merge_key: bool) -> Result<(), ArtError> {
-        for (sk, i) in updated_secrets.iter().rev().zip((0..self.upstream_art.secrets.len()).rev()) {
+    pub(crate) fn update_secrets(
+        &mut self,
+        updated_secrets: &Vec<G::ScalarField>,
+        merge_key: bool,
+    ) -> Result<(), ArtError> {
+        for (sk, i) in updated_secrets
+            .iter()
+            .rev()
+            .zip((0..self.upstream_art.secrets.len()).rev())
+        {
             if merge_key {
                 self.upstream_art.secrets[i] += sk;
             } else {
@@ -190,7 +202,6 @@ where
             return Err(ArtError::LeafOnly);
         }
 
-
         let mut co_path = target_art.get_public_art().get_co_path_values(&path)?;
 
         let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
@@ -200,7 +211,8 @@ where
         }
 
         let artefacts = recompute_artefacts(new_key, &co_path)?;
-        let change = artefacts.derive_branch_change(BranchChangeType::AddMember, NodeIndex::from(path))?;
+        let change =
+            artefacts.derive_branch_change(BranchChangeType::AddMember, NodeIndex::from(path))?;
         let tk = *artefacts.secrets.last().ok_or(ArtError::NoChanges)?;
 
         Ok((tk, change, artefacts))
@@ -231,7 +243,8 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
-{}
+{
+}
 
 impl<G, R> Debug for PrivateZeroArt<G, R>
 where
@@ -251,9 +264,10 @@ where
 #[cfg(test)]
 mod test {
     use crate::TreeMethods;
-    use crate::art::{ArtAdvancedOps, PrivateZeroArt};
     use crate::art::art_types::{PrivateArt, PublicArt};
+    use crate::art::{ArtAdvancedOps, PrivateZeroArt};
     use crate::changes::ApplicableChange;
+    use crate::changes::branch_change::BranchChange;
     use crate::init_tracing;
     use crate::node_index::{Direction, NodeIndex};
     use ark_ec::{AffineRepr, CurveGroup};
@@ -261,11 +275,10 @@ mod test {
     use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
     use cortado::{CortadoAffine, Fr};
-    use postcard::{from_bytes, to_allocvec};
-    use std::ops::{Add, Mul};
     use itertools::Itertools;
+    use postcard::{from_bytes, to_allocvec};
     use rand::random;
-    use crate::changes::branch_change::BranchChange;
+    use std::ops::{Add, Mul};
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
 
@@ -275,15 +288,11 @@ mod test {
 
         let seed = 0;
         let mut rng = &mut StdRng::seed_from_u64(seed);
-        let secrets = (0..100)
-            .map(|_| Fr::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
         let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
-        let mut merge_context0 = PrivateZeroArt::new(
-            art0.clone(),
-            Box::new(StdRng::seed_from_u64(random()))
-        ).unwrap();
+        let mut merge_context0 =
+            PrivateZeroArt::new(art0.clone(), Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         let new_sk = Fr::rand(&mut rng);
         let change_a = art0.update_key(new_sk).unwrap();
@@ -302,16 +311,12 @@ mod test {
 
         let seed = 0;
         let mut rng = &mut StdRng::seed_from_u64(seed);
-        let secrets = (0..100)
-            .map(|_| Fr::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
         let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
         let mut art1 = PrivateArt::new(art0.public_art.clone(), secrets[1]).unwrap();
-        let mut merge_context0 = PrivateZeroArt::new(
-            art0.clone(),
-            Box::new(StdRng::seed_from_u64(random()))
-        ).unwrap();
+        let mut merge_context0 =
+            PrivateZeroArt::new(art0.clone(), Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         for _ in 0..10 {
             let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
@@ -321,9 +326,11 @@ mod test {
             change.apply(&mut art0).unwrap();
 
             assert_eq!(
-                &art1, &merge_context0.base_art,
+                &art1,
+                &merge_context0.base_art,
                 "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
-                &art1.get_root(), &merge_context0.base_art.get_root(),
+                &art1.get_root(),
+                &merge_context0.base_art.get_root(),
             );
         }
     }
@@ -334,22 +341,23 @@ mod test {
 
         let seed = 0;
         let mut rng = &mut StdRng::seed_from_u64(seed);
-        let secrets = (0..7)
-            .map(|_| Fr::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..7).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
         let art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
         let mut art1 = PrivateArt::new(art0.public_art.clone(), secrets[1]).unwrap();
-        let mut merge_context0 = PrivateZeroArt::new(art0, Box::new(StdRng::seed_from_u64(random()))).unwrap();
+        let mut merge_context0 =
+            PrivateZeroArt::new(art0, Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
         change.apply(&mut merge_context0).unwrap();
         merge_context0.commit();
 
         assert_eq!(
-            &art1, &merge_context0.base_art,
+            &art1,
+            &merge_context0.base_art,
             "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
-            &art1.get_root(), &merge_context0.base_art.get_root(),
+            &art1.get_root(),
+            &merge_context0.base_art.get_root(),
         );
 
         let new_sk = Fr::rand(&mut rng);
@@ -363,21 +371,27 @@ mod test {
         change.apply(&mut art1).unwrap();
 
         assert_eq!(
-            &art1.get_root(), &merge_context0.base_art.get_root(),
+            &art1.get_root(),
+            &merge_context0.base_art.get_root(),
             "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
-            &art1.get_root(), &merge_context0.base_art.get_root(),
+            &art1.get_root(),
+            &merge_context0.base_art.get_root(),
         );
 
         assert_eq!(
-            &art1.secrets[1..], &merge_context0.base_art.secrets[1..],
+            &art1.secrets[1..],
+            &merge_context0.base_art.secrets[1..],
             "fail to assert_eq on tree1:\n{:#?}\n and merge context:\n{:#?}",
-            &art1.secrets[1..], &merge_context0.base_art.secrets[1..],
+            &art1.secrets[1..],
+            &merge_context0.base_art.secrets[1..],
         );
 
         assert_eq!(
-            &art1, &merge_context0.base_art,
+            &art1,
+            &merge_context0.base_art,
             "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
-            &art1.get_root(), &merge_context0.base_art.get_root(),
+            &art1.get_root(),
+            &merge_context0.base_art.get_root(),
         );
     }
 
@@ -387,36 +401,39 @@ mod test {
 
         let seed = 0;
         let mut rng = &mut StdRng::seed_from_u64(seed);
-        let secrets = (0..7)
-            .map(|_| Fr::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..7).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
         let def_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
 
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[1]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let mut user2= PrivateZeroArt::new(
+        let mut user2 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[2]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut user3 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[3]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut user4 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[4]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut user5 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[5]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
 
         let sk0 = Fr::rand(&mut rng);
         let private_change1 = user1.update_key(sk0).unwrap();
@@ -427,9 +444,16 @@ mod test {
 
         let sk3 = Fr::rand(&mut rng);
         let target_user_public_key = CortadoAffine::generator().mul(secrets[6]).into_affine();
-        let target_node_index =
-            NodeIndex::from(user3.base_art.get_path_to_leaf_with(target_user_public_key).unwrap());
-        let change3 = user3.remove_member(&target_node_index, sk3).unwrap().branch_change;
+        let target_node_index = NodeIndex::from(
+            user3
+                .base_art
+                .get_path_to_leaf_with(target_user_public_key)
+                .unwrap(),
+        );
+        let change3 = user3
+            .remove_member(&target_node_index, sk3)
+            .unwrap()
+            .branch_change;
 
         let sk4 = Fr::rand(&mut rng);
         let change4 = user4.update_key(sk4).unwrap().branch_change;
@@ -448,7 +472,7 @@ mod test {
             change2.clone(),
             change3.clone(),
             change4.clone(),
-            change5.clone()
+            change5.clone(),
         ];
 
         let root_key_sk = user1.upstream_art.get_root_secret_key()
@@ -461,7 +485,8 @@ mod test {
         let mut user0_test_art = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        )
+        .unwrap();
         for change in &all_changes {
             change.apply(&mut user0_test_art).unwrap();
         }
@@ -475,12 +500,10 @@ mod test {
         user1_test_art.commit();
 
         assert_eq!(
-            user0_test_art.marker_tree,
-            user1_test_art.marker_tree,
+            user0_test_art.marker_tree, user1_test_art.marker_tree,
             "Observer and participant have the same view on the state of the art.\
             User0 is:\n{}\nuser1 is:\n{}",
-            user0_test_art.marker_tree,
-            user1_test_art.marker_tree,
+            user0_test_art.marker_tree, user1_test_art.marker_tree,
         );
 
         assert_eq!(
@@ -509,7 +532,6 @@ mod test {
             }
             art_0_analog.commit();
 
-
             assert_eq!(
                 art_0_analog.upstream_art.get_root(),
                 user0_test_art.upstream_art.get_root(),
@@ -524,7 +546,8 @@ mod test {
             let mut art_1_analog = PrivateZeroArt::new(
                 PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
                 Box::new(StdRng::seed_from_u64(random())),
-            ).unwrap();
+            )
+            .unwrap();
             for change in permutation {
                 change.apply(&mut art_1_analog).unwrap();
             }
@@ -744,10 +767,8 @@ mod test {
         let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
 
         // let mut update_context = PublicUpdateContext::new(public_art.clone());
-        let mut update_context1 = PrivateZeroArt::new(
-            art0.clone(),
-            Box::new(StdRng::seed_from_u64(random())),
-        ).unwrap();
+        let mut update_context1 =
+            PrivateZeroArt::new(art0.clone(), Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         let mut art0: PrivateArt<CortadoAffine> =
             PrivateArt::new(public_art.clone(), secrets[0]).unwrap();
@@ -761,10 +782,8 @@ mod test {
         let art3: PrivateArt<CortadoAffine> =
             PrivateArt::new(public_art.clone(), secrets[8]).unwrap();
 
-        let mut update_context3 = PrivateZeroArt::new(
-            art3,
-            Box::new(StdRng::seed_from_u64(random()))
-        ).unwrap();
+        let mut update_context3 =
+            PrivateZeroArt::new(art3, Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         let sk1 = Fr::rand(&mut rng);
         let change1 = art1.update_key(sk1).unwrap();
@@ -785,11 +804,18 @@ mod test {
         // debug!("update_context:\n{}", update_context1.upstream_art.get_root());
         assert_eq!(
             parent.get_public_key(),
-            CortadoAffine::generator().mul(
-                update_context1.upstream_art.secrets.last().unwrap().clone()
-            ).into_affine(),
+            CortadoAffine::generator()
+                .mul(update_context1.upstream_art.secrets.last().unwrap().clone())
+                .into_affine(),
         );
-        for (sk, dir) in update_context1.upstream_art.secrets.iter().take(update_context1.upstream_art.secrets.len() - 1).rev().zip(update_context1.upstream_art.node_index.get_path().unwrap()) {
+        for (sk, dir) in update_context1
+            .upstream_art
+            .secrets
+            .iter()
+            .take(update_context1.upstream_art.secrets.len() - 1)
+            .rev()
+            .zip(update_context1.upstream_art.node_index.get_path().unwrap())
+        {
             parent = parent.get_child(dir).unwrap();
             assert_eq!(
                 parent.get_public_key(),
@@ -801,23 +827,24 @@ mod test {
 
         change2.apply(&mut update_context3).unwrap();
         change1.apply(&mut update_context3).unwrap();
-        assert_eq!(
-            update_context1.upstream_art,
-            update_context3.upstream_art,
-        );
-        assert_eq!(
-            update_context1.base_art,
-            update_context3.base_art,
-        );
+        assert_eq!(update_context1.upstream_art, update_context3.upstream_art,);
+        assert_eq!(update_context1.base_art, update_context3.base_art,);
 
         let mut parent = update_context1.upstream_art.get_root();
         assert_eq!(
             parent.get_public_key(),
-            CortadoAffine::generator().mul(
-                update_context1.upstream_art.secrets.last().unwrap().clone()
-            ).into_affine(),
+            CortadoAffine::generator()
+                .mul(update_context1.upstream_art.secrets.last().unwrap().clone())
+                .into_affine(),
         );
-        for (sk, dir) in update_context1.upstream_art.secrets.iter().take(update_context1.upstream_art.secrets.len() - 1).rev().zip(update_context1.upstream_art.node_index.get_path().unwrap()) {
+        for (sk, dir) in update_context1
+            .upstream_art
+            .secrets
+            .iter()
+            .take(update_context1.upstream_art.secrets.len() - 1)
+            .rev()
+            .zip(update_context1.upstream_art.node_index.get_path().unwrap())
+        {
             parent = parent.get_child(dir).unwrap();
             assert_eq!(
                 parent.get_public_key(),
@@ -829,8 +856,12 @@ mod test {
         // debug!("update_context:\n{}", update_context.upstream_art.get_root());
         for i in (2..5).rev() {
             assert_eq!(
-                CortadoAffine::generator().mul(update_context1.upstream_art.secrets[i]).into_affine(),
-                CortadoAffine::generator().mul(art1.secrets[i] + art2.secrets[i]).into_affine(),
+                CortadoAffine::generator()
+                    .mul(update_context1.upstream_art.secrets[i])
+                    .into_affine(),
+                CortadoAffine::generator()
+                    .mul(art1.secrets[i] + art2.secrets[i])
+                    .into_affine(),
             );
 
             assert_eq!(
@@ -841,84 +872,167 @@ mod test {
 
         assert_eq!(
             update_context1.upstream_art.get_root().get_public_key(),
-            art1.get_root().get_public_key().add(art2.get_root().get_public_key()).into_affine(),
+            art1.get_root()
+                .get_public_key()
+                .add(art2.get_root().get_public_key())
+                .into_affine(),
         );
 
         let path2 = [Direction::Left];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path2).unwrap().get_public_key(),
-            art1.get_node_at(&path2).unwrap().get_public_key().add(
-                art2.get_node_at(&path2).unwrap().get_public_key()
-            ).into_affine(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path2)
+                .unwrap()
+                .get_public_key(),
+            art1.get_node_at(&path2)
+                .unwrap()
+                .get_public_key()
+                .add(art2.get_node_at(&path2).unwrap().get_public_key())
+                .into_affine(),
         );
 
         let path3 = [Direction::Right];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path3).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path3)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path3).unwrap().get_public_key()
         );
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path3).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path3)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path3).unwrap().get_public_key()
         );
 
         let path4 = [Direction::Left, Direction::Left];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path4).unwrap().get_public_key(),
-            art1.get_node_at(&path4).unwrap().get_public_key().add(
-                art2.get_node_at(&path4).unwrap().get_public_key()
-            ).into_affine(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path4)
+                .unwrap()
+                .get_public_key(),
+            art1.get_node_at(&path4)
+                .unwrap()
+                .get_public_key()
+                .add(art2.get_node_at(&path4).unwrap().get_public_key())
+                .into_affine(),
         );
 
         let path8 = [Direction::Left, Direction::Left, Direction::Left];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path8).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path8)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path8).unwrap().get_public_key(),
         );
 
         let path9 = [Direction::Left, Direction::Left, Direction::Right];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path9).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path9)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path9).unwrap().get_public_key(),
         );
 
-        let path16 = [Direction::Left, Direction::Left, Direction::Left, Direction::Left];
+        let path16 = [
+            Direction::Left,
+            Direction::Left,
+            Direction::Left,
+            Direction::Left,
+        ];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path16).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path16)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path16).unwrap().get_public_key(),
         );
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path16).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path16)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path16).unwrap().get_public_key(),
         );
 
-        let path17 = [Direction::Left, Direction::Left, Direction::Left, Direction::Right];
+        let path17 = [
+            Direction::Left,
+            Direction::Left,
+            Direction::Left,
+            Direction::Right,
+        ];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path17).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path17)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path17).unwrap().get_public_key(),
         );
         assert_ne!(
-            update_context1.upstream_art.get_node_at(&path17).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path17)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path17).unwrap().get_public_key(),
         );
 
-        let path18 = [Direction::Left, Direction::Left, Direction::Right, Direction::Left];
+        let path18 = [
+            Direction::Left,
+            Direction::Left,
+            Direction::Right,
+            Direction::Left,
+        ];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path18).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path18)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path18).unwrap().get_public_key(),
         );
         assert_ne!(
-            update_context1.upstream_art.get_node_at(&path18).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path18)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path18).unwrap().get_public_key(),
         );
 
-        let path19 = [Direction::Left, Direction::Left, Direction::Right, Direction::Right];
+        let path19 = [
+            Direction::Left,
+            Direction::Left,
+            Direction::Right,
+            Direction::Right,
+        ];
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path19).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path19)
+                .unwrap()
+                .get_public_key(),
             art2.get_node_at(&path19).unwrap().get_public_key(),
         );
         assert_eq!(
-            update_context1.upstream_art.get_node_at(&path19).unwrap().get_public_key(),
+            update_context1
+                .upstream_art
+                .get_node_at(&path19)
+                .unwrap()
+                .get_public_key(),
             art1.get_node_at(&path19).unwrap().get_public_key(),
         );
 
@@ -934,11 +1048,18 @@ mod test {
         let mut parent = update_context1.upstream_art.get_root();
         assert_eq!(
             parent.get_public_key(),
-            CortadoAffine::generator().mul(
-                update_context1.upstream_art.secrets.last().unwrap().clone()
-            ).into_affine(),
+            CortadoAffine::generator()
+                .mul(update_context1.upstream_art.secrets.last().unwrap().clone())
+                .into_affine(),
         );
-        for (sk, dir) in update_context1.upstream_art.secrets.iter().take(update_context1.upstream_art.secrets.len() - 1).rev().zip(update_context1.upstream_art.node_index.get_path().unwrap()) {
+        for (sk, dir) in update_context1
+            .upstream_art
+            .secrets
+            .iter()
+            .take(update_context1.upstream_art.secrets.len() - 1)
+            .rev()
+            .zip(update_context1.upstream_art.node_index.get_path().unwrap())
+        {
             parent = parent.get_child(dir).unwrap();
             assert_eq!(
                 parent.get_public_key(),
@@ -951,8 +1072,17 @@ mod test {
         // debug!("update_context:\n{}", update_context1.upstream_art.get_root());
 
         let mut root = update_context1.upstream_art.get_root();
-        assert_eq!(root.get_public_key(), change.public_keys.first().unwrap().clone());
-        for (dir, pk) in change.node_index.get_path().unwrap().iter().zip(&change.public_keys[1..]) {
+        assert_eq!(
+            root.get_public_key(),
+            change.public_keys.first().unwrap().clone()
+        );
+        for (dir, pk) in change
+            .node_index
+            .get_path()
+            .unwrap()
+            .iter()
+            .zip(&change.public_keys[1..])
+        {
             root = root.get_child(*dir).unwrap();
 
             assert_eq!(root.get_public_key(), *pk);
@@ -961,11 +1091,18 @@ mod test {
         let mut parent = update_context1.upstream_art.get_root();
         assert_eq!(
             parent.get_public_key(),
-            CortadoAffine::generator().mul(
-                update_context1.upstream_art.secrets.last().unwrap().clone()
-            ).into_affine(),
+            CortadoAffine::generator()
+                .mul(update_context1.upstream_art.secrets.last().unwrap().clone())
+                .into_affine(),
         );
-        for (sk, dir) in update_context1.upstream_art.secrets.iter().take(update_context1.upstream_art.secrets.len() - 1).rev().zip(update_context1.upstream_art.node_index.get_path().unwrap()) {
+        for (sk, dir) in update_context1
+            .upstream_art
+            .secrets
+            .iter()
+            .take(update_context1.upstream_art.secrets.len() - 1)
+            .rev()
+            .zip(update_context1.upstream_art.node_index.get_path().unwrap())
+        {
             parent = parent.get_child(dir).unwrap();
             assert_eq!(
                 parent.get_public_key(),
@@ -974,5 +1111,3 @@ mod test {
         }
     }
 }
-
-

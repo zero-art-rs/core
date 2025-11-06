@@ -1,5 +1,6 @@
-use std::mem;
+use crate::TreeMethods;
 use crate::art::ProverArtefacts;
+use crate::art::art_node::{ArtNode, NodeIterWithPath};
 use crate::changes::aggregations::{
     AggregationData, ChangeAggregation, ProverAggregationData, RelatedData, VerifierAggregationData,
 };
@@ -12,13 +13,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::mem;
 use tree_ds::prelude::Node;
 use zrt_zk::{
     aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
     art::{ProverNodeData, VerifierNodeData},
 };
-use crate::art::art_node::{ArtNode, NodeIterWithPath};
-use crate::TreeMethods;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationNode<D>
@@ -30,8 +30,7 @@ pub struct AggregationNode<D>
     pub data: D,
 }
 
-impl<D> AggregationNode<D>
-{
+impl<D> AggregationNode<D> {
     pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;
         for direction in path {
@@ -308,7 +307,7 @@ impl<D> AggregationNode<D>
 
 impl<D> From<D> for AggregationNode<D>
 where
-    // D: RelatedData + Clone + Default,
+// D: RelatedData + Clone + Default,
 {
     fn from(data: D) -> Self {
         Self {

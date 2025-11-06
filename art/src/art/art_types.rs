@@ -2,6 +2,7 @@ use crate::TreeMethods;
 use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
+use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
@@ -12,7 +13,6 @@ use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tracing::debug;
-use crate::changes::aggregations::AggregationNode;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
@@ -255,7 +255,7 @@ where
     ) -> Result<VerifierArtefacts<G>, ArtError> {
         let mut co_path = Vec::new();
 
-        debug!("path: {:?}" ,changes.node_index.get_path()?);
+        debug!("path: {:?}", changes.node_index.get_path()?);
         let mut parent = self.get_root();
         for direction in &changes.node_index.get_path()? {
             if parent.is_leaf() {
@@ -402,7 +402,12 @@ where
     }
 
     /// Updates Public keys on path utilizing the given marker tree, to decide, which nodes should be merged together.
-    pub(crate) fn merge_by_marker(&mut self, public_keys: &[G], path: &[Direction], marker_tree: &mut AggregationNode<bool>) -> Result<(), ArtError> {
+    pub(crate) fn merge_by_marker(
+        &mut self,
+        public_keys: &[G],
+        path: &[Direction],
+        marker_tree: &mut AggregationNode<bool>,
+    ) -> Result<(), ArtError> {
         let mut parent_node = self.get_mut_root();
         let mut parent_marker_node = marker_tree;
         let mut merge_key = parent_marker_node.data;
@@ -412,12 +417,18 @@ where
 
         for (dir, pk) in path.iter().zip(public_keys[1..].iter()) {
             if !merge_key {
-                let neighbour_marker_node = parent_marker_node.get_mut_child(dir.other()).ok_or(ArtError::InvalidMarkerTree)?;
+                let neighbour_marker_node = parent_marker_node
+                    .get_mut_child(dir.other())
+                    .ok_or(ArtError::InvalidMarkerTree)?;
                 neighbour_marker_node.data = false;
             }
 
-            let child_node = parent_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
-            let child_marker_node = parent_marker_node.get_mut_child(*dir).ok_or(ArtError::InvalidMarkerTree)?;
+            let child_node = parent_node
+                .get_mut_child(*dir)
+                .ok_or(ArtError::PathNotExists)?;
+            let child_marker_node = parent_marker_node
+                .get_mut_child(*dir)
+                .ok_or(ArtError::InvalidMarkerTree)?;
 
             child_node.set_public_key_with_options(*pk, child_marker_node.data && merge_key);
             child_marker_node.data = true;
@@ -426,11 +437,9 @@ where
             parent_marker_node = child_marker_node;
 
             if merge_key && !parent_marker_node.data {
-                    merge_key = false;
+                merge_key = false;
             }
         }
-
-
 
         Ok(())
     }

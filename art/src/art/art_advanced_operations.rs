@@ -1,7 +1,7 @@
-use crate::art::{AggregationContext, ArtBasicOps, PrivateZeroArt};
 use crate::art::art_node::LeafStatus;
-use crate::art::art_types::{PrivateArt};
-use crate::changes::branch_change::{PrivateBranchChange, BranchChange, BranchChangeType};
+use crate::art::art_types::PrivateArt;
+use crate::art::{AggregationContext, ArtBasicOps, PrivateZeroArt};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
 use crate::tree_methods::TreeMethods;
@@ -87,7 +87,6 @@ where
     }
 }
 
-
 impl<G, R> ArtAdvancedOps<G, ()> for AggregationContext<PrivateArt<G>, G, R>
 where
     G: AffineRepr,
@@ -95,31 +94,53 @@ where
     R: Rng + ?Sized,
 {
     fn add_member(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_add_member(new_key, &mut self.operation_tree, &mut self.rng)?;
+        self.prover_aggregation.inner_add_member(
+            new_key,
+            &mut self.operation_tree,
+            &mut self.rng,
+        )?;
 
         Ok(())
     }
 
-    fn remove_member(&mut self, target_leaf: &NodeIndex, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_remove_member(&target_leaf.get_path()?, new_key, &mut self.operation_tree, &mut self.rng)?;
+    fn remove_member(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: G::ScalarField,
+    ) -> Result<(), ArtError> {
+        self.prover_aggregation.inner_remove_member(
+            &target_leaf.get_path()?,
+            new_key,
+            &mut self.operation_tree,
+            &mut self.rng,
+        )?;
 
         Ok(())
     }
 
     fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_leave_group(new_key, &mut self.operation_tree, &mut self.rng)?;
+        self.prover_aggregation.inner_leave_group(
+            new_key,
+            &mut self.operation_tree,
+            &mut self.rng,
+        )?;
 
         Ok(())
     }
 
     fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
-        self.prover_aggregation.inner_update_key(new_key, &mut self.operation_tree, &mut self.rng)?;
+        self.prover_aggregation.inner_update_key(
+            new_key,
+            &mut self.operation_tree,
+            &mut self.rng,
+        )?;
 
         Ok(())
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<CortadoAffine, R>
+impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>>
+    for PrivateZeroArt<CortadoAffine, R>
 where
     R: Rng + ?Sized,
 {
@@ -127,7 +148,11 @@ where
         self.add_node(new_key)
     }
 
-    fn remove_member(&mut self, target_leaf: &NodeIndex, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
+    fn remove_member(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: Fr,
+    ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let path = target_leaf.get_path()?;
         let eligibility = if matches!(
             self.base_art.get_node_at(&path)?.get_status(),
@@ -142,7 +167,8 @@ where
             EligibilityArtefact::Member((sk, pk))
         };
 
-        let change = self.update_node_key(target_leaf, new_key, false)
+        let change = self
+            .update_node_key(target_leaf, new_key, false)
             .map(|mut change| {
                 change.branch_change.change_type = BranchChangeType::RemoveMember;
                 change.eligibility = eligibility;
@@ -173,10 +199,14 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
+    use crate::art::AggregationContext;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PublicArt};
-    use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation, ProverAggregationData, VerifierAggregationData};
+    use crate::changes::aggregations::{
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation,
+        ProverAggregationData, VerifierAggregationData,
+    };
     use crate::changes::{ApplicableChange, ProvableChange, VerifiableChange};
     use crate::errors::ArtError;
     use crate::helper_tools::iota_function;
@@ -194,7 +224,6 @@ mod tests {
     use zkp::rand::thread_rng;
     use zrt_zk::EligibilityRequirement;
     use zrt_zk::aggregated_art::ProverAggregationTree;
-    use crate::art::AggregationContext;
 
     const DEFAULT_TEST_GROUP_SIZE: usize = 100;
 

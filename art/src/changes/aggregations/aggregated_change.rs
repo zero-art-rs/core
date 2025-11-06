@@ -1,4 +1,4 @@
-use crate::art::{ArtUpdateOutput};
+use crate::art::ArtUpdateOutput;
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PublicArt};
@@ -414,7 +414,7 @@ where
 }
 
 impl<G> ChangeAggregation<ProverAggregationData<G>>
-where 
+where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
@@ -446,8 +446,7 @@ where
         R: Rng + ?Sized,
     {
         let index = art.get_node_index().clone();
-        let (tk, change, artefacts) =
-            art.private_update_node_key(&index, new_secret_key, false)?;
+        let (tk, change, artefacts) = art.private_update_node_key(&index, new_secret_key, false)?;
 
         self.extend(
             rng,
@@ -478,11 +477,8 @@ where
         }
 
         let index = NodeIndex::from(path.to_vec());
-        let (tk, mut change, artefacts) = art.private_update_node_key(
-            &index,
-            temporary_secret_key,
-            append_changes,
-        )?;
+        let (tk, mut change, artefacts) =
+            art.private_update_node_key(&index, temporary_secret_key, append_changes)?;
         change.change_type = BranchChangeType::RemoveMember;
 
         self.extend(
@@ -490,9 +486,7 @@ where
             &change,
             &artefacts,
             BranchChangesTypeHint::RemoveMember {
-                pk: G::generator()
-                    .mul(temporary_secret_key)
-                    .into_affine(),
+                pk: G::generator().mul(temporary_secret_key).into_affine(),
                 merge: append_changes,
             },
         )?;
@@ -500,8 +494,7 @@ where
         art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
-            art.public_art
-                .update_branch_weight(path, false)?;
+            art.public_art.update_branch_weight(path, false)?;
         }
 
         Ok((tk, change, artefacts))
@@ -740,14 +733,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::art::art_types::{PrivateArt};
-    use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
+    use crate::art::art_types::PrivateArt;
+    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+    use crate::changes::aggregations::{
+        AggregatedChange, ChangeAggregation, ProverAggregationData,
+    };
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
-    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
 
     #[test]
     fn test_aggregation_serialization() {
@@ -759,12 +754,10 @@ mod tests {
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
             user0_rng,
-        ).unwrap();
+        )
+        .unwrap();
 
-        let mut agg = AggregationContext::new(
-            user0.get_base_art().clone(),
-            Box::new(thread_rng())
-        );
+        let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
         for _ in 0..8 {
             agg.add_member(Fr::rand(&mut rng)).unwrap();
         }

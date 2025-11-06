@@ -1,15 +1,15 @@
-use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
+use crate::art::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use tracing::{debug, trace};
 use cortado::CortadoAffine;
+use tracing::{debug, trace};
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
-use crate::art::{PrivateZeroArt, PublicZeroArt};
 
 /// Describes an ART change, which can be verified.
 ///
@@ -18,7 +18,7 @@ use crate::art::{PrivateZeroArt, PublicZeroArt};
 /// - `ad` - the associated auxiliary data used in proof
 /// - `eligibility_requirement` - an eligibility requirement defining the update right of the proof creator
 /// - `proof` - proof which will be verified
-pub trait VerifiableChange<T>{
+pub trait VerifiableChange<T> {
     /// Fail if proof is invalid. Else returns `Ok(())`.
     fn verify(
         &self,
@@ -118,11 +118,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
+    use crate::art::art_types::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
-    use crate::art::art_types::{PrivateArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, ChangeAggregation,
-        VerifierAggregationData,
+        AggregatedChange, AggregationData, ChangeAggregation, VerifierAggregationData,
     };
     use crate::changes::branch_change::BranchChange;
     use crate::changes::provable_change::ProvableChange;
@@ -159,7 +158,8 @@ mod tests {
 
         let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng)
+                .unwrap();
 
         let new_secret_key = Fr::rand(&mut rng);
         let associated_data = b"Some data for proof";
@@ -221,13 +221,17 @@ mod tests {
 
         let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng)
+                .unwrap();
 
         let secret_key = art.base_art.get_leaf_secret_key();
         // let secret_key = art.get_leaf_public_key();
 
         let target_public_key = CortadoAffine::generator().mul(secrets[1]).into_affine();
-        let target_node_path = art.get_base_art().get_path_to_leaf_with(target_public_key).unwrap();
+        let target_node_path = art
+            .get_base_art()
+            .get_path_to_leaf_with(target_public_key)
+            .unwrap();
         let target_node_index = NodeIndex::from(target_node_path);
         let new_secret_key = Fr::rand(&mut rng);
 
@@ -275,7 +279,8 @@ mod tests {
         let test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
             Box::new(StdRng::seed_from_u64(rand::random())),
-        ).unwrap();
+        )
+        .unwrap();
 
         let secret_key = art.get_base_art().get_leaf_secret_key();
         let public_key = art.get_base_art().get_leaf_public_key();
@@ -326,7 +331,8 @@ mod tests {
 
         let test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let mut test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng)
+                .unwrap();
 
         // let secret_key = art.get_base_art().get_leaf_secret_key();
         let public_key = art.get_base_art().get_leaf_public_key();
@@ -338,9 +344,15 @@ mod tests {
 
         // Make blank the node with index 1
         let target_public_key = CortadoAffine::generator().mul(secrets[4]).into_affine();
-        let target_node_path = art.get_base_art().get_path_to_leaf_with(target_public_key).unwrap();
+        let target_node_path = art
+            .get_base_art()
+            .get_path_to_leaf_with(target_public_key)
+            .unwrap();
         let target_node_index = NodeIndex::from(target_node_path);
-        info!("User with 'art' removes member with index: {:?}.", target_node_index);
+        info!(
+            "User with 'art' removes member with index: {:?}.",
+            target_node_index
+        );
         let make_blank_changes_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
@@ -376,11 +388,18 @@ mod tests {
         debug!("art: {}", art.base_art.get_root());
         assert_eq!(
             public_key,
-            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine(),
+            CortadoAffine::generator()
+                .mul(art.base_art.get_leaf_secret_key())
+                .into_affine(),
         );
         assert_eq!(
-            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
-            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine()
+            art.get_base_art()
+                .get_node(art.get_node_index())
+                .unwrap()
+                .get_public_key(),
+            CortadoAffine::generator()
+                .mul(art.base_art.get_leaf_secret_key())
+                .into_affine()
         );
 
         info!("User with 'art' adds new member.");
@@ -392,16 +411,27 @@ mod tests {
 
         debug!("art: {}", art.base_art.get_root());
         for sk in &art.base_art.secrets {
-            trace!("pk of sk: {}", CortadoAffine::generator().mul(*sk).into_affine());
+            trace!(
+                "pk of sk: {}",
+                CortadoAffine::generator().mul(*sk).into_affine()
+            );
         }
         assert_eq!(
             public_key,
             // CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine(),
-            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
+            art.get_base_art()
+                .get_node(art.get_node_index())
+                .unwrap()
+                .get_public_key(),
         );
         assert_eq!(
-            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
-            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine()
+            art.get_base_art()
+                .get_node(art.get_node_index())
+                .unwrap()
+                .get_public_key(),
+            CortadoAffine::generator()
+                .mul(art.base_art.get_leaf_secret_key())
+                .into_affine()
         );
 
         debug!("DO proof...");
@@ -440,8 +470,11 @@ mod tests {
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0_rng = Box::new(thread_rng());
         let mut user0 = PrivateZeroArt::new(user0, user0_rng).unwrap();
-        let mut user1 =
-            PrivateArt::<CortadoAffine>::new(user0.get_base_art().get_public_art().clone(), secrets[1]).unwrap();
+        let mut user1 = PrivateArt::<CortadoAffine>::new(
+            user0.get_base_art().get_public_art().clone(),
+            secrets[1],
+        )
+        .unwrap();
 
         let target_3 = user0
             .get_base_art()
@@ -449,10 +482,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = AggregationContext::new(
-            user0.get_base_art().clone(),
-            Box::new(thread_rng())
-        );
+        let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
 
         for i in 0..4 {
             agg.add_member(Fr::rand(&mut rng)).unwrap();
@@ -483,10 +513,14 @@ mod tests {
         let plain_agg =
             ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
-        let fromed_agg =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(&agg.prover_aggregation).unwrap();
+        let fromed_agg = ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(
+            &agg.prover_aggregation,
+        )
+        .unwrap();
 
-        let extracted_agg = plain_agg.add_co_path(&agg.operation_tree.get_public_art()).unwrap();
+        let extracted_agg = plain_agg
+            .add_co_path(&agg.operation_tree.get_public_art())
+            .unwrap();
         assert_eq!(
             fromed_agg, extracted_agg,
             "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",

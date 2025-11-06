@@ -5,11 +5,11 @@ use ark_ed25519::EdwardsAffine;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use bulletproofs::PedersenGens;
+use cortado::CortadoAffine;
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use cortado::CortadoAffine;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
@@ -91,15 +91,9 @@ pub(crate) fn default_proof_basis() -> PedersenBasis<CortadoAffine, EdwardsAffin
 }
 
 pub(crate) fn default_verifier_engine() -> ZeroArtVerifierEngine {
-    ZeroArtVerifierEngine::new(
-        default_proof_basis(),
-        ZeroArtEngineOptions::default(),
-    )
+    ZeroArtVerifierEngine::new(default_proof_basis(), ZeroArtEngineOptions::default())
 }
 
 pub(crate) fn default_prover_engine() -> ZeroArtProverEngine {
-    ZeroArtProverEngine::new(
-        default_proof_basis(),
-        ZeroArtEngineOptions::default(),
-    )
+    ZeroArtProverEngine::new(default_proof_basis(), ZeroArtEngineOptions::default())
 }

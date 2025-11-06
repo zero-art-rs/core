@@ -1,5 +1,7 @@
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
+use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
@@ -7,8 +9,6 @@ use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
-use crate::changes::branch_change::{BranchChange, BranchChangeType};
-use crate::node_index::NodeIndex;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
 pub struct ProverArtefacts<G>
@@ -77,7 +77,11 @@ where
         Ok(prover_nodes)
     }
 
-    pub fn derive_branch_change(&self, change_type: BranchChangeType, node_index: NodeIndex) -> Result<BranchChange<G>, ArtError> {
+    pub fn derive_branch_change(
+        &self,
+        change_type: BranchChangeType,
+        node_index: NodeIndex,
+    ) -> Result<BranchChange<G>, ArtError> {
         Ok(BranchChange {
             change_type,
             public_keys: self.path.iter().rev().cloned().collect(),
@@ -96,7 +100,11 @@ where
 
     pub fn to_verifier_branch(&self) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
         if self.path.len() != self.co_path.len() + 1 {
-            error!("Fail to convert to verifier branch as path length is {}, while co path length is {}", self.path.len(), self.co_path.len());
+            error!(
+                "Fail to convert to verifier branch as path length is {}, while co path length is {}",
+                self.path.len(),
+                self.co_path.len()
+            );
             return Err(ArtError::InvalidInput);
         }
 

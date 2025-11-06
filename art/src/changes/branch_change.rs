@@ -1,19 +1,19 @@
 //! Module with branch changes of the ART.
 
+use crate::art::PrivateZeroArt;
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se, recompute_artefacts};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use serde::{Deserialize, Serialize};
-use std::fmt::{Debug};
-use std::rc::Rc;
 use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
-use zrt_zk::art::ProverNodeData;
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::rc::Rc;
 use zrt_zk::EligibilityArtefact;
+use zrt_zk::art::ProverNodeData;
 use zrt_zk::engine::ZeroArtProverEngine;
-use crate::art::PrivateZeroArt;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -93,7 +93,11 @@ where
         &self.prover_branch
     }
 
-    pub(crate) fn inner_apply_own_key_update<R>(&self, art: &mut PrivateZeroArt<G, R>, new_secret_key: G::ScalarField) -> Result<(), ArtError>
+    pub(crate) fn inner_apply_own_key_update<R>(
+        &self,
+        art: &mut PrivateZeroArt<G, R>,
+        new_secret_key: G::ScalarField,
+    ) -> Result<(), ArtError>
     where
         R: Rng + ?Sized,
         G: AffineRepr,
@@ -107,7 +111,11 @@ where
 
         // target_art.update_pubic_keys_on_path(&path, &artefacts.path, false)?;
         let marker_tree = &mut art.marker_tree;
-        target_art.public_art.merge_by_marker(&artefacts.path.iter().rev().cloned().collect::<Vec<_>>(), &path, marker_tree)?;
+        target_art.public_art.merge_by_marker(
+            &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
+            &path,
+            marker_tree,
+        )?;
 
         target_art.secrets = artefacts.secrets;
 
