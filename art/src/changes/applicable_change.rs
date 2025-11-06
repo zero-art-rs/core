@@ -1,6 +1,6 @@
 use crate::TreeMethods;
 use crate::art::art_node::LeafStatus;
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::changes::aggregations::{AggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
@@ -8,7 +8,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine};
-use crate::art::PublicZeroArt;
+use crate::art::{PrivateZeroArt, PublicZeroArt};
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -16,15 +16,12 @@ use crate::art::PublicZeroArt;
 ///
 /// # Type Parameters
 /// * `T` – The type of the ART tree type being updated.
-pub trait ApplicableChange<T, G>
-where
-    G: AffineRepr,
-{
+pub trait ApplicableChange<T> {
     /// Apply a change to the provided art.
     fn apply(&self, art: &mut T) -> Result<(), ArtError>;
 }
 
-impl<G> ApplicableChange<PublicArt<G>, G> for BranchChange<G>
+impl<G> ApplicableChange<PublicArt<G>> for BranchChange<G>
 where
     G: AffineRepr,
 {
@@ -39,7 +36,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>, G> for BranchChange<G>
+impl<G> ApplicableChange<PrivateArt<G>> for BranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -58,16 +55,7 @@ where
     }
 }
 
-impl<R> ApplicableChange<PrivateZeroArt<R>, CortadoAffine> for BranchChange<CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
-    fn apply(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
-        self.apply(&mut art.private_art)
-    }
-}
-
-impl<G> ApplicableChange<PublicArt<G>, G> for AggregatedChange<G>
+impl<G> ApplicableChange<PublicArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -77,7 +65,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>, G> for AggregatedChange<G>
+impl<G> ApplicableChange<PrivateArt<G>> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -87,17 +75,25 @@ where
     }
 }
 
-impl ApplicableChange<PublicZeroArt<CortadoAffine>, CortadoAffine> for AggregatedChange<CortadoAffine> {
+impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
-        self.update_public_art(&mut art.upstream_art)
+        self.update_public_art(&mut art.upstream_art)?;
+        art.commit();
+
+        Ok(())
     }
 }
 
-impl<R> ApplicableChange<PrivateZeroArt<R>, CortadoAffine> for AggregatedChange<CortadoAffine>
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for AggregatedChange<G>
 where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
-        self.update_private_art(&mut art.private_art)
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+        self.update_private_art(&mut art.upstream_art)?;
+        art.commit();
+
+        Ok(())
     }
 }

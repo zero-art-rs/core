@@ -1,3 +1,4 @@
+use std::mem;
 use crate::art::ProverArtefacts;
 use crate::changes::aggregations::{
     AggregationData, ChangeAggregation, ProverAggregationData, RelatedData, VerifierAggregationData,
@@ -30,8 +31,6 @@ pub struct AggregationNode<D>
 }
 
 impl<D> AggregationNode<D>
-// where
-    // D: RelatedData + Clone + Default,
 {
     pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;

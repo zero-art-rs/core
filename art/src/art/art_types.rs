@@ -4,20 +4,14 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se, default_proof_basis, iota_function, recompute_artefacts};
+use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ed25519::EdwardsAffine;
 use ark_ff::{PrimeField, Zero};
 use ark_std::rand::Rng;
-use bulletproofs::PedersenGens;
-use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::rc::Rc;
-use zkp::toolbox::cross_dleq::PedersenBasis;
-use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
+use tracing::debug;
 use crate::changes::aggregations::AggregationNode;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -46,23 +40,6 @@ where
 
     /// Index of a user leaf.
     pub(crate) node_index: NodeIndex,
-}
-
-// pub struct PublicZeroArt {
-//     pub(crate) public_art: PublicArt<CortadoAffine>,
-//     pub(crate) verifier_engine: ZeroArtVerifierEngine,
-// }
-
-// TODO: Remove clone
-#[derive(Clone)]
-pub struct PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    pub(crate) rng: Box<R>,
-    pub(crate) private_art: PrivateArt<CortadoAffine>,
-    pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
-    pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
 impl<G> PublicArt<G>
@@ -278,6 +255,7 @@ where
     ) -> Result<VerifierArtefacts<G>, ArtError> {
         let mut co_path = Vec::new();
 
+        debug!("path: {:?}" ,changes.node_index.get_path()?);
         let mut parent = self.get_root();
         for direction in &changes.node_index.get_path()? {
             if parent.is_leaf() {
@@ -827,37 +805,6 @@ where
         Ok((tk, changes, artefacts))
     }
 
-    pub(crate) fn ephemeral_private_add_node(
-        &mut self,
-        new_key: G::ScalarField,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let path = match self.public_art.find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => self.public_art.find_path_to_lowest_leaf()?,
-        };
-
-        let target_leaf = self.get_node_at(&path)?;
-        let target_public_key = target_leaf.get_public_key();
-
-        if !target_leaf.is_leaf() {
-            return Err(ArtError::LeafOnly);
-        }
-
-
-        let mut co_path = self.get_public_art().get_co_path_values(&path)?;
-
-        let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
-        if extend_node {
-            co_path.push(target_public_key);
-        }
-
-        let artefacts = recompute_artefacts(new_key, &co_path)?;
-        let change = artefacts.derive_branch_change(BranchChangeType::AddMember, NodeIndex::from(path))?;
-        let tk = *artefacts.secrets.last().ok_or(ArtError::NoChanges)?;
-
-        Ok((tk, change, artefacts))
-    }
-
     /// Update ART with `target_changes` for the user, which didnt participated it the
     /// merge conflict.
     pub(crate) fn merge_for_observer(
@@ -1123,72 +1070,6 @@ where
     }
 }
 
-impl<R> PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    pub fn new(private_art: PrivateArt<CortadoAffine>, rng: Box<R>) -> Self {
-        let proof_basis = default_proof_basis();
-        
-
-        Self {
-            rng,
-            private_art,
-            prover_engine: Rc::new(ZeroArtProverEngine::new(
-                proof_basis.clone(),
-                ZeroArtEngineOptions::default(),
-            )),
-            verifier_engine: ZeroArtVerifierEngine::new(
-                proof_basis.clone(),
-                ZeroArtEngineOptions::default(),
-            ),
-        }
-    }
-
-    pub fn clone_without_rng(&self, rng: Box<R>) -> Self {
-        Self::new(self.private_art.clone(), rng)
-    }
-
-    pub fn get_private_art(&self) -> &PrivateArt<CortadoAffine> {
-        &self.private_art
-    }
-
-    pub fn get_public_art(&self) -> &PublicArt<CortadoAffine> {
-        self.private_art.get_public_art()
-    }
-
-    pub fn get_node_index(&self) -> &NodeIndex {
-        &self.private_art.node_index
-    }
-
-    pub fn get_leaf_secret_key(&self) -> Fr {
-        self.private_art.get_leaf_secret_key()
-    }
-
-    pub fn get_root_secret_key(&self) -> Fr {
-        self.private_art.get_root_secret_key()
-    }
-
-    pub fn get_leaf_public_key(&self) -> CortadoAffine {
-        self.private_art.get_leaf_public_key()
-    }
-
-    pub fn get_root_public_key(&self) -> CortadoAffine {
-        self.private_art.get_root_public_key()
-    }
-}
-
-impl<R> Debug for PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PublicArt")
-            .field("private_art", &self.private_art)
-            .finish()
-    }
-}
-
 impl<G> PartialEq for PrivateArt<G>
 where
     G: AffineRepr,
@@ -1211,17 +1092,6 @@ where
     G::BaseField: PrimeField,
 {
 }
-
-impl<R> PartialEq for PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.private_art == other.private_art
-    }
-}
-
-impl<'a, R> Eq for PrivateZeroArt<R> where R: Rng + ?Sized {}
 
 #[cfg(test)]
 mod tests {

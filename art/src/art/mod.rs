@@ -7,12 +7,11 @@ pub mod art_types;
 mod artefacts;
 mod merge_context;
 mod aggregation_context;
-mod base_type;
 
 pub use art_advanced_operations::ArtAdvancedOps;
 pub use art_basic_operations::ArtBasicOps;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
-pub use merge_context::{PublicZeroArt, PrivateMergeContext};
+pub use merge_context::{PublicZeroArt, PrivateZeroArt};
 pub use aggregation_context::{AggregationContext};
 
 /// Helper data type, returned after the most art update operations.

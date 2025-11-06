@@ -1,10 +1,8 @@
 use crate::art::art_node::{ArtNode, NodeIterWithPath};
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
-use ark_std::rand::Rng;
-use cortado::CortadoAffine;
 
 /// A collection of helper methods to interact with tree.
 ///
@@ -139,18 +137,5 @@ where
 
     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
         self.public_art.tree_root.get_mut_root()
-    }
-}
-
-impl<R> TreeMethods<CortadoAffine> for PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    fn get_root(&self) -> &ArtNode<CortadoAffine> {
-        self.private_art.public_art.tree_root.get_root()
-    }
-
-    fn get_mut_root(&mut self) -> &mut ArtNode<CortadoAffine> {
-        self.private_art.public_art.tree_root.get_mut_root()
     }
 }

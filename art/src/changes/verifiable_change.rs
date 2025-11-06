@@ -1,13 +1,15 @@
-use crate::art::art_types::{PrivateZeroArt};
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
 use ark_std::rand::Rng;
+use tracing::{debug, trace};
 use cortado::CortadoAffine;
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
-use crate::art::PublicZeroArt;
+use crate::art::{PrivateZeroArt, PublicZeroArt};
 
 /// Describes an ART change, which can be verified.
 ///
@@ -47,21 +49,25 @@ impl VerifiableChange<PublicZeroArt<CortadoAffine>> for BranchChange<CortadoAffi
     }
 }
 
-impl<R> VerifiableChange<PrivateZeroArt<R>> for BranchChange<CortadoAffine>
+impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for BranchChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     fn verify(
         &self,
-        art: &PrivateZeroArt<R>,
+        art: &PrivateZeroArt<CortadoAffine, R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
         let verification_branch = art
+            .upstream_art
             .get_public_art()
             .compute_artefacts_for_verification(self)?
             .to_verifier_branch()?;
+
+        trace!("verification_branch: {:#?}", verification_branch);
+        trace!("eligibility_requirement: {:#?}", eligibility_requirement);
 
         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
         verifier_context.verify(proof, &verification_branch)?;
@@ -88,18 +94,18 @@ impl VerifiableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<Cortado
     }
 }
 
-impl<R> VerifiableChange<PrivateZeroArt<R>> for AggregatedChange<CortadoAffine>
+impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     fn verify(
         &self,
-        art: &PrivateZeroArt<R>,
+        art: &PrivateZeroArt<CortadoAffine, R>,
         ad: &[u8],
         eligibility_requirement: EligibilityRequirement,
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
-        let extracted_agg = self.add_co_path(&art.private_art.public_art)?;
+        let extracted_agg = self.add_co_path(&art.base_art.public_art)?;
         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
 
         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
@@ -112,8 +118,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
-    use crate::art::{AggregationContext, ArtAdvancedOps};
-    use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+    use crate::art::art_types::{PrivateArt};
     use crate::changes::aggregations::{
         AggregatedChange, AggregationData, ChangeAggregation,
         VerifierAggregationData,
@@ -130,6 +136,7 @@ mod tests {
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
+    use tracing::{debug, info, trace};
     use zrt_zk::EligibilityRequirement;
     use zrt_zk::art::ArtProof;
 
@@ -148,16 +155,18 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let mut art = PrivateZeroArt::new(private_art, main_rng);
+        let mut art = PrivateZeroArt::new(private_art, main_rng).unwrap();
 
         let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng);
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
 
         let new_secret_key = Fr::rand(&mut rng);
         let associated_data = b"Some data for proof";
 
         let key_update_change_output = art.update_key(new_secret_key).unwrap();
+        key_update_change_output.apply(&mut art).unwrap();
+        art.commit();
 
         let proof = key_update_change_output
             .prove(associated_data, None)
@@ -167,14 +176,15 @@ mod tests {
         let key_update_change = BranchChange::from(key_update_change_output);
 
         assert_eq!(
-            art.get_root().get_public_key(),
+            art.get_base_art().get_root().get_public_key(),
             CortadoAffine::generator()
-                .mul(art.get_root_secret_key())
+                .mul(art.get_base_art().get_root_secret_key())
                 .into_affine()
         );
 
         let eligibility_requirement = EligibilityRequirement::Member(
             test_art
+                .get_base_art()
                 .get_node(&key_update_change.node_index)
                 .unwrap()
                 .get_public_key(),
@@ -207,17 +217,17 @@ mod tests {
         let public_art = private_art.get_public_art().clone();
 
         let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let mut art = PrivateZeroArt::new(private_art, main_rng);
+        let mut art = PrivateZeroArt::new(private_art, main_rng).unwrap();
 
         let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng);
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
 
-        let secret_key = art.get_leaf_secret_key();
-        let secret_key = art.get_leaf_public_key();
+        let secret_key = art.base_art.get_leaf_secret_key();
+        // let secret_key = art.get_leaf_public_key();
 
         let target_public_key = CortadoAffine::generator().mul(secrets[1]).into_affine();
-        let target_node_path = art.get_path_to_leaf_with(target_public_key).unwrap();
+        let target_node_path = art.get_base_art().get_path_to_leaf_with(target_public_key).unwrap();
         let target_node_index = NodeIndex::from(target_node_path);
         let new_secret_key = Fr::rand(&mut rng);
 
@@ -226,16 +236,17 @@ mod tests {
         let make_blank_change_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
+        make_blank_change_output.apply(&mut art).unwrap();
 
         let proof = make_blank_change_output
             .prove(associated_data, None)
             .unwrap();
         let make_blank_change = BranchChange::from(make_blank_change_output);
 
-        let tk = art.get_root_secret_key();
+        let tk = art.get_base_art().get_root_secret_key();
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((art.get_leaf_public_key(), vec![]));
+            EligibilityRequirement::Previleged((art.get_base_art().get_leaf_public_key(), vec![]));
         let verification_result =
             make_blank_change.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -258,27 +269,32 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let mut art = PrivateZeroArt::new(private_art, main_rng);
+        let main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng).unwrap();
 
-        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng);
+        let test_art = PrivateZeroArt::new(
+            PrivateArt::new(public_art, secrets[1]).unwrap(),
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        ).unwrap();
 
-        let secret_key = art.get_leaf_secret_key();
-        let public_key = art.get_leaf_public_key();
+        let secret_key = art.get_base_art().get_leaf_secret_key();
+        let public_key = art.get_base_art().get_leaf_public_key();
         let new_secret_key = Fr::rand(&mut rng);
 
         let associated_data = &[2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
+        debug!("art: {}", art.base_art.get_root());
+        append_node_changes_output.apply(&mut art).unwrap();
+        art.commit();
+        debug!("art: {}", art.base_art.get_root());
         let proof = append_node_changes_output
             .prove(associated_data, None)
             .unwrap();
+
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
-        let eligibility_requirement =
-            EligibilityRequirement::Previleged((art.get_leaf_public_key(), vec![]));
+        let eligibility_requirement = EligibilityRequirement::Previleged((public_key, vec![]));
         let verification_result =
             append_node_changes.verify(&test_art, associated_data, eligibility_requirement, &proof);
 
@@ -291,10 +307,13 @@ mod tests {
 
     #[test]
     fn test_append_node_after_make_blank_proof() {
-        let mut rng = StdRng::seed_from_u64(rand::random());
+        init_tracing();
+
+        debug!("test_append_node_after_make_blank_proof");
+        let mut rng = StdRng::seed_from_u64(0);
         // Use power of two, so all branches have equal weight. Then any blank node will be the
         // one to be replaced at node addition.
-        let art_size = 2usize.pow(7);
+        let art_size = 2usize.pow(3);
         let secrets = (0..art_size)
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
@@ -302,15 +321,16 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let mut art = PrivateZeroArt::new(private_art, main_rng);
+        let main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let mut art = PrivateZeroArt::new(private_art, main_rng).unwrap();
 
-        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let mut test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng);
+            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng).unwrap();
 
-        let secret_key = art.get_leaf_secret_key();
-        let public_key = art.get_leaf_public_key();
+        // let secret_key = art.get_base_art().get_leaf_secret_key();
+        let public_key = art.get_base_art().get_leaf_public_key();
+        trace!("art public_key: {}", public_key);
         let new_secret_key = Fr::rand(&mut rng);
 
         let associated_data1 = b"asdlkfhalkehafksjdhkflasfsadfsdf";
@@ -318,18 +338,25 @@ mod tests {
 
         // Make blank the node with index 1
         let target_public_key = CortadoAffine::generator().mul(secrets[4]).into_affine();
-        let target_node_path = art.get_path_to_leaf_with(target_public_key).unwrap();
+        let target_node_path = art.get_base_art().get_path_to_leaf_with(target_public_key).unwrap();
         let target_node_index = NodeIndex::from(target_node_path);
+        info!("User with 'art' removes member with index: {:?}.", target_node_index);
         let make_blank_changes_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
+        debug!("Try to apply change to 'art'");
+        make_blank_changes_output.apply(&mut art).unwrap();
+        debug!("Try to commit changes for 'art'");
+        art.commit();
+        debug!("art: {}", art.base_art.get_root());
+
         let proof1 = make_blank_changes_output
             .prove(associated_data1, None)
             .unwrap();
         let make_blank_changes = BranchChange::from(make_blank_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((art.get_leaf_public_key(), vec![]));
+            EligibilityRequirement::Previleged((art.get_base_art().get_leaf_public_key(), vec![]));
         let verification_result = make_blank_changes.verify(
             &test_art,
             associated_data1,
@@ -344,15 +371,47 @@ mod tests {
         );
 
         make_blank_changes.apply(&mut test_art).unwrap();
+        test_art.commit();
 
+        debug!("art: {}", art.base_art.get_root());
+        assert_eq!(
+            public_key,
+            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine(),
+        );
+        assert_eq!(
+            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine()
+        );
+
+        info!("User with 'art' adds new member.");
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
+        debug!("Try to apply change to 'art'");
+        append_node_changes_output.apply(&mut art).unwrap();
+        debug!("Try to commit changes for 'art'");
+        art.commit();
+
+        debug!("art: {}", art.base_art.get_root());
+        for sk in &art.base_art.secrets {
+            trace!("pk of sk: {}", CortadoAffine::generator().mul(*sk).into_affine());
+        }
+        assert_eq!(
+            public_key,
+            // CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine(),
+            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
+        );
+        assert_eq!(
+            art.get_base_art().get_node(art.get_node_index()).unwrap().get_public_key(),
+            CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine()
+        );
+
+        debug!("DO proof...");
         let proof2 = append_node_changes_output
             .prove(associated_data2, None)
             .unwrap();
         let append_node_changes = BranchChange::from(append_node_changes_output);
 
         let eligibility_requirement =
-            EligibilityRequirement::Previleged((art.get_leaf_public_key(), vec![]));
+            EligibilityRequirement::Previleged((art.get_base_art().get_leaf_public_key(), vec![]));
         let verification_result = append_node_changes.verify(
             &test_art,
             associated_data2,
@@ -380,16 +439,20 @@ mod tests {
 
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let mut user0_rng = Box::new(thread_rng());
-        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
+        let mut user0 = PrivateZeroArt::new(user0, user0_rng).unwrap();
         let mut user1 =
-            PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
+            PrivateArt::<CortadoAffine>::new(user0.get_base_art().get_public_art().clone(), secrets[1]).unwrap();
 
         let target_3 = user0
+            .get_base_art()
             .get_public_art()
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         // Create aggregation
-        let mut agg = AggregationContext::new(user0.clone());
+        let mut agg = AggregationContext::new(
+            user0.get_base_art().clone(),
+            Box::new(thread_rng())
+        );
 
         for i in 0..4 {
             agg.add_member(Fr::rand(&mut rng)).unwrap();
@@ -405,7 +468,7 @@ mod tests {
 
         let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
-        let aux_pk = user0.get_leaf_public_key();
+        let aux_pk = user0.get_base_art().get_leaf_public_key();
         let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
         let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
         plain_agg
@@ -432,6 +495,6 @@ mod tests {
 
         plain_agg.apply(&mut user1).unwrap();
 
-        assert_eq!(agg.operation_tree.get_private_art(), &user1);
+        assert_eq!(agg.operation_tree, user1);
     }
 }

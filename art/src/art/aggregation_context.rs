@@ -1,150 +1,130 @@
+use std::rc::Rc;
 use ark_ec::{AffineRepr};
+use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use cortado::{CortadoAffine, Fr};
+use cortado::{CortadoAffine};
 use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::{ArtProof};
 use zrt_zk::EligibilityArtefact;
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
-use crate::art::{ArtAdvancedOps, PublicZeroArt};
+use zrt_zk::engine::ZeroArtProverEngine;
+use crate::art::art_types::{PrivateArt};
+use crate::art::{ArtAdvancedOps, PrivateZeroArt};
 use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
 use crate::changes::{ApplicableChange, ProvableChange};
 use crate::errors::ArtError;
+use crate::helper_tools::default_prover_engine;
 use crate::node_index::NodeIndex;
 
-pub struct AggregationContext<T, G>
+pub struct AggregationContext<T, G, R>
 where
     G: AffineRepr,
+    R: Rng + ?Sized,
 {
     pub(crate) prover_aggregation: ChangeAggregation<ProverAggregationData<G>>,
     pub(crate) operation_tree: T,
+    pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
+    pub(crate) rng: Box<R>,
 }
 
-impl<T, G> AggregationContext<T, G>
+impl<T, G, R> AggregationContext<T, G, R>
 where
     G: AffineRepr,
+    R: Rng + ?Sized,
 {
-    pub fn new(operation_tree: T) -> Self {
+    pub fn get_operation_tree(&self) -> &T {
+        &self.operation_tree
+    }
+}
+
+impl<G, R> AggregationContext<PrivateArt<G>, G, R>
+where
+    G: AffineRepr,
+    R: Rng + ?Sized,
+{
+    pub fn new(operation_tree: PrivateArt<G>, rng: Box<R>) -> Self {
         Self {
             prover_aggregation: Default::default(),
             operation_tree,
+            prover_engine: Rc::new(default_prover_engine()),
+            rng,
+        }
+    }
+
+    pub fn from_private_zero_art<RT>(operation_tree: &PrivateZeroArt<G, RT>, rng: Box<R>) -> Self
+    where
+        G: AffineRepr,
+        G::BaseField: PrimeField,
+        RT: Rng + ?Sized,
+    {
+        Self {
+            prover_aggregation: Default::default(),
+            operation_tree: operation_tree.get_base_art().clone(),
+            prover_engine: Rc::clone(&operation_tree.prover_engine),
+            rng,
         }
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, ()> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<G, R> ArtAdvancedOps<G, ()> for AggregationContext<PrivateArt<G>, G, R>
 where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn add_member(&mut self, new_key: Fr) -> Result<(), ArtError> {
-        self.prover_aggregation.add_member(new_key, &mut self.operation_tree)?;
+    fn add_member(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        self.prover_aggregation.inner_add_member(new_key, &mut self.operation_tree, &mut self.rng)?;
 
         Ok(())
     }
 
-    fn remove_member(&mut self, target_leaf: &NodeIndex, new_key: Fr) -> Result<(), ArtError> {
-        self.prover_aggregation.remove_member(&target_leaf.get_path()?, new_key, &mut self.operation_tree)?;
+    fn remove_member(&mut self, target_leaf: &NodeIndex, new_key: G::ScalarField) -> Result<(), ArtError> {
+        self.prover_aggregation.inner_remove_member(&target_leaf.get_path()?, new_key, &mut self.operation_tree, &mut self.rng)?;
 
         Ok(())
     }
 
-    fn leave_group(&mut self, new_key: Fr) -> Result<(), ArtError> {
-        self.prover_aggregation.leave(new_key, &mut self.operation_tree)?;
+    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        self.prover_aggregation.inner_leave_group(new_key, &mut self.operation_tree, &mut self.rng)?;
 
         Ok(())
     }
 
-    fn update_key(&mut self, new_key: Fr) -> Result<(), ArtError> {
-        self.prover_aggregation.update_key(new_key, &mut self.operation_tree)?;
+    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        self.prover_aggregation.inner_update_key(new_key, &mut self.operation_tree, &mut self.rng)?;
 
         Ok(())
     }
 }
 
-impl<R> ApplicableChange<PublicArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
+impl<T1, T2, R> ApplicableChange<T1> for AggregationContext<T2, CortadoAffine, R>
 where
     R: Rng + ?Sized,
+    AggregatedChange<CortadoAffine>: ApplicableChange<T1>,
 {
-    fn apply(&self, art: &mut PublicArt<CortadoAffine>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::<CortadoAffine>::try_from(&self.prover_aggregation)?;
-        plain_aggregation.update_public_art(art)
-    }
-}
-
-impl<R> ApplicableChange<PrivateArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
-    fn apply(&self, art: &mut PrivateArt<CortadoAffine>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut T1) -> Result<(), ArtError> {
         let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.update_private_art(art)
+        plain_aggregation.apply(art)
     }
 }
 
-impl<R> ApplicableChange<PublicZeroArt<CortadoAffine>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
-    fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.update_public_art(&mut art.upstream_art)
-    }
-}
-
-impl<R> ApplicableChange<PrivateZeroArt<R>, CortadoAffine> for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
-where
-    R: ?Sized + Rng,
-{
-    fn apply(&self, art: &mut PrivateZeroArt<R>) -> Result<(), ArtError> {
-        let plain_aggregation = AggregatedChange::try_from(&self.prover_aggregation)?;
-        plain_aggregation.update_private_art(&mut art.private_art)
-    }
-}
-
-impl<R> ProvableChange for AggregationContext<PrivateZeroArt<R>, CortadoAffine>
-where
-    R: Rng + ?Sized
-{
-    fn prove(&self, ad: &[u8], eligibility: Option<EligibilityArtefact>) -> Result<ArtProof, ArtError>
-    {
-        // Use some auxiliary keys for proof
-        let eligibility = match eligibility {
-            Some(eligibility) => eligibility,
-            None => {
-                EligibilityArtefact::Owner((
-                    self.operation_tree.get_leaf_secret_key(),
-                    self.operation_tree.get_leaf_public_key())
-                )
-            }
-        };
-
-        // Get ProverAggregationTree for proof.
-        let prover_tree = ProverAggregationTree::try_from(self)?;
-
-        let context = self.operation_tree.prover_engine.new_context(ad, eligibility);
-        let proof = context.prove_aggregated(&prover_tree)?;
-
-        Ok(proof)
-    }
-}
-
-impl<'a, R> TryFrom<&'a AggregationContext<PrivateZeroArt<R>, CortadoAffine>> for ProverAggregationTree<CortadoAffine>
+impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>> for ProverAggregationTree<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     type Error = ArtError;
 
-    fn try_from(value: &'a AggregationContext<PrivateZeroArt<R>, CortadoAffine>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a AggregationContext<T, CortadoAffine, R>) -> Result<Self, Self::Error> {
         Self::try_from(&value.prover_aggregation)
     }
 }
 
-impl<'a, R> TryFrom<&'a AggregationContext<PrivateZeroArt<R>, CortadoAffine>> for AggregatedChange<CortadoAffine>
+impl<'a, T, R> TryFrom<&'a AggregationContext<T, CortadoAffine, R>> for AggregatedChange<CortadoAffine>
 where
     R: Rng + ?Sized,
 {
     type Error = ArtError;
 
-    fn try_from(value: &'a AggregationContext<PrivateZeroArt<R>, CortadoAffine>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a AggregationContext<T, CortadoAffine, R>) -> Result<Self, Self::Error> {
         Self::try_from(&value.prover_aggregation)
     }
 }
@@ -156,12 +136,13 @@ mod tests {
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{thread_rng, SeedableRng};
     use ark_std::UniformRand;
+    use tracing::debug;
     use cortado::{CortadoAffine, Fr};
     use zrt_zk::aggregated_art::ProverAggregationTree;
-    use crate::art::{AggregationContext, ArtAdvancedOps};
+    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
     use crate::art::art_node::LeafIterWithPath;
-    use crate::art::art_types::{PrivateArt, PrivateZeroArt};
-    use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation, ProverAggregationData, VerifierAggregationData};
+    use crate::art::art_types::{PrivateArt};
+    use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation, VerifierAggregationData};
     use crate::changes::ApplicableChange;
     use crate::errors::ArtError;
     use crate::helper_tools::iota_function;
@@ -182,34 +163,30 @@ mod tests {
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
 
         // Serialise and deserialize art for the other users.
-        let user1_rng = Box::new(thread_rng());
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[2]).unwrap(),
-            user1_rng,
-        );
+            Box::new(thread_rng()),
+        ).unwrap();
 
-        let user2_rng = Box::new(thread_rng());
         let mut user2 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[3]).unwrap(),
-            user2_rng,
-        );
+            Box::new(thread_rng()),
+        ).unwrap();
 
         let user1_2rng = Box::new(thread_rng());
         let user1_2 = user1.clone_without_rng(user1_2rng);
 
-        let user3_rng = Box::new(thread_rng());
         let mut user3 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[4]).unwrap(),
-            user3_rng,
-        );
-        let user4_rng = Box::new(thread_rng());
+            Box::new(thread_rng()),
+        ).unwrap();
         let mut user4 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[5]).unwrap(),
-            user4_rng,
-        );
+            Box::new(thread_rng()),
+        ).unwrap();
 
         // Create aggregation
-        let mut agg = AggregationContext::new(user1.clone());
+        let mut agg = AggregationContext::new(user1.get_base_art().clone(), Box::new(thread_rng()));
 
         let sk1 = Fr::rand(&mut rng);
         let sk2 = Fr::rand(&mut rng);
@@ -244,14 +221,14 @@ mod tests {
 
             assert_eq!(
                 agg.operation_tree,
-                user2_clone,
+                user2_clone.upstream_art,
                 "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
                 agg.operation_tree.get_root(),
-                user2_clone.get_root(),
+                user2_clone.upstream_art.get_root(),
             );
         }
 
-        let root_clone = user1.get_root().clone();
+        let root_clone = user1.upstream_art.get_root().clone();
         let leaf_iter = LeafIterWithPath::new(&root_clone).skip(10).take(10);
         for (_, path) in leaf_iter {
             let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -259,7 +236,7 @@ mod tests {
                 .unwrap();
 
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
-            let verifier_aggregation = aggregation.add_co_path(user2.get_public_art()).unwrap();
+            let verifier_aggregation = aggregation.add_co_path(user2.base_art.get_public_art()).unwrap();
 
             let user2_clone_rng = Box::new(thread_rng());
             let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
@@ -267,10 +244,10 @@ mod tests {
 
             assert_eq!(
                 agg.operation_tree,
-                user2_clone,
+                user2_clone.upstream_art,
                 "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
                 agg.operation_tree.get_root(),
-                user2_clone.get_root(),
+                user2_clone.upstream_art.get_root(),
             );
         }
 
@@ -286,10 +263,10 @@ mod tests {
 
             assert_eq!(
                 agg.operation_tree,
-                user2_clone,
+                user2_clone.upstream_art,
                 "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_2\n{}",
                 agg.operation_tree.get_root(),
-                user2_clone.get_root(),
+                user2_clone.upstream_art.get_root(),
             );
         }
 
@@ -330,7 +307,7 @@ mod tests {
         );
 
         let extracted_verifier_aggregation = aggregation_from_prover
-            .add_co_path(user2.get_public_art())
+            .add_co_path(user2.base_art.get_public_art())
             .unwrap();
 
         assert_eq!(
@@ -346,18 +323,18 @@ mod tests {
 
         assert_eq!(
             agg.operation_tree,
-            user1_clone,
+            user1_clone.upstream_art,
             "Both users have the same view on the state of the art.\nUser1\n{}\nUser1_clone\n{}",
             agg.operation_tree.get_root(),
-            user1_clone.get_root(),
+            user1_clone.upstream_art.get_root(),
         );
 
         assert_eq!(
             agg.operation_tree,
-            user2,
+            user2.upstream_art,
             "Both users have the same view on the state of the art.\nUser1\n{}\nUser2\n{}",
             agg.operation_tree.get_root(),
-            user2.get_root(),
+            user2.upstream_art.get_root(),
         );
     }
 
@@ -372,22 +349,31 @@ mod tests {
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
 
-        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0_rng = Box::new(thread_rng());
-        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
+        let base_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let user0_rng = Box::new(thread_rng());
+        let mut user0 = PrivateZeroArt::new(base_art, user0_rng).unwrap();
 
         let user3_path = NodeIndex::from(
             user0
+                .get_base_art()
                 .get_public_art()
                 .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[4]).into_affine())
                 .unwrap(),
         );
-        user0
+        let change = user0
             .remove_member(&user3_path, Fr::rand(&mut rng))
             .unwrap();
+        debug!("change: {:?}", change.get_branch_change());
+        change.apply(&mut user0).unwrap();
+        user0.commit();
 
         // Create aggregation
-        let mut agg = AggregationContext::new(user0);
+        let mut agg = AggregationContext::new(
+            user0.get_base_art().clone(),
+            Box::new(thread_rng()),
+        );
+
+        debug!("agg operation_tree:\n{}", agg.operation_tree.get_root());
 
         let sk1 = Fr::rand(&mut rng);
 
@@ -412,18 +398,21 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0_rng = Box::new(thread_rng());
-        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
+        let mut user0 = PrivateZeroArt::new(user0, Box::new(thread_rng())).unwrap();
         let mut user1 =
-            PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), secrets[1]).unwrap();
+            PrivateArt::<CortadoAffine>::new(user0.get_base_art().get_public_art().clone(), secrets[1]).unwrap();
 
         let target_3 = user0
+            .get_base_art()
             .get_public_art()
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         let target_3_index = NodeIndex::Direction(target_3.to_vec());
         // Create aggregation
-        let mut agg = AggregationContext::new(user0.clone());
+        let mut agg = AggregationContext::new(
+            user0.base_art.clone(),
+            Box::new(thread_rng()),
+        );
 
         agg.add_member(Fr::rand(&mut rng)).unwrap();
         agg.add_member(Fr::rand(&mut rng)).unwrap();
@@ -440,7 +429,7 @@ mod tests {
 
         plain_agg.apply(&mut user1).unwrap();
 
-        assert_eq!(agg.operation_tree.get_private_art(), &user1);
+        assert_eq!(&agg.operation_tree, &user1);
     }
 
     #[test]
@@ -449,14 +438,18 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let user0 = PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap();
-        let mut user0_rng = Box::new(thread_rng());
-        let mut user0 = PrivateZeroArt::new(user0, user0_rng);
 
-        let mut pub_art = user0.get_public_art().clone();
+        let user0 = PrivateZeroArt::new(
+            PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
+            Box::new(thread_rng())
+        ).unwrap();
 
-        let mut prover_rng = thread_rng();
-        let mut agg = AggregationContext::new(user0);
+        let mut pub_art = user0.get_base_art().get_public_art().clone();
+
+        let mut agg = AggregationContext::new(
+            user0.base_art.clone(),
+            Box::new(thread_rng()),
+        );
         agg.add_member(Fr::rand(&mut rng)).unwrap();
 
         agg.update_key(Fr::rand(&mut rng)).unwrap();
@@ -481,23 +474,27 @@ mod tests {
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
             user0_rng,
+        ).unwrap();
+
+        let mut pub_art = user0.get_base_art().get_public_art().clone();
+
+        let mut agg = AggregationContext::new(
+            user0.base_art.clone(),
+            Box::new(thread_rng()),
         );
-
-        let mut pub_art = user0.get_public_art().clone();
-
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
-        agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
 
         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
 
+        plain_agg.apply(&mut user0).unwrap();
         plain_agg.apply(&mut pub_art).unwrap();
 
         assert_eq!(
             &pub_art,
-            user0.get_public_art(),
+            user0.get_upstream_art().get_public_art(),
             "They are:\n{}\nand\n{}",
             pub_art.get_root(),
-            user0.get_public_art().get_root()
+            user0.get_upstream_art().get_public_art().get_root()
         )
     }
 }

@@ -1,23 +1,21 @@
+use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
-use ark_ec::AffineRepr;
-use ark_ed25519::EdwardsAffine;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use bulletproofs::PedersenGens;
-use zkp::toolbox::cross_dleq::PedersenBasis;
-use zkp::toolbox::dalek_ark::ristretto255_to_ark;
+use tracing::trace;
 use cortado::{CortadoAffine, Fr};
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 use crate::art::art_types::{PrivateArt, PublicArt};
-use crate::art::{ArtAdvancedOps, ArtBasicOps};
-use crate::art::art_node::LeafStatus;
+use crate::art::{ArtAdvancedOps, ArtBasicOps, ArtUpdateOutput};
+use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::ApplicableChange;
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
-use crate::helper_tools::{default_verifier_engine, recompute_artefacts};
-use crate::node_index::NodeIndex;
+use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
+use crate::node_index::{Direction, NodeIndex};
 use crate::TreeMethods;
 
 pub struct PublicZeroArt<G>
@@ -58,7 +56,7 @@ where
 }
 
 
-impl<G> ApplicableChange<PublicZeroArt<G>, G> for BranchChange<G>
+impl<G> ApplicableChange<PublicZeroArt<G>> for BranchChange<G>
 where
     G: AffineRepr
 {
@@ -66,7 +64,7 @@ where
         if art.marker_tree.data {
             return Err(ArtError::InvalidMergeInput)
         }
-        
+
         if let BranchChangeType::AddMember = self.change_type {
             return Err(ArtError::InvalidMergeInput)
         }
@@ -77,9 +75,10 @@ where
 
 // TODO: Remove clone
 #[derive(Clone)]
-pub struct PrivateMergeContext<G, R>
+pub struct PrivateZeroArt<G, R>
 where
     G: AffineRepr,
+    G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
     pub(crate) base_art: PrivateArt<G>,
@@ -87,9 +86,10 @@ where
     pub(crate) marker_tree: AggregationNode<bool>,
     pub(crate) rng: Box<R>,
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
+    pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
-impl<G, R> PrivateMergeContext<G, R>
+impl<G, R> PrivateZeroArt<G, R>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -99,13 +99,7 @@ where
         let upstream_art = base_art.clone();
         let marker_tree = AggregationNode::<bool>::try_from(base_art.get_root())?;
 
-        let gens = PedersenGens::default();
-        let proof_basis = PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
-            CortadoAffine::generator(),
-            CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
-            ristretto255_to_ark(gens.B).unwrap(),
-            ristretto255_to_ark(gens.B_blinding).unwrap(),
-        );
+        let proof_basis = default_proof_basis();
 
         Ok(Self {
             base_art,
@@ -116,7 +110,34 @@ where
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
             )),
+            verifier_engine: ZeroArtVerifierEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            )
         })
+    }
+
+    pub fn clone_without_rng(&self, rng: Box<R>) -> Self {
+        Self {
+            base_art: self.base_art.clone(),
+            upstream_art: self.upstream_art.clone(),
+            marker_tree: self.marker_tree.clone(),
+            rng,
+            prover_engine: Rc::clone(&self.prover_engine),
+            verifier_engine: self.verifier_engine.clone(),
+        }
+    }
+
+    pub fn get_base_art(&self) -> &PrivateArt<G> {
+        &self.base_art
+    }
+
+    pub fn get_upstream_art(&self) -> &PrivateArt<G> {
+        &self.upstream_art
+    }
+
+    pub fn get_node_index(&self) -> &NodeIndex {
+        self.get_base_art().get_node_index()
     }
 
     pub fn commit(&mut self) {
@@ -138,7 +159,6 @@ where
         let intersection = target_art.get_node_index().intersect_with(&changes.node_index)?;
 
         let mut partial_co_path = if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {
-            // partial_co_path.push(*public_key);
             vec![public_key.clone()]
         } else {
             // else it is or self update or AddMember, which is forbidden.
@@ -146,17 +166,21 @@ where
         };
         partial_co_path.append(&mut target_art.public_art.get_co_path_values(&intersection)?);
 
-        let level_sk = target_art.secrets[target_art.secrets.len() - partial_co_path.len() - 1];
+        // trace!("art: \n{}", self.get_upstream_art().get_root());
+
+        // trace!(
+        //     "public_key of level_sk: {}",
+        //     G::generator().mul(target_art.secrets[target_art.secrets.len() - partial_co_path.len()]).into_affine(),
+        // );
+        let level_sk = target_art.secrets[(target_art.secrets.len() - partial_co_path.len()).saturating_sub(1)];
 
         let secrets = recompute_artefacts(level_sk, &partial_co_path)?.secrets;
 
         Ok(secrets[1..].to_vec())
     }
 
-    pub(crate) fn update_secrets(&mut self, branch_change: &BranchChange<G>, merge_key: bool) -> Result<(), ArtError> {
-        let secrets = self.get_updated_secrets(branch_change)?;
-
-        for (sk, i) in secrets.iter().rev().zip((0..self.upstream_art.secrets.len()).rev()) {
+    pub(crate) fn update_secrets(&mut self, updated_secrets: &Vec<G::ScalarField>, merge_key: bool) -> Result<(), ArtError> {
+        for (sk, i) in updated_secrets.iter().rev().zip((0..self.upstream_art.secrets.len()).rev()) {
             if merge_key {
                 self.upstream_art.secrets[i] += sk;
             } else {
@@ -165,54 +189,176 @@ where
         }
 
         Ok(())
+    }
 
+    pub(crate) fn ephemeral_private_add_node(
+        &self,
+        new_key: G::ScalarField,
+    ) -> Result<ArtUpdateOutput<G>, ArtError> {
+        let target_art = self.get_upstream_art();
+        let mut path = match target_art.public_art.find_path_to_left_most_blank_node() {
+            Some(path) => path,
+            None => target_art.public_art.find_path_to_lowest_leaf()?,
+        };
+
+        let target_leaf = target_art.get_node_at(&path)?;
+        let target_public_key = target_leaf.get_public_key();
+
+        if !target_leaf.is_leaf() {
+            return Err(ArtError::LeafOnly);
+        }
+
+
+        let mut co_path = target_art.get_public_art().get_co_path_values(&path)?;
+
+        let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
+        if extend_node {
+            co_path.insert(0, target_public_key);
+            path.push(Direction::Right);
+        }
+
+        let artefacts = recompute_artefacts(new_key, &co_path)?;
+        let change = artefacts.derive_branch_change(BranchChangeType::AddMember, NodeIndex::from(path))?;
+        let tk = *artefacts.secrets.last().ok_or(ArtError::NoChanges)?;
+
+        Ok((tk, change, artefacts))
+    }
+
+    /// Move current node down to left child, and append other node to the right.
+    fn extend_marker_node(parent: &mut AggregationNode<bool>, other: bool) {
+        parent.l = Some(Box::new(AggregationNode::from(parent.data)));
+        parent.r = Some(Box::new(AggregationNode::from(other)));
     }
 }
 
-impl<G, R> ApplicableChange<PrivateMergeContext<G, R>, G> for BranchChange<G>
+impl<G, R> PartialEq for PrivateZeroArt<G, R>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateMergeContext<G, R>) -> Result<(), ArtError> {
+    fn eq(&self, other: &Self) -> bool {
+        self.base_art == other.base_art
+            && self.upstream_art == other.upstream_art
+            && self.marker_tree == other.marker_tree
+    }
+}
+
+impl<G, R> Eq for PrivateZeroArt<G, R>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{}
+
+impl<G, R> Debug for PrivateZeroArt<G, R>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrivateZeroArt")
+            .field("base_art", &self.base_art)
+            .field("upstream_art", &self.upstream_art)
+            .field("marker_tree", &self.marker_tree)
+            .finish()
+    }
+}
+
+
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for BranchChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         if let BranchChangeType::AddMember = &self.change_type {
             return Err(ArtError::InvalidMergeInput)
         }
 
         let merge_key = art.marker_tree.data;
         art.upstream_art.public_art.merge_by_marker(&self.public_keys, &self.node_index.get_path()?, &mut art.marker_tree)?;
-        art.update_secrets(self, merge_key)?;
+        let updated_secrets = art.get_updated_secrets(self)?;
+        art.update_secrets(&updated_secrets, merge_key)?;
 
         Ok(())
     }
 }
 
-impl<G, R> ApplicableChange<PrivateMergeContext<G, R>, G> for PrivateBranchChange<G>
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for PrivateBranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateMergeContext<G, R>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         if let BranchChangeType::AddMember = &self.branch_change.change_type {
-            return Err(ArtError::InvalidMergeInput)
+            if art.marker_tree.data {
+                return Err(ArtError::InvalidMergeInput)
+            }
+
+            let mut path = self.branch_change.node_index.get_path()?;
+            let last_direction = path.pop().ok_or(ArtError::NoChanges)?;
+
+            let parent_art_node = art.upstream_art.get_mut_node_at(&path)?;
+            let parent_marker_node = art.marker_tree.get_mut_node(&path)?;
+
+            // if true, then add member was with extension (instead of replacement).
+            if parent_art_node.get_child(last_direction).is_none() {
+                // The last bit of direction will not be used in proof verification, so check it
+                // manually. New node must be added to the right.
+                if !matches!(last_direction, Direction::Right) {
+                    return Err(ArtError::InvalidUpdateData);
+                }
+
+                PrivateZeroArt::<G, R>::extend_marker_node(parent_marker_node, true);
+                parent_art_node.extend(ArtNode::new_leaf(*self.branch_change.public_keys.last().ok_or(ArtError::NoChanges)?));
+
+                let path_index = NodeIndex::from(path);
+                if art.upstream_art.node_index.is_subpath_of(&path_index)? {
+                    // Change updates existing node index, so it will be extended to the left.
+                    art.upstream_art.secrets.insert(
+                        0,
+                        art
+                        .upstream_art
+                        .secrets
+                        .first()
+                        .ok_or(ArtError::EmptyArt)?
+                        .clone()
+                    );
+                    art.upstream_art.node_index.push(Direction::Left);
+                }
+            }
         }
 
         if self.branch_change.change_type == BranchChangeType::UpdateKey
             || art.base_art.node_index == self.branch_change.node_index {
-            return self.apply_own_key_update(art, self.secret);
+            return self.inner_apply_own_key_update(art, self.secret);
         }
 
         let merge_key = art.marker_tree.data;
         art.upstream_art.public_art.merge_by_marker(&self.branch_change.public_keys, &self.branch_change.node_index.get_path()?, &mut art.marker_tree)?;
-        art.update_secrets(&self.branch_change, merge_key)?;
+
+        let target_leaf_status = match &self.branch_change.change_type {
+            BranchChangeType::UpdateKey => Some(LeafStatus::Active),
+            BranchChangeType::AddMember => None,
+            BranchChangeType::RemoveMember => Some(LeafStatus::Blank),
+            BranchChangeType::Leave => Some(LeafStatus::PendingRemoval),
+        };
+        if let Some(target_leaf_status) = target_leaf_status {
+            art.upstream_art.get_mut_node_at(&self.branch_change.node_index.get_path()?)?.set_status(target_leaf_status)?;
+        }
+
+        let updated_secrets = art.get_updated_secrets(&self.branch_change)?;
+        art.update_secrets(&updated_secrets, merge_key)?;
 
         Ok(())
     }
 }
 
-impl<R> ArtBasicOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateMergeContext<CortadoAffine, R>
+impl<R> ArtBasicOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<CortadoAffine, R>
 where
     R: Rng + ?Sized,
 {
@@ -244,9 +390,9 @@ where
         }
 
         let eligibility =
-            EligibilityArtefact::Member((self.upstream_art.get_leaf_secret_key(), self.upstream_art.get_leaf_public_key()));
+            EligibilityArtefact::Owner((self.upstream_art.get_leaf_secret_key(), self.upstream_art.get_leaf_public_key()));
 
-        let (_, change, artefacts) = self.upstream_art.ephemeral_private_add_node(new_key)?;
+        let (_, change, artefacts) = self.ephemeral_private_add_node(new_key)?;
 
         Ok(PrivateBranchChange {
             branch_change: change,
@@ -258,7 +404,7 @@ where
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateMergeContext<CortadoAffine, R>
+impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<CortadoAffine, R>
 where
     R: Rng + ?Sized,
 {
@@ -312,7 +458,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::TreeMethods;
-    use crate::art::{ArtAdvancedOps, PrivateMergeContext};
+    use crate::art::{ArtAdvancedOps, PrivateZeroArt};
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::ApplicableChange;
     use crate::init_tracing;
@@ -341,7 +487,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
-        let mut merge_context0 = PrivateMergeContext::new(
+        let mut merge_context0 = PrivateZeroArt::new(
             art0.clone(),
             Box::new(StdRng::seed_from_u64(random()))
         ).unwrap();
@@ -369,7 +515,7 @@ mod test {
 
         let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
         let mut art1 = PrivateArt::new(art0.public_art.clone(), secrets[1]).unwrap();
-        let mut merge_context0 = PrivateMergeContext::new(
+        let mut merge_context0 = PrivateZeroArt::new(
             art0.clone(),
             Box::new(StdRng::seed_from_u64(random()))
         ).unwrap();
@@ -401,7 +547,7 @@ mod test {
 
         let art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
         let mut art1 = PrivateArt::new(art0.public_art.clone(), secrets[1]).unwrap();
-        let mut merge_context0 = PrivateMergeContext::new(art0, Box::new(StdRng::seed_from_u64(random()))).unwrap();
+        let mut merge_context0 = PrivateZeroArt::new(art0, Box::new(StdRng::seed_from_u64(random()))).unwrap();
 
         let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
         change.apply(&mut merge_context0).unwrap();
@@ -454,27 +600,27 @@ mod test {
 
         let def_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
 
-        let mut user1 = PrivateMergeContext::new(
+        let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[1]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
 
-        let mut user2= PrivateMergeContext::new(
+        let mut user2= PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[2]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
 
-        let mut user3 = PrivateMergeContext::new(
+        let mut user3 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[3]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
 
-        let mut user4 = PrivateMergeContext::new(
+        let mut user4 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[4]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
 
-        let mut user5 = PrivateMergeContext::new(
+        let mut user5 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[5]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
@@ -519,7 +665,7 @@ mod test {
             + user5.upstream_art.get_root_secret_key();
 
         // Check correctness of the merge
-        let mut user0_test_art = PrivateMergeContext::new(
+        let mut user0_test_art = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
@@ -582,7 +728,7 @@ mod test {
         }
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
-            let mut art_1_analog = PrivateMergeContext::new(
+            let mut art_1_analog = PrivateZeroArt::new(
                 PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
                 Box::new(StdRng::seed_from_u64(random())),
             ).unwrap();
@@ -805,7 +951,7 @@ mod test {
         let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
 
         // let mut update_context = PublicUpdateContext::new(public_art.clone());
-        let mut update_context1 = PrivateMergeContext::new(
+        let mut update_context1 = PrivateZeroArt::new(
             art0.clone(),
             Box::new(StdRng::seed_from_u64(random())),
         ).unwrap();
@@ -822,7 +968,7 @@ mod test {
         let art3: PrivateArt<CortadoAffine> =
             PrivateArt::new(public_art.clone(), secrets[8]).unwrap();
 
-        let mut update_context3 = PrivateMergeContext::new(
+        let mut update_context3 = PrivateZeroArt::new(
             art3,
             Box::new(StdRng::seed_from_u64(random()))
         ).unwrap();

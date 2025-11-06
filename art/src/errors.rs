@@ -51,4 +51,6 @@ pub enum ArtError {
     Zk(#[from] ZKError),
     #[error("Invalid marker tree used")]
     InvalidMarkerTree,
+    #[error("There are some issues with the provided atr update data.")]
+    InvalidUpdateData,
 }

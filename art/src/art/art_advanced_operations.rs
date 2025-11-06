@@ -1,6 +1,6 @@
 use crate::art::ArtBasicOps;
 use crate::art::art_node::LeafStatus;
-use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+use crate::art::art_types::{PrivateArt};
 use crate::changes::branch_change::{PrivateBranchChange, BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
@@ -87,94 +87,94 @@ where
     }
 }
 
-impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<R>
-where
-    R: Rng + ?Sized,
-{
-    fn add_member(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let change = self.add_node(new_key).map(|mut change| {
-            change.branch_change.change_type = BranchChangeType::AddMember;
-            change
-        })?;
-
-        let mut update_path = change.branch_change.node_index.get_path()?;
-        if update_path.pop().is_none() {
-            return Err(ArtError::EmptyArt);
-        };
-
-        Ok(change)
-    }
-
-    fn remove_member(
-        &mut self,
-        target_leaf: &NodeIndex,
-        new_key: Fr,
-    ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let path = target_leaf.get_path()?;
-        let append_changes = matches!(
-            self.get_node_at(&path)?.get_status(),
-            Some(LeafStatus::Blank)
-        );
-
-        let eligibility = if matches!(
-            self.get_node_at(&path)?.get_status(),
-            Some(LeafStatus::Active)
-        ) {
-            let sk = self.get_leaf_secret_key();
-            let pk = self.get_leaf_public_key();
-            EligibilityArtefact::Owner((sk, pk))
-        } else {
-            let sk = self.get_root_secret_key();
-            let pk = self.get_root().get_public_key();
-            EligibilityArtefact::Member((sk, pk))
-        };
-
-        let output = self
-            .update_node_key(target_leaf, new_key, append_changes)
-            .map(|mut output| {
-                output.branch_change.change_type = BranchChangeType::RemoveMember;
-                output.eligibility = eligibility;
-                output
-            })?;
-
-        self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
-
-        if !append_changes {
-            self.private_art
-                .public_art
-                .update_branch_weight(&path, false)?;
-        }
-
-        Ok(output)
-    }
-
-    fn leave_group(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let index = self.private_art.get_node_index().clone();
-        let output = self
-            .update_node_key(&index, new_key, false)
-            .map(|mut output| {
-                output.branch_change.change_type = BranchChangeType::Leave;
-                output
-            })?;
-
-        self.get_mut_node(&index)?
-            .set_status(LeafStatus::PendingRemoval)?;
-
-        Ok(output)
-    }
-
-    fn update_key(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let index = self.private_art.get_node_index().clone();
-        self.update_node_key(&index, new_key, false)
-    }
-}
+// impl<R> ArtAdvancedOps<CortadoAffine, PrivateBranchChange<CortadoAffine>> for PrivateZeroArt<R>
+// where
+//     R: Rng + ?Sized,
+// {
+//     fn add_member(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
+//         let change = self.add_node(new_key).map(|mut change| {
+//             change.branch_change.change_type = BranchChangeType::AddMember;
+//             change
+//         })?;
+// 
+//         let mut update_path = change.branch_change.node_index.get_path()?;
+//         if update_path.pop().is_none() {
+//             return Err(ArtError::EmptyArt);
+//         };
+// 
+//         Ok(change)
+//     }
+// 
+//     fn remove_member(
+//         &mut self,
+//         target_leaf: &NodeIndex,
+//         new_key: Fr,
+//     ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
+//         let path = target_leaf.get_path()?;
+//         let append_changes = matches!(
+//             self.get_node_at(&path)?.get_status(),
+//             Some(LeafStatus::Blank)
+//         );
+// 
+//         let eligibility = if matches!(
+//             self.get_node_at(&path)?.get_status(),
+//             Some(LeafStatus::Active)
+//         ) {
+//             let sk = self.get_leaf_secret_key();
+//             let pk = self.get_leaf_public_key();
+//             EligibilityArtefact::Owner((sk, pk))
+//         } else {
+//             let sk = self.get_root_secret_key();
+//             let pk = self.get_root().get_public_key();
+//             EligibilityArtefact::Member((sk, pk))
+//         };
+// 
+//         let output = self
+//             .update_node_key(target_leaf, new_key, append_changes)
+//             .map(|mut output| {
+//                 output.branch_change.change_type = BranchChangeType::RemoveMember;
+//                 output.eligibility = eligibility;
+//                 output
+//             })?;
+// 
+//         self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
+// 
+//         if !append_changes {
+//             self.private_art
+//                 .public_art
+//                 .update_branch_weight(&path, false)?;
+//         }
+// 
+//         Ok(output)
+//     }
+// 
+//     fn leave_group(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
+//         let index = self.private_art.get_node_index().clone();
+//         let output = self
+//             .update_node_key(&index, new_key, false)
+//             .map(|mut output| {
+//                 output.branch_change.change_type = BranchChangeType::Leave;
+//                 output
+//             })?;
+// 
+//         self.get_mut_node(&index)?
+//             .set_status(LeafStatus::PendingRemoval)?;
+// 
+//         Ok(output)
+//     }
+// 
+//     fn update_key(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
+//         let index = self.private_art.get_node_index().clone();
+//         self.update_node_key(&index, new_key, false)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
-    use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+    use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation, ProverAggregationData, VerifierAggregationData};
     use crate::changes::{ApplicableChange, ProvableChange, VerifiableChange};
     use crate::errors::ArtError;

@@ -1,7 +1,7 @@
-use crate::art::{AggregationContext, ArtUpdateOutput};
+use crate::art::{ArtUpdateOutput};
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
@@ -14,11 +14,8 @@ use crate::tree_methods::TreeMethods;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use cortado::{CortadoAffine, Fr};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use std::ops::Mul;
-use curve25519_dalek::digest::generic_array::sequence::Concat;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
@@ -416,56 +413,61 @@ where
     }
 }
 
-impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
+impl<G> ChangeAggregation<ProverAggregationData<G>>
+where 
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
     pub(crate) fn extend<R>(
         &mut self,
         rng: &mut R,
-        changes: &BranchChange<CortadoAffine>,
-        artefacts: &ProverArtefacts<CortadoAffine>,
-        change_hint: BranchChangesTypeHint<CortadoAffine>,
+        changes: &BranchChange<G>,
+        artefacts: &ProverArtefacts<G>,
+        change_hint: BranchChangesTypeHint<G>,
     ) -> Result<(), ArtError>
     where
         R: Rng + ?Sized,
     {
         let root = self
             .root
-            .get_or_insert_with(AggregationNode::<ProverAggregationData<CortadoAffine>>::default);
+            .get_or_insert_with(AggregationNode::<ProverAggregationData<G>>::default);
 
         root.extend(rng, changes, artefacts, change_hint)
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
-    pub(crate) fn update_key<'a, R>(
+    pub(crate) fn inner_update_key<'a, R>(
         &mut self,
-        new_secret_key: Fr,
-        art: &mut PrivateZeroArt<R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
+        new_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+        rng: &mut R,
+    ) -> Result<ArtUpdateOutput<G>, ArtError>
     where
         R: Rng + ?Sized,
     {
         let index = art.get_node_index().clone();
         let (tk, change, artefacts) =
-            art.private_art
-                .private_update_node_key(&index, new_secret_key, false)?;
+            art.private_update_node_key(&index, new_secret_key, false)?;
 
         self.extend(
-            &mut art.rng,
+            rng,
             &change,
             &artefacts,
             BranchChangesTypeHint::UpdateKey {
-                pk: CortadoAffine::generator().mul(new_secret_key).into_affine(),
+                pk: G::generator().mul(new_secret_key).into_affine(),
             },
         )?;
 
         Ok((tk, change, artefacts))
     }
 
-    pub(crate) fn remove_member<R>(
+    pub(crate) fn inner_remove_member<R>(
         &mut self,
         path: &[Direction],
-        temporary_secret_key: Fr,
-        art: &mut PrivateZeroArt<R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
+        temporary_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+        rng: &mut R,
+    ) -> Result<ArtUpdateOutput<G>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -476,7 +478,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         }
 
         let index = NodeIndex::from(path.to_vec());
-        let (tk, mut change, artefacts) = art.private_art.private_update_node_key(
+        let (tk, mut change, artefacts) = art.private_update_node_key(
             &index,
             temporary_secret_key,
             append_changes,
@@ -484,11 +486,11 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         change.change_type = BranchChangeType::RemoveMember;
 
         self.extend(
-            &mut art.rng,
+            rng,
             &change,
             &artefacts,
             BranchChangesTypeHint::RemoveMember {
-                pk: CortadoAffine::generator()
+                pk: G::generator()
                     .mul(temporary_secret_key)
                     .into_affine(),
                 merge: append_changes,
@@ -498,19 +500,19 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
-            art.private_art
-                .public_art
+            art.public_art
                 .update_branch_weight(path, false)?;
         }
 
         Ok((tk, change, artefacts))
     }
 
-    pub(crate) fn add_member<R>(
+    pub(crate) fn inner_add_member<R>(
         &mut self,
-        secret_key: Fr,
-        art: &mut PrivateZeroArt<R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
+        secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+        rng: &mut R,
+    ) -> Result<ArtUpdateOutput<G>, ArtError>
     where
         R: Rng + ?Sized,
     {
@@ -526,7 +528,7 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
             Some(LeafStatus::Active)
         );
 
-        let (tk, mut changes, artefacts) = art.private_art.private_add_node(secret_key)?;
+        let (tk, mut changes, artefacts) = art.private_add_node(secret_key)?;
         changes.change_type = BranchChangeType::AddMember;
 
         let ext_pk = match hint {
@@ -539,11 +541,11 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         };
 
         self.extend(
-            art.rng.as_mut(),
+            rng,
             &changes,
             &artefacts,
             BranchChangesTypeHint::AddMember {
-                pk: CortadoAffine::generator().mul(secret_key).into_affine(),
+                pk: G::generator().mul(secret_key).into_affine(),
                 ext_pk,
             },
         )?;
@@ -551,26 +553,26 @@ impl ChangeAggregation<ProverAggregationData<CortadoAffine>> {
         Ok((tk, changes, artefacts))
     }
 
-    pub(crate) fn leave<R>(
+    pub(crate) fn inner_leave_group<R>(
         &mut self,
-        new_secret_key: Fr,
-        art: &mut PrivateZeroArt<R>,
-    ) -> Result<ArtUpdateOutput<CortadoAffine>, ArtError>
+        new_secret_key: G::ScalarField,
+        art: &mut PrivateArt<G>,
+        rng: &mut R,
+    ) -> Result<ArtUpdateOutput<G>, ArtError>
     where
         R: Rng + ?Sized,
     {
         let index = art.get_node_index().clone();
         let (tk, mut change, artefacts) =
-            art.private_art
-                .private_update_node_key(&index, new_secret_key, false)?;
+            art.private_update_node_key(&index, new_secret_key, false)?;
         change.change_type = BranchChangeType::Leave;
 
         self.extend(
-            &mut art.rng,
+            rng,
             &change,
             &artefacts,
             BranchChangesTypeHint::Leave {
-                pk: CortadoAffine::generator().mul(new_secret_key).into_affine(),
+                pk: G::generator().mul(new_secret_key).into_affine(),
             },
         )?;
 
@@ -738,13 +740,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::art::art_types::{PrivateArt, PrivateZeroArt};
+    use crate::art::art_types::{PrivateArt};
     use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
+    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
 
     #[test]
     fn test_aggregation_serialization() {
@@ -756,11 +759,14 @@ mod tests {
         let mut user0 = PrivateZeroArt::new(
             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
             user0_rng,
-        );
+        ).unwrap();
 
-        let mut agg = ChangeAggregation::<ProverAggregationData<CortadoAffine>>::default();
+        let mut agg = AggregationContext::new(
+            user0.get_base_art().clone(),
+            Box::new(thread_rng())
+        );
         for _ in 0..8 {
-            agg.add_member(Fr::rand(&mut rng), &mut user0).unwrap();
+            agg.add_member(Fr::rand(&mut rng)).unwrap();
         }
 
         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();

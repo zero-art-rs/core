@@ -6,8 +6,8 @@ use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
 use zrt_art::TreeMethods;
-use zrt_art::art::{AggregationContext, ArtAdvancedOps};
-use zrt_art::art::art_types::{PrivateArt, PrivateZeroArt, PublicArt};
+use zrt_art::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+use zrt_art::art::art_types::{PrivateArt, PublicArt};
 use zrt_art::changes::aggregations::{AggregatedChange};
 use zrt_art::changes::branch_change::{BranchChange};
 use zrt_art::changes::{ApplicableChange, ProvableChange, VerifiableChange};
@@ -31,7 +31,7 @@ fn general_example() {
     // For new art, creator provides the next method with set of secrets and some generator.
     let art = PrivateArt::setup(&secrets).unwrap();
     let mut zero_art_rng = Box::new(thread_rng());
-    let zero_art = PrivateZeroArt::new(art.clone(), zero_art_rng);
+    let zero_art = PrivateZeroArt::new(art.clone(), zero_art_rng).unwrap();
 
     // PublicArt implements Derive for serialization.
     let encoded_representation = to_allocvec(art.get_public_art()).unwrap();
@@ -40,7 +40,7 @@ fn general_example() {
     // When rhe user receives his art, he can derive a new PrivateArt with his leaf secret key.
     let recovered_private_art = PrivateArt::new(public_art.clone(), secrets[0]).unwrap();
     let mut recovered_art_rng = Box::new(thread_rng());
-    let recovered_art = PrivateZeroArt::new(recovered_private_art, recovered_art_rng);
+    let recovered_art = PrivateZeroArt::new(recovered_private_art, recovered_art_rng).unwrap();
 
     assert_eq!(recovered_art, zero_art);
 
@@ -49,20 +49,26 @@ fn general_example() {
     let mut art_0 = PrivateZeroArt::new(
         PrivateArt::new(public_art.clone(), secrets[0]).unwrap(),
         art_0_rng,
-    );
+    ).unwrap();
     let mut art_1_rng = Box::new(thread_rng());
     let mut art_1 = PrivateZeroArt::new(
         PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
         art_1_rng,
-    );
+    ).unwrap();
     let new_secret_key_1 = Fr::rand(&mut rng);
 
     // Any user can update his public art with the next method.
     let output_1 = art_1.update_key(new_secret_key_1).unwrap();
+    // Apply ephemeral operation to the ART tree with private branch change.
+    output_1.apply(&mut art_1).unwrap();
+    art_1.commit();
+
+    // Retrieve change from the private branch change
     let change_1 = BranchChange::from(output_1);
 
+
     // Root key tk is a new common secret. To get common secret, user should use the next method.
-    let _retrieved_tk_1 = art_0.get_root_secret_key();
+    let _retrieved_tk_1 = art_0.get_base_art().get_root_secret_key();
 
     // Other users can use returned change to update local tree. Fot example, this can be done as next:
     change_1.apply(&mut art_0).unwrap();
@@ -81,6 +87,7 @@ fn general_example() {
     let new_node1_public_key = generator.mul(new_node1_secret_key).into_affine();
     let some_secret_key1 = Fr::rand(&mut rng);
     let target_node_path = art_1
+        .get_base_art()
         .get_public_art()
         .get_path_to_leaf_with(new_node1_public_key)
         .unwrap();
@@ -103,6 +110,7 @@ fn general_example() {
     // To verify the change, one pass eligibility_requirement with proof to verify method.
     let eligibility_requirement = EligibilityRequirement::Member(
         art_0
+            .get_base_art()
             .get_node(&changes_4.node_index)
             .unwrap()
             .get_public_key(),
@@ -185,11 +193,16 @@ fn branch_aggregation_proof_verify() {
     let target_3_index = NodeIndex::from(target_3);
 
     // Create zero_art to create proofs.
-    let mut zero_art0_rng = Box::new(thread_rng());
-    let mut zero_art0 = PrivateZeroArt::new(art0, zero_art0_rng);
+    let mut zero_art0 = PrivateZeroArt::new(
+        art0,
+        Box::new(thread_rng())
+    ).unwrap();
 
     // Create default aggregation
-    let mut agg = AggregationContext::new(zero_art0.clone());
+    let mut agg = AggregationContext::from_private_zero_art(
+        &zero_art0,
+        Box::new(thread_rng())
+    );
 
     // Perform some changes
     agg.add_member(Fr::rand(&mut rng)).unwrap();
@@ -206,7 +219,7 @@ fn branch_aggregation_proof_verify() {
     let plain_agg = AggregatedChange::try_from(&agg).unwrap();
 
     // Aggregation verification is similar to usual change aggregation.
-    let aux_pk = zero_art0.get_leaf_public_key();
+    let aux_pk = zero_art0.get_base_art().get_leaf_public_key();
     let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
     plain_agg
         .verify(&zero_art0, associated_data, eligibility_requirement, &proof)
@@ -215,8 +228,8 @@ fn branch_aggregation_proof_verify() {
     // Finally update private art with the `extracted_agg` aggregation.
     plain_agg.apply(&mut art1).unwrap();
 
-    assert_eq!(zero_art0.get_public_art(), art1.get_public_art());
-    assert_eq!(zero_art0.get_root_secret_key(), art1.get_root_secret_key());
+    assert_eq!(zero_art0.get_upstream_art().get_public_art(), art1.get_public_art());
+    assert_eq!(zero_art0.get_upstream_art().get_root_secret_key(), art1.get_root_secret_key());
 }
 
 fn branch_aggregation() {

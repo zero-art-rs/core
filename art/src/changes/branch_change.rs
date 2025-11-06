@@ -7,13 +7,14 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug};
+use std::mem;
 use std::rc::Rc;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use zrt_zk::art::ProverNodeData;
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::engine::ZeroArtProverEngine;
-use crate::art::PrivateMergeContext;
+use crate::art::PrivateZeroArt;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
@@ -93,7 +94,7 @@ where
         &self.prover_branch
     }
 
-    pub(crate) fn apply_own_key_update<R>(&self, art: &mut PrivateMergeContext<G, R>, new_secret_key: G::ScalarField) -> Result<(), ArtError>
+    pub(crate) fn inner_apply_own_key_update<R>(&self, art: &mut PrivateZeroArt<G, R>, new_secret_key: G::ScalarField) -> Result<(), ArtError>
     where
         R: Rng + ?Sized,
         G: AffineRepr,
