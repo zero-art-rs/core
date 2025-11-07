@@ -2,11 +2,8 @@ use crate::art::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
-use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
-use tracing::{debug, trace};
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
@@ -65,9 +62,6 @@ where
             .get_public_art()
             .compute_artefacts_for_verification(self)?
             .to_verifier_branch()?;
-
-        trace!("verification_branch: {:#?}", verification_branch);
-        trace!("eligibility_requirement: {:#?}", eligibility_requirement);
 
         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
         verifier_context.verify(proof, &verification_branch)?;
@@ -166,7 +160,7 @@ mod tests {
 
         let key_update_change_output = art.update_key(new_secret_key).unwrap();
         key_update_change_output.apply(&mut art).unwrap();
-        art.commit();
+        art.commit().unwrap();
 
         let proof = key_update_change_output
             .prove(associated_data, None)
@@ -213,19 +207,17 @@ mod tests {
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
 
-        let mut private_art = PrivateArt::setup(&secrets).unwrap();
+        let private_art = PrivateArt::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
+        let main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
         let mut art = PrivateZeroArt::new(private_art, main_rng).unwrap();
 
-        let mut test_rng = Box::new(StdRng::seed_from_u64(rand::random()));
-        let test_art =
-            PrivateZeroArt::new(PrivateArt::new(public_art, secrets[1]).unwrap(), test_rng)
-                .unwrap();
-
-        let secret_key = art.base_art.get_leaf_secret_key();
-        // let secret_key = art.get_leaf_public_key();
+        let test_art = PrivateZeroArt::new(
+            PrivateArt::new(public_art, secrets[1]).unwrap(),
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        )
+        .unwrap();
 
         let target_public_key = CortadoAffine::generator().mul(secrets[1]).into_affine();
         let target_node_path = art
@@ -289,10 +281,10 @@ mod tests {
         let associated_data = &[2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
-        debug!("art: {}", art.base_art.get_root());
+
         append_node_changes_output.apply(&mut art).unwrap();
-        art.commit();
-        debug!("art: {}", art.base_art.get_root());
+        art.commit().unwrap();
+
         let proof = append_node_changes_output
             .prove(associated_data, None)
             .unwrap();
@@ -314,7 +306,6 @@ mod tests {
     fn test_append_node_after_make_blank_proof() {
         init_tracing();
 
-        debug!("test_append_node_after_make_blank_proof");
         let mut rng = StdRng::seed_from_u64(0);
         // Use power of two, so all branches have equal weight. Then any blank node will be the
         // one to be replaced at node addition.
@@ -336,7 +327,6 @@ mod tests {
 
         // let secret_key = art.get_base_art().get_leaf_secret_key();
         let public_key = art.get_base_art().get_leaf_public_key();
-        trace!("art public_key: {}", public_key);
         let new_secret_key = Fr::rand(&mut rng);
 
         let associated_data1 = b"asdlkfhalkehafksjdhkflasfsadfsdf";
@@ -349,18 +339,12 @@ mod tests {
             .get_path_to_leaf_with(target_public_key)
             .unwrap();
         let target_node_index = NodeIndex::from(target_node_path);
-        info!(
-            "User with 'art' removes member with index: {:?}.",
-            target_node_index
-        );
+
         let make_blank_changes_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
-        debug!("Try to apply change to 'art'");
         make_blank_changes_output.apply(&mut art).unwrap();
-        debug!("Try to commit changes for 'art'");
-        art.commit();
-        debug!("art: {}", art.base_art.get_root());
+        art.commit().unwrap();
 
         let proof1 = make_blank_changes_output
             .prove(associated_data1, None)
@@ -383,9 +367,8 @@ mod tests {
         );
 
         make_blank_changes.apply(&mut test_art).unwrap();
-        test_art.commit();
+        test_art.commit().unwrap();
 
-        debug!("art: {}", art.base_art.get_root());
         assert_eq!(
             public_key,
             CortadoAffine::generator()
@@ -402,23 +385,12 @@ mod tests {
                 .into_affine()
         );
 
-        info!("User with 'art' adds new member.");
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
-        debug!("Try to apply change to 'art'");
         append_node_changes_output.apply(&mut art).unwrap();
-        debug!("Try to commit changes for 'art'");
-        art.commit();
+        art.commit().unwrap();
 
-        debug!("art: {}", art.base_art.get_root());
-        for sk in &art.base_art.secrets {
-            trace!(
-                "pk of sk: {}",
-                CortadoAffine::generator().mul(*sk).into_affine()
-            );
-        }
         assert_eq!(
             public_key,
-            // CortadoAffine::generator().mul(art.base_art.get_leaf_secret_key()).into_affine(),
             art.get_base_art()
                 .get_node(art.get_node_index())
                 .unwrap()
@@ -434,7 +406,6 @@ mod tests {
                 .into_affine()
         );
 
-        debug!("DO proof...");
         let proof2 = append_node_changes_output
             .prove(associated_data2, None)
             .unwrap();

@@ -1,7 +1,8 @@
 use crate::TreeMethods;
+use crate::art::ArtUpdateOutput;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PublicArt};
-use crate::art::{ArtBasicOps, ArtUpdateOutput};
+use crate::changes::ApplicableChange;
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
@@ -11,6 +12,7 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use std::fmt::{Debug, Formatter};
+use std::mem;
 use std::rc::Rc;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
@@ -21,6 +23,7 @@ where
     pub(crate) base_art: PublicArt<G>,
     pub(crate) upstream_art: PublicArt<G>,
     pub(crate) marker_tree: AggregationNode<bool>,
+    pub(crate) stashed_confirm_removals: Vec<BranchChange<G>>,
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
@@ -36,13 +39,22 @@ where
             base_art,
             upstream_art,
             marker_tree,
+            stashed_confirm_removals: vec![],
             verifier_engine: default_verifier_engine(),
         })
     }
 
-    pub fn commit(&mut self) {
+    pub fn commit(&mut self) -> Result<(), ArtError> {
+        let changes = mem::replace(&mut self.stashed_confirm_removals, vec![]);
+        for change in &changes {
+            self.upstream_art
+                .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
+        }
+
         self.marker_tree.data = false;
         self.base_art = self.upstream_art.clone();
+
+        Ok(())
     }
 
     pub fn discard(&mut self) {
@@ -63,6 +75,7 @@ where
     pub(crate) upstream_art: PrivateArt<G>,
     pub(crate) marker_tree: AggregationNode<bool>,
     pub(crate) rng: Box<R>,
+    pub(crate) stashed_confirm_removals: Vec<BranchChange<G>>,
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
@@ -84,6 +97,7 @@ where
             upstream_art,
             marker_tree,
             rng,
+            stashed_confirm_removals: vec![],
             prover_engine: Rc::new(ZeroArtProverEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
@@ -95,12 +109,16 @@ where
         })
     }
 
-    pub fn clone_without_rng(&self, rng: Box<R>) -> Self {
-        Self {
+    pub fn clone_without_rng<R2>(&self, rng: Box<R2>) -> PrivateZeroArt<G, R2>
+    where
+        R2: Rng + ?Sized,
+    {
+        PrivateZeroArt {
             base_art: self.base_art.clone(),
             upstream_art: self.upstream_art.clone(),
             marker_tree: self.marker_tree.clone(),
             rng,
+            stashed_confirm_removals: self.stashed_confirm_removals.clone(),
             prover_engine: Rc::clone(&self.prover_engine),
             verifier_engine: self.verifier_engine.clone(),
         }
@@ -122,9 +140,27 @@ where
         self.get_base_art().get_node_index()
     }
 
-    pub fn commit(&mut self) {
+    pub fn commit(&mut self) -> Result<(), ArtError> {
+        let changes = mem::replace(&mut self.stashed_confirm_removals, vec![]);
+        for change in &changes {
+            self.upstream_art
+                .public_art
+                .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
+
+            PublicArt::change_leaf_status_by_change_type(
+                self.upstream_art
+                    .get_mut_node_at(&change.node_index.get_path()?)?,
+                &change.change_type,
+            )?;
+
+            let updated_secrets = self.get_updated_secrets(change)?;
+            self.update_secrets(&updated_secrets, true)?;
+        }
+
         self.marker_tree.data = false;
         self.base_art = self.upstream_art.clone();
+
+        Ok(())
     }
 
     pub fn discard(&mut self) {
@@ -330,8 +366,8 @@ mod test {
     use crate::node_index::{Direction, NodeIndex};
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
-    use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
     use itertools::Itertools;
     use postcard::{from_bytes, to_allocvec};
@@ -380,7 +416,7 @@ mod test {
             let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
 
             change.apply(&mut merge_context0).unwrap();
-            merge_context0.commit();
+            merge_context0.commit().unwrap();
             change.apply(&mut art0).unwrap();
 
             assert_eq!(
@@ -408,7 +444,7 @@ mod test {
 
         let change = art1.update_key(Fr::rand(&mut rng)).unwrap();
         change.apply(&mut merge_context0).unwrap();
-        merge_context0.commit();
+        merge_context0.commit().unwrap();
 
         assert_eq!(
             &art1,
@@ -425,7 +461,7 @@ mod test {
 
         // change.apply_own_key_update(&mut merge_context0, private_change.get_secret()).unwrap();
         private_change.apply(&mut merge_context0).unwrap();
-        merge_context0.commit();
+        merge_context0.commit().unwrap();
         change.apply(&mut art1).unwrap();
 
         assert_eq!(
@@ -453,6 +489,10 @@ mod test {
         );
     }
 
+    /// The flow is the next:
+    /// - Epoch0: Create art, and init 5 users.
+    /// - Epoch1: update key (`user1`, `user2`, `user4`, `user5`), remove target member (`user3`)
+    /// - Epoch2:
     #[test]
     fn test_changes_ordering_for_merge() {
         init_tracing();
@@ -462,6 +502,12 @@ mod test {
         let secrets = (0..7).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
         let def_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+
+        let mut user0 = PrivateZeroArt::new(
+            PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
+            Box::new(StdRng::seed_from_u64(random())),
+        )
+        .unwrap();
 
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(def_art.public_art.clone(), secrets[1]).unwrap(),
@@ -493,14 +539,13 @@ mod test {
         )
         .unwrap();
 
+        // Perform some changes
         let sk0 = Fr::rand(&mut rng);
-        let private_change1 = user1.update_key(sk0).unwrap();
-        let change1 = private_change1.branch_change.clone();
-
         let sk2 = Fr::rand(&mut rng);
-        let change2 = user2.update_key(sk2).unwrap().branch_change;
-
         let sk3 = Fr::rand(&mut rng);
+        let sk4 = Fr::rand(&mut rng);
+        let sk5 = Fr::rand(&mut rng);
+
         let target_user_public_key = CortadoAffine::generator().mul(secrets[6]).into_affine();
         let target_node_index = NodeIndex::from(
             user3
@@ -508,36 +553,59 @@ mod test {
                 .get_path_to_leaf_with(target_user_public_key)
                 .unwrap(),
         );
-        let change3 = user3
-            .remove_member(&target_node_index, sk3)
-            .unwrap()
-            .branch_change;
 
-        let sk4 = Fr::rand(&mut rng);
-        let change4 = user4.update_key(sk4).unwrap().branch_change;
-
-        let sk5 = Fr::rand(&mut rng);
-        let change5 = user5.update_key(sk5).unwrap().branch_change;
+        let private_change1 = user1.update_key(sk0).unwrap();
+        let private_change2 = user2.update_key(sk2).unwrap();
+        let private_change3 = user3.remove_member(&target_node_index, sk3).unwrap();
+        let private_change4 = user4.update_key(sk4).unwrap();
+        let private_change5 = user5.update_key(sk5).unwrap();
 
         let all_but_1_changes: Vec<BranchChange<CortadoAffine>> = vec![
-            change2.clone(),
-            change3.clone(),
-            change4.clone(),
-            change5.clone(),
+            private_change2.branch_change.clone(),
+            private_change3.branch_change.clone(),
+            private_change4.branch_change.clone(),
+            private_change5.branch_change.clone(),
         ];
         let all_changes = vec![
-            change1.clone(),
-            change2.clone(),
-            change3.clone(),
-            change4.clone(),
-            change5.clone(),
+            private_change1.get_branch_change().clone(),
+            private_change2.get_branch_change().clone(),
+            private_change3.get_branch_change().clone(),
+            private_change4.get_branch_change().clone(),
+            private_change5.get_branch_change().clone(),
         ];
 
-        let root_key_sk = user1.upstream_art.get_root_secret_key()
-            + user2.upstream_art.get_root_secret_key()
-            + user3.upstream_art.get_root_secret_key()
-            + user4.upstream_art.get_root_secret_key()
-            + user5.upstream_art.get_root_secret_key();
+        let root_key_pk = private_change1
+            .branch_change
+            .public_keys
+            .first()
+            .unwrap()
+            .clone()
+            + private_change2
+                .branch_change
+                .public_keys
+                .first()
+                .unwrap()
+                .clone()
+            + private_change3
+                .branch_change
+                .public_keys
+                .first()
+                .unwrap()
+                .clone()
+            + private_change4
+                .branch_change
+                .public_keys
+                .first()
+                .unwrap()
+                .clone()
+            + private_change5
+                .branch_change
+                .public_keys
+                .first()
+                .unwrap()
+                .clone();
+
+        let root_key_pk = root_key_pk.into_affine();
 
         // Check correctness of the merge
         let mut user0_test_art = PrivateZeroArt::new(
@@ -548,29 +616,24 @@ mod test {
         for change in &all_changes {
             change.apply(&mut user0_test_art).unwrap();
         }
-        user0_test_art.commit();
+        user0_test_art.commit().unwrap();
 
         let mut user1_test_art = user1.clone();
         private_change1.apply(&mut user1_test_art).unwrap();
         for change in &all_but_1_changes {
             change.apply(&mut user1_test_art).unwrap()
         }
-        user1_test_art.commit();
+        user1_test_art.commit().unwrap();
+
+        assert_eq!(user0_test_art, user1_test_art,);
 
         assert_eq!(
-            user0_test_art.marker_tree, user1_test_art.marker_tree,
-            "Observer and participant have the same view on the state of the art.\
-            User0 is:\n{}\nuser1 is:\n{}",
-            user0_test_art.marker_tree, user1_test_art.marker_tree,
+            user0_test_art.get_base_art().get_root_public_key(),
+            root_key_pk
         );
-
         assert_eq!(
-            user0_test_art.upstream_art,
-            user1_test_art.upstream_art,
-            "Observer and participant have the same view on the state of the art.\
-            User0 is:\n{}\nuser1 is:\n{}",
-            user0_test_art.upstream_art.get_root(),
-            user1_test_art.upstream_art.get_root(),
+            user1_test_art.get_base_art().get_root_public_key(),
+            root_key_pk
         );
 
         assert_eq!(
@@ -578,235 +641,116 @@ mod test {
             "Observer and participant have the same view on the state of the art."
         );
 
+        // check correctness for any permutation for user 0
         for permutation in all_but_1_changes
             .iter()
             .cloned()
             .permutations(all_but_1_changes.len())
         {
-            let mut art_0_analog = user1.clone();
-            private_change1.apply(&mut art_0_analog).unwrap();
+            let mut art_1_analog = user1.clone();
+            private_change1.apply(&mut art_1_analog).unwrap();
             for change in &permutation {
-                change.apply(&mut art_0_analog).unwrap()
+                change.apply(&mut art_1_analog).unwrap()
             }
-            art_0_analog.commit();
+            art_1_analog.commit().unwrap();
 
             assert_eq!(
-                art_0_analog.upstream_art.get_root(),
-                user0_test_art.upstream_art.get_root(),
+                art_1_analog,
+                user1_test_art,
                 "Observer and participant have the same view on the state of the art.\
                 User0 is:\n{}\nUser1 is:\n{}",
-                art_0_analog.upstream_art.get_root(),
-                user0_test_art.upstream_art.get_root(),
+                art_1_analog.upstream_art.get_root(),
+                user1_test_art.upstream_art.get_root(),
             );
         }
 
         for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
-            let mut art_1_analog = PrivateZeroArt::new(
+            let mut art_0_analog = PrivateZeroArt::new(
                 PrivateArt::new(def_art.public_art.clone(), secrets[0]).unwrap(),
                 Box::new(StdRng::seed_from_u64(random())),
             )
             .unwrap();
             for change in permutation {
-                change.apply(&mut art_1_analog).unwrap();
+                change.apply(&mut art_0_analog).unwrap();
             }
-            art_1_analog.commit();
+            art_0_analog.commit().unwrap();
 
             assert_eq!(
-                art_1_analog.upstream_art.get_root(),
-                user1_test_art.upstream_art.get_root(),
+                art_0_analog,
+                user0_test_art,
                 "Observer and participant have the same view on the state of the art.\
                 User0 is:\n{}\nUser1 is:\n{}",
-                art_1_analog.upstream_art.get_root(),
-                user1_test_art.upstream_art.get_root(),
+                art_0_analog.upstream_art.get_root(),
+                user0_test_art.upstream_art.get_root(),
+            );
+        }
+
+        let all_users = [
+            &mut user0, &mut user1, &mut user2, &mut user3, &mut user4, &mut user5,
+        ];
+        let all_private_changes = [
+            private_change1,
+            private_change2,
+            private_change3,
+            private_change4,
+            private_change5,
+        ];
+        for user in all_users {
+            for private_change in &all_private_changes {
+                private_change.apply(user).unwrap();
+            }
+            user.commit().unwrap();
+        }
+
+        assert_eq!(user0, user1);
+        assert_eq!(user0, user2);
+        assert_eq!(user0, user3);
+        assert_eq!(user0, user4);
+        assert_eq!(user0, user5);
+
+        // Make more changes with user removal
+        let sk0 = Fr::rand(rng);
+        let sk1 = Fr::rand(rng);
+        let sk2 = Fr::rand(rng);
+        let sk3 = Fr::rand(rng);
+        let sk4 = Fr::rand(rng);
+
+        let private2_change0 = user0.remove_member(&target_node_index, sk0).unwrap();
+        let private2_change1 = user1.update_key(sk1).unwrap();
+        let private2_change2 = user2.leave_group(sk2).unwrap();
+        let private2_change3 = user3.remove_member(&target_node_index, sk3).unwrap();
+        let private2_change4 = user4.update_key(sk4).unwrap();
+
+        let all_changes = vec![
+            private2_change0,
+            private2_change1,
+            private2_change2,
+            private2_change3,
+        ];
+
+        let mut check_user = user0.clone_without_rng(Box::new(thread_rng()));
+        for change in &all_changes {
+            change.apply(&mut check_user).unwrap();
+        }
+        check_user.commit().unwrap();
+
+        for permutation in all_changes.iter().cloned().permutations(all_changes.len()) {
+            let mut art_0_analog = user0.clone_without_rng(Box::new(thread_rng()));
+            for change in permutation {
+                change.apply(&mut art_0_analog).unwrap();
+            }
+            art_0_analog.commit().unwrap();
+
+            assert_eq!(
+                art_0_analog,
+                check_user,
+                "Observer and participant have the same view on the state of the art.\
+                User0 is:\n{}\nUser1 is:\n{}",
+                art_0_analog.upstream_art.get_root(),
+                check_user.upstream_art.get_root(),
             );
         }
     }
-
-    // #[test]
-    // fn test_merge_for_key_update() {
-    //     init_tracing();
-    //
-    //     if DEFAULT_TEST_GROUP_SIZE < 5 {
-    //         warn!("Cant run the test test_merge_for_add_member, as group size is to small");
-    //         return;
-    //     }
-    //
-    //     let mut rng = StdRng::from_seed(rand::random());
-    //     let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //     let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-    //
-    //     let mut user_arts = Vec::new();
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE {
-    //         let art = PrivateArt::<CortadoAffine>::new(art.public_art.clone(), secrets[i]).unwrap();
-    //         user_arts.push(art);
-    //     }
-    //
-    //     let mut art1 = user_arts.remove(0);
-    //     let mut art2 = user_arts.remove(1);
-    //     let mut art3 = user_arts.remove(3);
-    //     let mut art4 = user_arts.remove(4);
-    //
-    //     let def_art1 = art1.clone();
-    //     let def_art2 = art2.clone();
-    //     let def_art3 = art3.clone();
-    //     let def_art4 = art4.clone();
-    //
-    //     assert_eq!(art1.get_root(), art2.get_root());
-    //     assert_eq!(art1.get_root(), art3.get_root());
-    //     assert_eq!(art1.get_root(), art4.get_root());
-    //
-    //     let new_node1_sk = Fr::rand(&mut rng);
-    //     let new_node2_sk = Fr::rand(&mut rng);
-    //     let new_node3_sk = Fr::rand(&mut rng);
-    //     let new_node4_sk = Fr::rand(&mut rng);
-    //
-    //     let changes1 = art1.update_key(new_node1_sk).unwrap();
-    //     let changes2 = art2.update_key(new_node2_sk).unwrap();
-    //     let changes3 = art3.update_key(new_node3_sk).unwrap();
-    //     let changes4 = art4.update_key(new_node4_sk).unwrap();
-    //
-    //     let tk1 = art1.get_root_secret_key();
-    //     let tk2 = art2.get_root_secret_key();
-    //     let tk3 = art3.get_root_secret_key();
-    //     let tk4 = art4.get_root_secret_key();
-    //
-    //     let merged_tk = tk1 + tk2 + tk3 + tk4;
-    //
-    //     assert_eq!(
-    //         art1.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(tk1).into_affine()
-    //     );
-    //     assert_eq!(
-    //         art2.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(tk2).into_affine()
-    //     );
-    //     assert_eq!(
-    //         art3.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(tk3).into_affine()
-    //     );
-    //     assert_eq!(
-    //         art4.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(tk4).into_affine()
-    //     );
-    //
-    //     assert_eq!(
-    //         art1.get_root().get_public_key(),
-    //         *changes1.public_keys.get(0).unwrap()
-    //     );
-    //     assert_eq!(
-    //         art2.get_root().get_public_key(),
-    //         *changes2.public_keys.get(0).unwrap()
-    //     );
-    //     assert_eq!(
-    //         art3.get_root().get_public_key(),
-    //         *changes3.public_keys.get(0).unwrap()
-    //     );
-    //     assert_eq!(
-    //         art4.get_root().get_public_key(),
-    //         *changes4.public_keys.get(0).unwrap()
-    //     );
-    //
-    //     art1.merge_for_participant(
-    //         changes1.clone(),
-    //         &vec![changes2.clone(), changes3.clone(), changes4.clone()],
-    //         def_art1.clone(),
-    //     )
-    //         .unwrap();
-    //
-    //     assert_eq!(
-    //         art1.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(merged_tk).into_affine()
-    //     );
-    //     assert_eq!(merged_tk, art1.get_root_secret_key());
-    //     let tk1_merged = art1.get_root_secret_key();
-    //     assert_eq!(
-    //         art1.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(tk1_merged).into_affine()
-    //     );
-    //
-    //     art2.merge_for_participant(
-    //         changes2.clone(),
-    //         &vec![changes1.clone(), changes3.clone(), changes4.clone()],
-    //         def_art2.clone(),
-    //     )
-    //         .unwrap();
-    //
-    //     assert_eq!(
-    //         art2.get_root().get_public_key(),
-    //         CortadoAffine::generator().mul(merged_tk).into_affine()
-    //     );
-    //     assert_eq!(merged_tk, art2.get_root_secret_key());
-    //
-    //     let mut root_key_from_changes = CortadoAffine::zero();
-    //     for g in &vec![
-    //         changes1.clone(),
-    //         changes2.clone(),
-    //         changes3.clone(),
-    //         changes4.clone(),
-    //     ] {
-    //         root_key_from_changes = root_key_from_changes.add(g.public_keys[0]).into_affine();
-    //     }
-    //     assert_eq!(
-    //         root_key_from_changes,
-    //         CortadoAffine::generator().mul(merged_tk).into_affine()
-    //     );
-    //     assert_eq!(root_key_from_changes, art1.get_root().get_public_key());
-    //     assert_eq!(
-    //         art1.get_root().get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(art1.get_root_secret_key())
-    //             .into_affine(),
-    //     );
-    //
-    //     assert_eq!(
-    //         CortadoAffine::generator().mul(new_node1_sk).into_affine(),
-    //         art1.get_public_art()
-    //             .get_node(&art1.get_node_index())
-    //             .unwrap()
-    //             .get_public_key()
-    //     );
-    //     assert_eq!(
-    //         CortadoAffine::generator().mul(new_node2_sk).into_affine(),
-    //         art2.get_public_art()
-    //             .get_node(&art2.get_node_index())
-    //             .unwrap()
-    //             .get_public_key()
-    //     );
-    //
-    //     assert_eq!(art1, art2);
-    //
-    //     let all_changes = vec![changes1, changes2, changes3, changes4];
-    //     let observer_merge_change = MergeBranchChange::new_for_observer(all_changes.clone());
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
-    //         observer_merge_change.apply(&mut user_arts[i]).unwrap();
-    //
-    //         let tk = user_arts[i].get_root_secret_key();
-    //
-    //         assert_eq!(
-    //             root_key_from_changes,
-    //             user_arts[i].get_root().get_public_key()
-    //         );
-    //         assert_eq!(
-    //             user_arts[i].get_root().get_public_key(),
-    //             CortadoAffine::generator().mul(tk).into_affine(),
-    //         );
-    //         assert_eq!(merged_tk, user_arts[i].get_root_secret_key());
-    //     }
-    //
-    //     let post_merge_sk = Fr::rand(&mut rng);
-    //     let post_change = art1.update_key(post_merge_sk).unwrap();
-    //
-    //     post_change.apply(&mut art2).unwrap();
-    //
-    //     assert_eq!(art1, art2);
-    //
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE - 4 {
-    //         post_change.apply(&mut user_arts[i]).unwrap();
-    //         assert_eq!(art1, art2);
-    //     }
-    // }
 
     #[test]
     fn test_merge_context_simple_flow() {
@@ -1167,5 +1111,148 @@ mod test {
                 CortadoAffine::generator().mul(sk).into_affine(),
             );
         }
+    }
+
+    /// the flow is as next:
+    /// - Epoch1: remove some `target_user` with `user0`.
+    /// - Epoch2: update key (`user0`), confirm remove (`user1`).
+    /// - Epoch3: update key (`user0`, `user2`, `user3`).
+    #[test]
+    fn test_merge_flow_with_removal() {
+        init_tracing();
+
+        let mut rng = &mut StdRng::seed_from_u64(0);
+        let secrets: Vec<Fr> = (0..10).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+        let creator_art = PrivateArt::setup(&secrets).unwrap();
+        let public_art = creator_art.get_public_art().clone();
+
+        // Create new users arts
+        let mut user0 = PrivateZeroArt::new(creator_art, Box::new(thread_rng())).unwrap();
+
+        let mut user1 = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
+            Box::new(thread_rng()),
+        )
+        .unwrap();
+
+        let mut user2 = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[2]).unwrap(),
+            Box::new(thread_rng()),
+        )
+        .unwrap();
+
+        let mut user3 = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[8]).unwrap(),
+            Box::new(thread_rng()),
+        )
+        .unwrap();
+
+        let target_user = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[5]).unwrap(),
+            Box::new(thread_rng()),
+        )
+        .unwrap();
+
+        // remove user
+        let epoch1_removal = user0
+            .remove_member(target_user.get_node_index(), Fr::rand(&mut rng))
+            .unwrap();
+
+        epoch1_removal.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+
+        epoch1_removal.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+
+        epoch1_removal.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+
+        epoch1_removal.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        assert_eq!(user0, user1);
+        assert_eq!(user0, user2);
+        assert_eq!(user0, user3);
+
+        // Remove the same user for second time
+        let epoch2_removal = user1
+            .remove_member(target_user.get_node_index(), Fr::rand(&mut rng))
+            .unwrap();
+        let epoch2_key_update = user0.update_key(Fr::rand(&mut rng)).unwrap();
+
+        epoch2_key_update.apply(&mut user0).unwrap();
+        epoch2_removal.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+
+        epoch2_removal.apply(&mut user1).unwrap();
+        epoch2_key_update.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+
+        epoch2_removal.apply(&mut user2).unwrap();
+        epoch2_key_update.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+
+        epoch2_key_update.apply(&mut user3).unwrap();
+        epoch2_removal.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        let root = *epoch2_removal.branch_change.public_keys.first().unwrap()
+            + *epoch2_key_update.branch_change.public_keys.first().unwrap();
+        let root = root.into_affine();
+
+        assert_eq!(user0, user1);
+        assert_eq!(user0, user2);
+        assert_eq!(user0, user2);
+        assert_eq!(user0, user3);
+
+        // Create some concurrent changes
+        let sk0 = Fr::rand(&mut rng);
+        let private_change0 = user0.update_key(sk0).unwrap();
+        let change0 = private_change0.get_branch_change().clone();
+
+        let sk2 = Fr::rand(&mut rng);
+        let private_change2 = user2.update_key(sk2).unwrap();
+        let change2 = private_change2.get_branch_change().clone();
+
+        let sk3 = Fr::rand(&mut rng);
+        let private_change3 = user3.update_key(sk3).unwrap();
+        let change3 = private_change3.get_branch_change().clone();
+
+        let new_root = *change0.public_keys.first().unwrap()
+            + *change2.public_keys.first().unwrap()
+            + *change3.public_keys.first().unwrap();
+        let new_root = new_root.into_affine();
+
+        // Apply changes to ART trees. Use private_change to apply change of the user own key.
+        private_change0.apply(&mut user0).unwrap();
+        change2.apply(&mut user0).unwrap();
+        change3.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+
+        change0.apply(&mut user1).unwrap();
+        change2.apply(&mut user1).unwrap();
+        change3.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+
+        change0.apply(&mut user2).unwrap();
+        private_change2.apply(&mut user2).unwrap();
+        change3.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+
+        change0.apply(&mut user3).unwrap();
+        change2.apply(&mut user3).unwrap();
+        private_change3.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        assert_eq!(user0.get_upstream_art().get_root_public_key(), new_root);
+        assert_eq!(user1.get_upstream_art().get_root_public_key(), new_root);
+        assert_eq!(user2.get_upstream_art().get_root_public_key(), new_root);
+        assert_eq!(user3.get_upstream_art().get_root_public_key(), new_root);
+
+        // Now all the participants have the same view on the state of the art
+        assert_eq!(user0, user1);
+        assert_eq!(user0, user2);
+        assert_eq!(user0, user3);
     }
 }

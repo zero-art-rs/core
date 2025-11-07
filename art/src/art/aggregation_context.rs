@@ -343,14 +343,11 @@ mod tests {
         let change = user0
             .remove_member(&user3_path, Fr::rand(&mut rng))
             .unwrap();
-        debug!("change: {:?}", change.get_branch_change());
         change.apply(&mut user0).unwrap();
         user0.commit();
 
         // Create aggregation
         let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
-
-        debug!("agg operation_tree:\n{}", agg.operation_tree.get_root());
 
         let sk1 = Fr::rand(&mut rng);
 

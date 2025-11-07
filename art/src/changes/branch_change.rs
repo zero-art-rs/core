@@ -109,19 +109,19 @@ where
 
         // get updates secrets length
         let mut parent = &art.marker_tree;
-        let mut updated_secrets_length = parent.data as usize;
+        let mut secrets_amount_to_merge = parent.data as usize;
         if parent.data {
             for dir in &path {
                 parent = parent.get_child(*dir).ok_or(ArtError::PathNotExists)?;
                 if parent.data {
-                    updated_secrets_length += 1;
+                    secrets_amount_to_merge += 1;
                 }
             }
         }
 
         let marker_tree = &mut art.marker_tree;
         art.upstream_art.public_art.merge_by_marker(
-            &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
+            &self.branch_change.public_keys,
             &path,
             marker_tree,
         )?;
@@ -129,7 +129,7 @@ where
         let old_secrets = art.upstream_art.secrets.clone();
         art.upstream_art.secrets = artefacts.secrets;
 
-        let start = old_secrets.len() - updated_secrets_length;
+        let start = old_secrets.len() - secrets_amount_to_merge;
         let finish = old_secrets.len();
         art.update_secrets(&old_secrets[start..finish], true)?;
 

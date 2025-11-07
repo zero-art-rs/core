@@ -16,6 +16,7 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
+use tracing::debug;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -159,6 +160,16 @@ where
             )?;
         }
 
+        if let BranchChangeType::RemoveMember = &self.change_type
+            && matches!(
+                art.upstream_art.get_node(&self.node_index)?.get_status(),
+                Some(LeafStatus::Blank)
+            )
+        {
+            art.stashed_confirm_removals.push(self.clone());
+            return Ok(());
+        }
+
         art.upstream_art.merge_by_marker(
             &self.public_keys,
             &self.node_index.get_path()?,
@@ -211,6 +222,16 @@ where
             }
         }
 
+        if let BranchChangeType::RemoveMember = &self.change_type
+            && matches!(
+                art.upstream_art.get_node(&self.node_index)?.get_status(),
+                Some(LeafStatus::Blank)
+            )
+        {
+            art.stashed_confirm_removals.push(self.clone());
+            return Ok(());
+        }
+
         let merge_key = art.marker_tree.data;
         art.upstream_art.public_art.merge_by_marker(
             &self.public_keys,
@@ -249,7 +270,7 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         if self.branch_change.change_type == BranchChangeType::UpdateKey
-            || art.base_art.node_index == self.branch_change.node_index
+            && art.base_art.node_index == self.branch_change.node_index
         {
             return self.inner_apply_own_key_update(art, self.secret);
         }

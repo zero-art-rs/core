@@ -80,6 +80,17 @@ pub(crate) fn prepare_short_marker(full_marker: &str) -> String {
     full_marker.chars().take(8).collect::<String>() + "..."
 }
 
+pub(crate) fn prepare_short_marker_option<T>(full_marker: &Option<T>) -> String
+where
+    T: ToString,
+{
+    if let Some(full_marker) = full_marker {
+        full_marker.to_string().chars().take(8).collect::<String>() + "..."
+    } else {
+        "None...".to_string()
+    }
+}
+
 pub(crate) fn default_proof_basis() -> PedersenBasis<CortadoAffine, EdwardsAffine> {
     let gens = PedersenGens::default();
     PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
