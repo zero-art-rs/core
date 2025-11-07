@@ -1,11 +1,10 @@
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::UniformRand;
-use ark_std::iterable::Iterable;
 use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
-use std::ops::{Add, Mul};
+use std::ops::{Mul};
 use zrt_art::TreeMethods;
 use zrt_art::art::art_types::{PrivateArt, PublicArt};
 use zrt_art::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
@@ -64,7 +63,7 @@ fn example_of_simple_flow() {
     let output_1 = art_1.update_key(new_secret_key_1).unwrap();
     // Apply ephemeral operation to the ART tree with private branch change.
     output_1.apply(&mut art_1).unwrap();
-    art_1.commit();
+    art_1.commit().unwrap();
 
     // Retrieve change from the private branch change
     let change_1 = BranchChange::from(output_1);
@@ -74,7 +73,7 @@ fn example_of_simple_flow() {
 
     // Other users can use returned change to update local tree. Fot example, this can be done as next:
     change_1.apply(&mut art_0).unwrap();
-    art_0.commit();
+    art_0.commit().unwrap();
     assert_eq!(art_0, art_1);
 
     // Other art modifications include addition and blanking.
@@ -84,9 +83,9 @@ fn example_of_simple_flow() {
     let change_2 = BranchChange::from(output_2);
 
     change_2.apply(&mut art_0).unwrap();
-    art_0.commit();
+    art_0.commit().unwrap();
     change_2.apply(&mut art_1).unwrap();
-    art_1.commit();
+    art_1.commit().unwrap();
     assert_eq!(art_0, art_1);
 
     // Remove member from the tree, by making his node temporary.
@@ -104,9 +103,9 @@ fn example_of_simple_flow() {
         .unwrap();
     let change_3 = BranchChange::from(output_3);
     change_3.apply(&mut art_0).unwrap();
-    art_0.commit();
+    art_0.commit().unwrap();
     change_3.apply(&mut art_1).unwrap();
-    art_1.commit();
+    art_1.commit().unwrap();
     assert_eq!(art_0, art_1);
 
     // For proof generation, use pass required data for proof creation, to change creation method.
@@ -187,22 +186,22 @@ fn example_of_merging_concurrent_changes() {
     private_change0.apply(&mut user0).unwrap();
     change2.apply(&mut user0).unwrap();
     change3.apply(&mut user0).unwrap();
-    user0.commit();
+    user0.commit().unwrap();
 
     change0.apply(&mut user1).unwrap();
     change2.apply(&mut user1).unwrap();
     change3.apply(&mut user1).unwrap();
-    user1.commit();
+    user1.commit().unwrap();
 
     change0.apply(&mut user2).unwrap();
     private_change2.apply(&mut user2).unwrap();
     change3.apply(&mut user2).unwrap();
-    user2.commit();
+    user2.commit().unwrap();
 
     change0.apply(&mut user3).unwrap();
     change2.apply(&mut user3).unwrap();
     private_change3.apply(&mut user3).unwrap();
-    user3.commit();
+    user3.commit().unwrap();
 
     assert_eq!(user0.get_upstream_art().get_root_public_key(), new_root);
     assert_eq!(user1.get_upstream_art().get_root_public_key(), new_root);

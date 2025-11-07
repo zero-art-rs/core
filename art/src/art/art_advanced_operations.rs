@@ -204,7 +204,7 @@ mod tests {
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation,
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
         ProverAggregationData, VerifierAggregationData,
     };
     use crate::changes::{ApplicableChange, ProvableChange, VerifiableChange};

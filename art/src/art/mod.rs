@@ -1,19 +1,19 @@
 //! Crate with ART types, operations and tools.
 
-mod aggregation_context;
+mod aggregations;
 mod art_advanced_operations;
 mod art_basic_operations;
 pub mod art_node;
 pub mod art_types;
 mod artefacts;
-mod merge_context;
+mod zero_art;
 
-pub use aggregation_context::AggregationContext;
+pub use aggregations::AggregationContext;
 pub use art_advanced_operations::ArtAdvancedOps;
 pub use art_basic_operations::ArtBasicOps;
 pub use artefacts::{ProverArtefacts, VerifierArtefacts};
-pub use merge_context::{PrivateZeroArt, PublicZeroArt};
-pub(crate) use merge_context::{
+pub use zero_art::{PrivateZeroArt, PublicZeroArt};
+pub(crate) use zero_art::{
     extend_marker_node, handle_potential_art_node_extension_on_add_member,
     handle_potential_marker_tree_node_extension_on_add_member,
     insert_first_secret_at_start_if_need,

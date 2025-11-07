@@ -1,6 +1,6 @@
 use crate::art::PrivateZeroArt;
 use crate::art::art_types::PrivateArt;
-use crate::changes::aggregations::{AggregatedChange, ChangeAggregation, ProverAggregationData};
+use crate::changes::aggregations::{AggregatedChange, AggregationTree, ProverAggregationData};
 use crate::errors::ArtError;
 use crate::helper_tools::default_prover_engine;
 use ark_ec::AffineRepr;
@@ -17,7 +17,7 @@ where
     G: AffineRepr,
     R: Rng + ?Sized,
 {
-    pub(crate) prover_aggregation: ChangeAggregation<ProverAggregationData<G>>,
+    pub(crate) prover_aggregation: AggregationTree<ProverAggregationData<G>>,
     pub(crate) operation_tree: T,
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
     pub(crate) rng: Box<R>,
@@ -107,7 +107,7 @@ mod tests {
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
     use crate::changes::ApplicableChange;
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, AggregationNodeIterWithPath, ChangeAggregation,
+        AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
         VerifierAggregationData,
     };
     use crate::errors::ArtError;
@@ -269,16 +269,16 @@ mod tests {
         }
 
         let verifier_aggregation =
-            ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(
+            AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
                 &agg.prover_aggregation,
             )
             .unwrap();
 
         let aggregation_from_prover =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let aggregation_from_verifier =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation)
+            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation)
                 .unwrap();
 
         assert_eq!(
@@ -399,7 +399,7 @@ mod tests {
         agg.leave_group(Fr::rand(&mut rng)).unwrap();
 
         let plain_agg =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         plain_agg.apply(&mut user1).unwrap();
 

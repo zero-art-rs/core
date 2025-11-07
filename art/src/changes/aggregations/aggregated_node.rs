@@ -1,8 +1,7 @@
-use crate::TreeMethods;
 use crate::art::ProverArtefacts;
 use crate::art::art_node::{ArtNode, NodeIterWithPath};
 use crate::changes::aggregations::{
-    AggregationData, ChangeAggregation, ProverAggregationData, RelatedData, VerifierAggregationData,
+    AggregationData, AggregationTree, ProverAggregationData, RelatedData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ArtError;
@@ -13,7 +12,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::mem;
 use tree_ds::prelude::Node;
 use zrt_zk::{
     aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
@@ -463,11 +461,11 @@ where
     }
 }
 
-impl<'a, D> From<&'a ChangeAggregation<D>> for AggregationNodeIterWithPath<'a, D>
+impl<'a, D> From<&'a AggregationTree<D>> for AggregationNodeIterWithPath<'a, D>
 where
     D: RelatedData + Clone,
 {
-    fn from(value: &'a ChangeAggregation<D>) -> Self {
+    fn from(value: &'a AggregationTree<D>) -> Self {
         match &value.root {
             None => AggregationNodeIterWithPath {
                 current_node: None,

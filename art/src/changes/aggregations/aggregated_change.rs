@@ -20,22 +20,22 @@ use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
-pub type AggregatedChange<G> = ChangeAggregation<AggregationData<G>>;
+pub type AggregatedChange<G> = AggregationTree<AggregationData<G>>;
 
 /// Helper data struct for proof verification.
-pub(crate) type VerifierChangeAggregation<G> = ChangeAggregation<VerifierAggregationData<G>>;
+pub(crate) type VerifierChangeAggregation<G> = AggregationTree<VerifierAggregationData<G>>;
 
 /// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
-pub struct ChangeAggregation<D>
+pub struct AggregationTree<D>
 where
     D: RelatedData + Clone,
 {
     pub(crate) root: Option<AggregationNode<D>>,
 }
 
-impl<D> ChangeAggregation<D>
+impl<D> AggregationTree<D>
 where
     D: RelatedData + Clone,
 {
@@ -44,7 +44,7 @@ where
     }
 }
 
-impl<G> ChangeAggregation<AggregationData<G>>
+impl<G> AggregationTree<AggregationData<G>>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -93,7 +93,7 @@ where
             resulting_target_node.data.co_public_key = Some(pk);
         }
 
-        Ok(ChangeAggregation {
+        Ok(AggregationTree {
             root: Some(resulting_aggregation_root),
         })
     }
@@ -156,14 +156,7 @@ where
 
         Ok(leaf_public_key)
     }
-}
 
-// impl<G> ChangeAggregation<VerifierAggregationData<G>>
-impl<G> ChangeAggregation<AggregationData<G>>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
     pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
         let agg_root = match self.get_root() {
             Some(root) => root,
@@ -366,54 +359,7 @@ where
     }
 }
 
-impl<'a, D1, D2> TryFrom<&'a ChangeAggregation<D1>> for ChangeAggregation<D2>
-where
-    D1: RelatedData + Clone + Default,
-    D2: From<D1> + RelatedData + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ArtError>,
-{
-    type Error = ArtError;
-
-    fn try_from(value: &'a ChangeAggregation<D1>) -> Result<Self, Self::Error> {
-        match &value.root {
-            None => Ok(ChangeAggregation::default()),
-            Some(root) => Ok(ChangeAggregation {
-                root: Some(AggregationNode::<D2>::try_from(root)?),
-            }),
-        }
-    }
-}
-
-impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for VerifierAggregationTree<G>
-where
-    G: AffineRepr,
-    D: RelatedData + Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
-{
-    type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
-
-    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
-        if let Some(root) = &value.root {
-            Self::try_from(root)
-        } else {
-            Err(Self::Error::NoChanges)
-        }
-    }
-}
-
-impl<D> Display for ChangeAggregation<D>
-where
-    D: RelatedData + Clone + Display + Default,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.get_root() {
-            Some(root) => write!(f, "{}", root),
-            None => write!(f, "Empty aggregation."),
-        }
-    }
-}
-
-impl<G> ChangeAggregation<ProverAggregationData<G>>
+impl<G> AggregationTree<ProverAggregationData<G>>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -436,7 +382,7 @@ where
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.
-    pub(crate) fn inner_update_key<'a, R>(
+    pub(crate) fn inner_update_key<R>(
         &mut self,
         new_secret_key: G::ScalarField,
         art: &mut PrivateArt<G>,
@@ -576,145 +522,25 @@ where
     }
 }
 
-impl<G> ChangeAggregation<AggregationData<G>>
+impl<'a, D1, D2> TryFrom<&'a AggregationTree<D1>> for AggregationTree<D2>
 where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
+    D1: RelatedData + Clone + Default,
+    D2: From<D1> + RelatedData + Clone + Default,
+    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ArtError>,
 {
-    pub fn extend(
-        &mut self,
-        changes: &BranchChange<G>,
-        artefacts: &ProverArtefacts<G>,
-        change_hint: BranchChangesTypeHint<G>,
-    ) -> Result<(), ArtError> {
-        let root = self
-            .root
-            .get_or_insert_with(AggregationNode::<AggregationData<G>>::default);
+    type Error = ArtError;
 
-        root.extend(changes, artefacts, change_hint)
-    }
-
-    /// Updates art by applying changes. Also updates path_secrets and node_index.
-    pub fn update_key(
-        &mut self,
-        new_secret_key: G::ScalarField,
-        art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let index = art.get_node_index().clone();
-        let (tk, change, artefacts) = art.private_update_node_key(&index, new_secret_key, false)?;
-
-        self.extend(
-            &change,
-            &artefacts,
-            BranchChangesTypeHint::UpdateKey {
-                pk: G::generator().mul(new_secret_key).into_affine(),
-            },
-        )?;
-
-        Ok((tk, change, artefacts))
-    }
-
-    pub fn remove_member(
-        &mut self,
-        path: &[Direction],
-        temporary_secret_key: G::ScalarField,
-        art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let append_changes = matches!(art.get_node_at(path)?.get_status(), Some(LeafStatus::Blank));
-
-        if append_changes {
-            return Err(ArtError::InvalidMergeInput);
+    fn try_from(value: &'a AggregationTree<D1>) -> Result<Self, Self::Error> {
+        match &value.root {
+            None => Ok(AggregationTree::default()),
+            Some(root) => Ok(AggregationTree {
+                root: Some(AggregationNode::<D2>::try_from(root)?),
+            }),
         }
-
-        let index = NodeIndex::from(path.to_vec());
-        let (tk, mut change, artefacts) =
-            art.private_update_node_key(&index, temporary_secret_key, append_changes)?;
-        change.change_type = BranchChangeType::RemoveMember;
-
-        self.extend(
-            &change,
-            &artefacts,
-            BranchChangesTypeHint::RemoveMember {
-                pk: G::generator().mul(temporary_secret_key).into_affine(),
-                merge: append_changes,
-            },
-        )?;
-
-        art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
-
-        if !append_changes {
-            art.public_art.update_branch_weight(path, false)?;
-        }
-
-        Ok((tk, change, artefacts))
-    }
-
-    pub fn add_member(
-        &mut self,
-        secret_key: G::ScalarField,
-        art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let path = match art.get_public_art().find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => art.get_public_art().find_path_to_lowest_leaf()?,
-        };
-
-        let hint = matches!(
-            art.get_node(&NodeIndex::Direction(path.to_vec()))?
-                .get_status(),
-            Some(LeafStatus::Active)
-        );
-
-        let (tk, mut changes, artefacts) = art.private_add_node(secret_key)?;
-        changes.change_type = BranchChangeType::AddMember;
-
-        let ext_pk = match hint {
-            true => Some(
-                art.get_public_art()
-                    .get_node(&NodeIndex::Direction(path.to_vec()))?
-                    .get_public_key(),
-            ),
-            false => None,
-        };
-
-        self.extend(
-            &changes,
-            &artefacts,
-            BranchChangesTypeHint::AddMember {
-                pk: G::generator().mul(secret_key).into_affine(),
-                ext_pk,
-            },
-        )?;
-
-        Ok((tk, changes, artefacts))
-    }
-
-    pub fn leave(
-        &mut self,
-        new_secret_key: G::ScalarField,
-        art: &mut PrivateArt<G>,
-    ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let index = art.get_node_index().clone();
-        let (tk, mut change, artefacts) =
-            art.private_update_node_key(&index, new_secret_key, false)?;
-        change.change_type = BranchChangeType::Leave;
-
-        self.extend(
-            &change,
-            &artefacts,
-            BranchChangesTypeHint::Leave {
-                pk: G::generator().mul(new_secret_key).into_affine(),
-            },
-        )?;
-
-        art.get_mut_node(&index)?
-            .set_status(LeafStatus::PendingRemoval)?;
-
-        Ok((tk, change, artefacts))
     }
 }
 
-impl<'a, D, G> TryFrom<&'a ChangeAggregation<D>> for ProverAggregationTree<G>
+impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
     D: RelatedData + Clone + Default,
@@ -722,7 +548,36 @@ where
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
 
-    fn try_from(value: &'a ChangeAggregation<D>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a AggregationTree<D>) -> Result<Self, Self::Error> {
+        if let Some(root) = &value.root {
+            Self::try_from(root)
+        } else {
+            Err(Self::Error::NoChanges)
+        }
+    }
+}
+
+impl<D> Display for AggregationTree<D>
+where
+    D: RelatedData + Clone + Display + Default,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.get_root() {
+            Some(root) => write!(f, "{}", root),
+            None => write!(f, "Empty aggregation."),
+        }
+    }
+}
+
+impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for ProverAggregationTree<G>
+where
+    G: AffineRepr,
+    D: RelatedData + Clone + Default,
+    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
+{
+    type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
+
+    fn try_from(value: &'a AggregationTree<D>) -> Result<Self, Self::Error> {
         if let Some(root) = &value.root {
             Self::try_from(root)
         } else {
@@ -736,7 +591,7 @@ mod tests {
     use crate::art::art_types::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
     use crate::changes::aggregations::{
-        AggregatedChange, ChangeAggregation, ProverAggregationData,
+        AggregatedChange,
     };
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;

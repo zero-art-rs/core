@@ -1,5 +1,5 @@
 use crate::changes::branch_change::{BranchChangeType, BranchChangesTypeHint};
-use crate::helper_tools::prepare_short_marker;
+use crate::helper_tools::prepare_short_marker_for_option;
 use crate::helper_tools::{ark_de, ark_se};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -76,21 +76,13 @@ where
     G::BaseField: PrimeField,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => prepare_short_marker(&x.to_string()),
-            None => "None".to_string(),
-        };
+        let pk_marker = prepare_short_marker_for_option(&self.public_key.x());
 
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => prepare_short_marker(&x.to_string()),
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
 
-        let sk_marker = prepare_short_marker(&self.secret_key.to_string());
-        let bl_marker = prepare_short_marker(&self.blinding_factor.to_string());
+        let co_pk_marker = prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
+
+        let sk_marker = prepare_short_marker_for_option(&Some(self.secret_key));
+        let bl_marker = prepare_short_marker_for_option(&Some(self.blinding_factor));
 
         write!(
             f,
@@ -113,18 +105,9 @@ where
     G::BaseField: PrimeField,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => prepare_short_marker(&x.to_string()),
-            None => "None".to_string(),
-        };
+        let pk_marker = prepare_short_marker_for_option(&self.public_key.x());
 
-        let co_pk_marker = match self.co_public_key {
-            Some(co_pk) => match co_pk.x() {
-                Some(x) => prepare_short_marker(&x.to_string()),
-                None => "None".to_string(),
-            },
-            None => "None".to_string(),
-        };
+        let co_pk_marker = prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
 
         write!(
             f,
@@ -145,10 +128,7 @@ where
     G::BaseField: PrimeField,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let pk_marker = match self.public_key.x() {
-            Some(x) => prepare_short_marker(&x.to_string()),
-            None => "None".to_string(),
-        };
+        let pk_marker = prepare_short_marker_for_option(&self.public_key.x());
 
         write!(
             f,

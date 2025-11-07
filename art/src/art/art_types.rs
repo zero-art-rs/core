@@ -21,7 +21,6 @@ where
     pub(crate) tree_root: ArtNode<G>,
 }
 
-// TODO: Remove clone
 /// ART structure, which stores and operates with some user secrets.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(bound = "")]

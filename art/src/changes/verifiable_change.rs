@@ -115,7 +115,7 @@ mod tests {
     use crate::art::art_types::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
     use crate::changes::aggregations::{
-        AggregatedChange, AggregationData, ChangeAggregation, VerifierAggregationData,
+        AggregatedChange, AggregationData, AggregationTree, VerifierAggregationData,
     };
     use crate::changes::branch_change::BranchChange;
     use crate::changes::provable_change::ProvableChange;
@@ -482,9 +482,9 @@ mod tests {
             .unwrap();
 
         let plain_agg =
-            ChangeAggregation::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
-        let fromed_agg = ChangeAggregation::<VerifierAggregationData<CortadoAffine>>::try_from(
+        let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
             &agg.prover_aggregation,
         )
         .unwrap();

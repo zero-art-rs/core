@@ -1,6 +1,6 @@
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::AggregationNode;
-use crate::helper_tools::prepare_short_marker;
+use crate::helper_tools::prepare_short_marker_for_option;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
@@ -36,10 +36,7 @@ where
             ArtNode::Internal { .. } => "",
         };
 
-        let pk_marker = match node.get_public_key().x() {
-            Some(x) => prepare_short_marker(&x.to_string()),
-            None => "None".to_string(),
-        };
+        let pk_marker = prepare_short_marker_for_option(&node.get_public_key().x());
 
         match node {
             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {

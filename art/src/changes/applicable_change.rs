@@ -16,7 +16,6 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
-use tracing::debug;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -86,7 +85,7 @@ where
 impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.upstream_art)?;
-        art.commit();
+        art.commit().unwrap();
 
         Ok(())
     }
@@ -100,7 +99,7 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.upstream_art)?;
-        art.commit();
+        art.commit().unwrap();
 
         Ok(())
     }
@@ -115,7 +114,7 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R1>) -> Result<(), ArtError> {
         art.upstream_art = self.operation_tree.clone();
-        art.commit();
+        art.commit().unwrap();
 
         Ok(())
     }
@@ -245,7 +244,7 @@ where
             &self.change_type,
         )?;
 
-        let updated_secrets = art.get_updated_secrets(&self)?;
+        let updated_secrets = art.get_updated_secrets(self)?;
         art.update_secrets(&updated_secrets, merge_key)?;
 
         Ok(())

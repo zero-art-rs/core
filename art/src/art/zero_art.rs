@@ -2,7 +2,6 @@ use crate::TreeMethods;
 use crate::art::ArtUpdateOutput;
 use crate::art::art_node::{ArtNode, LeafStatus};
 use crate::art::art_types::{PrivateArt, PublicArt};
-use crate::changes::ApplicableChange;
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
@@ -45,7 +44,7 @@ where
     }
 
     pub fn commit(&mut self) -> Result<(), ArtError> {
-        let changes = mem::replace(&mut self.stashed_confirm_removals, vec![]);
+        let changes = mem::take(&mut self.stashed_confirm_removals);
         for change in &changes {
             self.upstream_art
                 .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
@@ -141,7 +140,7 @@ where
     }
 
     pub fn commit(&mut self) -> Result<(), ArtError> {
-        let changes = mem::replace(&mut self.stashed_confirm_removals, vec![]);
+        let changes = mem::take(&mut self.stashed_confirm_removals);
         for change in &changes {
             self.upstream_art
                 .public_art
@@ -180,7 +179,7 @@ where
 
         let mut partial_co_path =
             if let Some(public_key) = changes.public_keys.get(intersection.len() + 1) {
-                vec![public_key.clone()]
+                vec![*public_key]
             } else {
                 // else it is or self update or AddMember, which is forbidden.
                 vec![]
@@ -303,11 +302,10 @@ where
         .node_index
         .is_subpath_of_vec(target_node_path)?
     {
-        let secret = upstream_art
+        let secret = *upstream_art
             .secrets
             .first()
-            .ok_or(ArtError::EmptyArt)?
-            .clone();
+            .ok_or(ArtError::EmptyArt)?;
 
         upstream_art.secrets.insert(0, secret);
         return Ok(true);
@@ -326,7 +324,7 @@ pub(crate) fn handle_potential_art_node_extension_on_add_member<G>(
 where
     G: AffineRepr,
 {
-    let parent_art_node = upstream_art.get_mut_node_at(&target_node_path)?;
+    let parent_art_node = upstream_art.get_mut_node_at(target_node_path)?;
 
     // if true, then add member was with extension (instead of replacement).
     if parent_art_node.get_child(last_direction).is_none() {
@@ -344,7 +342,7 @@ pub(crate) fn handle_potential_marker_tree_node_extension_on_add_member(
     target_node_path: &[Direction],
     last_direction: Direction,
 ) -> Result<bool, ArtError> {
-    let parent_marker_node = marker_tree.get_mut_node(&target_node_path)?;
+    let parent_marker_node = marker_tree.get_mut_node(target_node_path)?;
 
     if parent_marker_node.get_child(last_direction).is_none() {
         extend_marker_node(parent_marker_node, true);
