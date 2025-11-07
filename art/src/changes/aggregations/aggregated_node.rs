@@ -84,7 +84,7 @@ impl<D> AggregationNode<D> {
     pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut current_node = self;
         for dir in path {
-            current_node = current_node.get_mut_child(*dir).unwrap();
+            current_node = current_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(current_node)
@@ -387,7 +387,7 @@ where
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(ProverNodeData::from(&root.data))), None)
-            .unwrap();
+            .map_err(|_| Self::Error::TreeDs)?;
 
         for (agg_node, path) in node_iter {
             let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -420,7 +420,7 @@ where
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(VerifierNodeData::from(&root.data))), None)
-            .unwrap();
+            .map_err(|_| Self::Error::TreeDs)?;
 
         for (agg_node, path) in node_iter {
             let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();

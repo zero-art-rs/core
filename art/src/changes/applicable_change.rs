@@ -85,7 +85,7 @@ where
 impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.upstream_art)?;
-        art.commit().unwrap();
+        art.commit()?;
 
         Ok(())
     }
@@ -99,7 +99,7 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.upstream_art)?;
-        art.commit().unwrap();
+        art.commit()?;
 
         Ok(())
     }
@@ -114,7 +114,7 @@ where
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R1>) -> Result<(), ArtError> {
         art.upstream_art = self.operation_tree.clone();
-        art.commit().unwrap();
+        art.commit()?;
 
         Ok(())
     }
