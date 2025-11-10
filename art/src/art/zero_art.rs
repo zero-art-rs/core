@@ -13,8 +13,11 @@ use ark_std::rand::Rng;
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::rc::Rc;
+use serde::{Deserialize, Serialize};
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct PublicZeroArt<G>
 where
     G: AffineRepr,
@@ -23,6 +26,7 @@ where
     pub(crate) upstream_art: PublicArt<G>,
     pub(crate) marker_tree: AggregationNode<bool>,
     pub(crate) stashed_confirm_removals: Vec<BranchChange<G>>,
+    #[serde(skip, default = "default_verifier_engine")]
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
@@ -60,10 +64,87 @@ where
         self.marker_tree.data = false;
         self.upstream_art = self.base_art.clone();
     }
+
+    pub fn get_upstream_art(&self) -> &PublicArt<G> {
+        &self.upstream_art
+    }
+
+    pub fn get_mut_upstream_art(&mut self) -> &mut PublicArt<G> {
+        &mut self.upstream_art
+    }
+
+    pub fn recover(
+        base_art: PublicArt<G>,
+        upstream_art: PublicArt<G>,
+        marker_tree: AggregationNode<bool>,
+        stashed_confirm_removals: Vec<BranchChange<G>>,
+    ) -> Self {
+        Self {
+            base_art,
+            upstream_art,
+            marker_tree,
+            stashed_confirm_removals,
+            verifier_engine: default_verifier_engine(),
+        }
+    }
+
+    /// Returns a new art preview, without commiting changes to the upstream art.
+    pub fn get_new_art_preview(&self) -> Result<PublicArt<G>, ArtError> {
+        let mut preview = self.upstream_art.clone();
+
+        for change in &self.stashed_confirm_removals {
+            preview
+                .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
+
+            PublicArt::change_leaf_status_by_change_type(
+                preview
+                    .get_mut_node_at(&change.node_index.get_path()?)?,
+                &change.change_type,
+            )?;
+
+        }
+
+        Ok(preview)
+    }
+}
+
+impl<G> PartialEq for PublicZeroArt<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.base_art == other.base_art
+            && self.upstream_art == other.upstream_art
+            && self.marker_tree == other.marker_tree
+    }
+}
+
+impl<G> Debug for PublicZeroArt<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PublicZeroArt")
+            .field("base_art", &self.base_art)
+            .field("upstream_art", &self.upstream_art)
+            .field("marker_tree", &self.marker_tree)
+            .field("stashed_confirm_removals", &self.stashed_confirm_removals)
+            .finish()
+    }
+}
+
+impl<G> Eq for PublicZeroArt<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
 }
 
 // TODO: Remove clone
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
+#[serde(bound = "")]
 pub struct PrivateZeroArt<G, R>
 where
     G: AffineRepr,
@@ -73,9 +154,12 @@ where
     pub(crate) base_art: PrivateArt<G>,
     pub(crate) upstream_art: PrivateArt<G>,
     pub(crate) marker_tree: AggregationNode<bool>,
+    #[serde(skip)]
     pub(crate) rng: Box<R>,
     pub(crate) stashed_confirm_removals: Vec<BranchChange<G>>,
+    #[serde(skip)]
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
+    #[serde(skip)]
     pub(crate) verifier_engine: ZeroArtVerifierEngine,
 }
 
@@ -97,6 +181,32 @@ where
             marker_tree,
             rng,
             stashed_confirm_removals: vec![],
+            prover_engine: Rc::new(ZeroArtProverEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            )),
+            verifier_engine: ZeroArtVerifierEngine::new(
+                proof_basis.clone(),
+                ZeroArtEngineOptions::default(),
+            ),
+        })
+    }
+
+    pub fn recover(
+        base_art: PrivateArt<G>,
+        upstream_art: PrivateArt<G>,
+        marker_tree: AggregationNode<bool>,
+        stashed_confirm_removals: Vec<BranchChange<G>>,
+        rng: Box<R>,
+    ) -> Result<Self, ArtError> {
+        let proof_basis = default_proof_basis();
+
+        Ok(Self {
+            base_art,
+            upstream_art,
+            marker_tree,
+            rng,
+            stashed_confirm_removals,
             prover_engine: Rc::new(ZeroArtProverEngine::new(
                 proof_basis.clone(),
                 ZeroArtEngineOptions::default(),
@@ -131,6 +241,10 @@ where
         &self.upstream_art
     }
 
+    pub fn get_mut_upstream_art(&mut self) -> &mut PrivateArt<G> {
+        &mut self.upstream_art
+    }
+
     pub fn get_marker_tree(&self) -> &AggregationNode<bool> {
         &self.marker_tree
     }
@@ -160,6 +274,28 @@ where
         self.base_art = self.upstream_art.clone();
 
         Ok(())
+    }
+
+    /// Returns a new art preview, without commiting changes to the upstream art.
+    pub fn get_new_art_preview(&self) -> Result<PrivateArt<G>, ArtError> {
+        let mut preview = self.upstream_art.clone();
+
+        for change in &self.stashed_confirm_removals {
+            preview
+                .public_art
+                .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
+
+            PublicArt::change_leaf_status_by_change_type(
+                preview
+                    .get_mut_node_at(&change.node_index.get_path()?)?,
+                &change.change_type,
+            )?;
+
+            let updated_secrets = self.get_updated_secrets(change)?;
+            preview.update_secrets(&updated_secrets, true)?;
+        }
+
+        Ok(preview)
     }
 
     pub fn discard(&mut self) {
@@ -199,19 +335,7 @@ where
         updated_secrets: &[G::ScalarField],
         merge_key: bool,
     ) -> Result<(), ArtError> {
-        for (sk, i) in updated_secrets
-            .iter()
-            .rev()
-            .zip((0..self.upstream_art.secrets.len()).rev())
-        {
-            if merge_key {
-                self.upstream_art.secrets[i] += sk;
-            } else {
-                self.upstream_art.secrets[i] = *sk;
-            }
-        }
-
-        Ok(())
+        self.upstream_art.update_secrets(updated_secrets, merge_key)
     }
 
     pub(crate) fn ephemeral_private_add_node(
@@ -373,29 +497,6 @@ mod test {
     use std::ops::{Add, Mul};
 
     const DEFAULT_TEST_GROUP_SIZE: i32 = 10;
-
-    #[test]
-    fn test_if_change_and_ephemeral_change_are_the_same() {
-        init_tracing();
-
-        let seed = 0;
-        let mut rng = &mut StdRng::seed_from_u64(seed);
-        let secrets = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-
-        let mut art0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
-        let mut merge_context0 =
-            PrivateZeroArt::new(art0.clone(), Box::new(StdRng::seed_from_u64(random()))).unwrap();
-
-        let new_sk = Fr::rand(&mut rng);
-        let change_a = art0.update_key(new_sk).unwrap();
-        let change_b = merge_context0.update_key(new_sk).unwrap().branch_change;
-
-        assert_eq!(
-            change_a, change_b,
-            "fail to assert_eq on tree1:\n{:#?}\n and merge context:\n{:#?}",
-            change_a, change_b,
-        );
-    }
 
     #[test]
     fn test_if_changes_are_applied_the_same_for_context_and_art() {

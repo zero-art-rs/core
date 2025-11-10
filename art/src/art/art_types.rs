@@ -647,6 +647,26 @@ where
         Ok(())
     }
 
+    pub(crate) fn update_secrets(
+        &mut self,
+        updated_secrets: &[G::ScalarField],
+        merge_key: bool,
+    ) -> Result<(), ArtError> {
+        for (sk, i) in updated_secrets
+            .iter()
+            .rev()
+            .zip((0..self.secrets.len()).rev())
+        {
+            if merge_key {
+                self.secrets[i] += sk;
+            } else {
+                self.secrets[i] = *sk;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Updates users node index by researching it in a tree.
     pub(crate) fn update_node_index(&mut self) -> Result<(), ArtError> {
         let path = self.get_path_to_leaf_with(self.get_leaf_public_key())?;
