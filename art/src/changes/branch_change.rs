@@ -80,6 +80,10 @@ where
         })
     }
 
+    pub fn get_root_secret(&self) -> G::ScalarField {
+        self.root_secret
+    }
+
     pub fn get_branch_change(&self) -> &BranchChange<G> {
         &self.branch_change
     }
