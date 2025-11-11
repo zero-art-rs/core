@@ -199,7 +199,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::TreeMethods;
-    use crate::art::AggregationContext;
+    use crate::art::{AggregationContext, PrivateZeroArt};
     use crate::art::art_advanced_operations::ArtAdvancedOps;
     use crate::art::art_node::{LeafIterWithPath, LeafStatus};
     use crate::art::art_types::{PrivateArt, PublicArt};
@@ -220,7 +220,7 @@ mod tests {
     use postcard::{from_bytes, to_allocvec};
     use std::ops::{Add, Mul};
     use std::rc::Rc;
-    use tracing::warn;
+    use tracing::{debug, warn};
     use zkp::rand::thread_rng;
     use zrt_zk::EligibilityRequirement;
     use zrt_zk::aggregated_art::ProverAggregationTree;
@@ -822,6 +822,8 @@ mod tests {
 
     #[test]
     fn test_art_weights_after_one_add_member() {
+        init_tracing();
+
         let mut rng = StdRng::seed_from_u64(0);
         let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
             .map(|_| Fr::rand(&mut rng))
@@ -835,6 +837,48 @@ mod tests {
         }
 
         for node in tree.get_root() {
+            if node.is_leaf() {
+                if !matches!(node.get_status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.get_weight(), 0);
+                } else {
+                    assert_eq!(node.get_weight(), 1);
+                }
+            } else {
+                assert_eq!(
+                    node.get_weight(),
+                    node.get_child(Direction::Left).unwrap().get_weight()
+                        + node.get_child(Direction::Right).unwrap().get_weight()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_weights_correctness_for_make_blank() {
+        init_tracing();
+        let mut rng = StdRng::seed_from_u64(0);
+        let secrets = (0..9)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+
+        let mut user0 = PrivateZeroArt::new(
+            PrivateArt::setup(&secrets).unwrap(),
+            Box::new(thread_rng()),
+        ).unwrap();
+        let target_user_path = user0.get_path_to_leaf_with(
+            CortadoAffine::generator().mul(secrets[3]).into_affine(),
+        ).unwrap();
+        let target_user_index = NodeIndex::from(target_user_path);
+
+        let change = user0.remove_member(&target_user_index, Fr::rand(&mut rng)).unwrap().branch_change;
+        change.apply(&mut user0).unwrap();
+        assert!(user0.stashed_confirm_removals.is_empty());
+        user0.commit().unwrap();
+
+        assert_eq!(user0.get_root().get_weight() + 1, secrets.len());
+
+        for node in user0.get_root() {
             if node.is_leaf() {
                 if !matches!(node.get_status(), Some(LeafStatus::Active)) {
                     assert_eq!(node.get_weight(), 0);

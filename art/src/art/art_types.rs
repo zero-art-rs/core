@@ -284,6 +284,33 @@ where
         })
     }
 
+    /// update weights on the given branch. If true increment 1, else decrement one. Returns
+    /// error for leaves.
+    pub(crate) fn update_weight(
+        &mut self,
+        path: &[Direction],
+        increment: bool,
+    ) -> Result<(), ArtError> {
+        let mut current_node = self.get_mut_root();
+        if increment {
+            *current_node.get_mut_weight()? += 1;
+        } else {
+            *current_node.get_mut_weight()? -= 1;
+        }
+        
+        for dir in path.iter() {
+            current_node = current_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
+            
+            if increment {
+                *current_node.get_mut_weight()? += 1;
+            } else {
+                *current_node.get_mut_weight()? -= 1;
+            }
+        }
+        
+        Ok(())
+    }
+
     /// Updates Public keys on path utilizing the given marker tree, to decide, which nodes should be merged together.
     pub(crate) fn merge_by_marker(
         &mut self,
@@ -555,6 +582,20 @@ where
         };
 
         Ok((ark_level_secret_key, changes, artefacts))
+    }
+
+    /// Ok if change can be applied to the ART tree. Else Err.
+    pub(crate) fn verify_change_applicability(&self, change: &BranchChange<G>) -> Result<(), ArtError> {
+        if self.get_node_index().is_subpath_of(&change.node_index)? {
+            match change.change_type {
+                BranchChangeType::RemoveMember => return Err(ArtError::InapplicableBlanking),
+                BranchChangeType::UpdateKey => return Err(ArtError::InapplicableKeyUpdate),
+                BranchChangeType::Leave => return Err(ArtError::InapplicableLeave),
+                BranchChangeType::AddMember => {}
+            }
+        }
+        
+        Ok(())
     }
 
     /// Updates art by applying changes. Also updates path_secrets and node_index.

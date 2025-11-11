@@ -1,3 +1,4 @@
+use ark_ec::CurveGroup;
 use crate::TreeMethods;
 use crate::art::ArtUpdateOutput;
 use crate::art::art_node::{ArtNode, LeafStatus};
@@ -63,6 +64,10 @@ where
     pub fn discard(&mut self) {
         self.marker_tree.data = false;
         self.upstream_art = self.base_art.clone();
+    }
+
+    pub fn get_base_art(&self) -> &PublicArt<G> {
+        &self.base_art
     }
 
     pub fn get_upstream_art(&self) -> &PublicArt<G> {
@@ -231,6 +236,26 @@ where
             prover_engine: Rc::clone(&self.prover_engine),
             verifier_engine: self.verifier_engine.clone(),
         }
+    }
+
+    pub fn get_leaf_secret_key(&self) -> G::ScalarField {
+        self.base_art.secrets[0]
+    }
+
+    pub fn get_root_secret_key(&self) -> G::ScalarField {
+        self.base_art.secrets[self.base_art.secrets.len() - 1]
+    }
+
+    pub fn get_secrets(&self) -> &Vec<G::ScalarField> {
+        &self.base_art.secrets
+    }
+
+    pub fn get_leaf_public_key(&self) -> G {
+        G::generator().mul(self.get_leaf_secret_key()).into_affine()
+    }
+
+    pub fn get_root_public_key(&self) -> G {
+        G::generator().mul(self.get_root_secret_key()).into_affine()
     }
 
     pub fn get_base_art(&self) -> &PrivateArt<G> {

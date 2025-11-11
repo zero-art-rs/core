@@ -3,6 +3,9 @@ use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
+use ark_std::rand::Rng;
+use crate::art::{PrivateZeroArt, PublicZeroArt};
 
 /// A collection of helper methods to interact with tree.
 ///
@@ -137,5 +140,33 @@ where
 
     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
         self.public_art.tree_root.get_mut_root()
+    }
+}
+
+impl<G> TreeMethods<G> for PublicZeroArt<G>
+where
+    G: AffineRepr,
+{
+    fn get_root(&self) -> &ArtNode<G> {
+        self.base_art.tree_root.get_root()
+    }
+
+    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
+        self.base_art.tree_root.get_mut_root()
+    }
+}
+
+impl<G, R> TreeMethods<G> for PrivateZeroArt<G, R>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn get_root(&self) -> &ArtNode<G> {
+        self.base_art.public_art.tree_root.get_root()
+    }
+
+    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
+        self.base_art.public_art.tree_root.get_mut_root()
     }
 }
