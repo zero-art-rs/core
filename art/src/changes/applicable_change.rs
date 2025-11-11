@@ -1,12 +1,10 @@
-use crate::TreeMethods;
-use crate::art::art_node::LeafStatus;
-use crate::art::art_types::{PrivateArt, PublicArt};
 use crate::art::{
-    AggregationContext, PrivateZeroArt, PublicZeroArt,
+    AggregationContext, PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt,
     handle_potential_art_node_extension_on_add_member,
     handle_potential_marker_tree_node_extension_on_add_member,
     insert_first_secret_at_start_if_need,
 };
+use crate::art_node::{LeafStatus, TreeMethods};
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
@@ -232,7 +230,9 @@ where
                     art.upstream_art.node_index.push(Direction::Left);
                 }
 
-                art.upstream_art.public_art.update_weight(&target_path, true)?;
+                art.upstream_art
+                    .public_art
+                    .update_weight(&target_path, true)?;
             }
         }
 
@@ -245,11 +245,15 @@ where
                 return Ok(());
             }
 
-            art.upstream_art.public_art.update_weight(&target_path, false)?;
+            art.upstream_art
+                .public_art
+                .update_weight(&target_path, false)?;
         }
 
         if let BranchChangeType::Leave = &self.change_type {
-            art.upstream_art.public_art.update_weight(&target_path, false)?;
+            art.upstream_art
+                .public_art
+                .update_weight(&target_path, false)?;
         }
 
         art.upstream_art.public_art.merge_by_marker(

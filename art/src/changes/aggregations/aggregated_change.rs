@@ -1,7 +1,7 @@
 use crate::art::ArtUpdateOutput;
 use crate::art::ProverArtefacts;
-use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::art::art_types::{PrivateArt, PublicArt};
+use crate::art::{PrivateArt, PublicArt};
+use crate::art_node::{ArtNode, LeafStatus, TreeMethods};
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
     RelatedData, VerifierAggregationData,
@@ -10,7 +10,6 @@ use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChange
 use crate::errors::ArtError;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
-use crate::tree_methods::TreeMethods;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
@@ -588,11 +587,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
-    use crate::changes::aggregations::{
-        AggregatedChange,
-    };
+    use crate::changes::aggregations::AggregatedChange;
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::prelude::StdRng;

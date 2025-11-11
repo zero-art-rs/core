@@ -257,8 +257,8 @@ impl From<(u64, u64)> for NodeIndex {
 #[cfg(test)]
 mod tests {
     use super::{Direction, NodeIndex};
-    use crate::TreeMethods;
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
+    use crate::art_node::TreeMethods;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;

@@ -3,10 +3,10 @@
 //! Aggregated changes are different from `BranchChanges` as they can change several branches
 //! of the art by one user at the same time.
 
-pub mod aggregated_change;
-pub mod aggregated_node;
-pub mod aggregation_data;
-pub mod related_data;
+mod aggregated_change;
+mod aggregated_node;
+mod aggregation_data;
+mod related_data;
 
 pub use aggregated_change::{AggregatedChange, AggregationTree};
 pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};

@@ -11,6 +11,7 @@ use std::rc::Rc;
 use tracing::debug;
 use zrt_zk::EligibilityArtefact;
 
+/// Basic ART operations like update key of some node and add new node to the ART tree.
 pub trait ArtBasicOps<G, R>
 where
     G: AffineRepr,

@@ -14,10 +14,9 @@ mod tests {
     use std::cmp::{max, min};
     use std::ops::Mul;
     use tracing::{info, warn};
-    use zrt_art::TreeMethods;
     use zrt_art::art::ArtAdvancedOps;
-    use zrt_art::art::art_node::LeafIterWithPath;
-    use zrt_art::art::art_types::{PrivateArt, PublicArt};
+    use zrt_art::art::{PrivateArt, PublicArt};
+    use zrt_art::art_node::{LeafIterWithPath, TreeMethods};
     use zrt_art::changes::ApplicableChange;
     use zrt_art::errors::ArtError;
     use zrt_art::node_index::NodeIndex;

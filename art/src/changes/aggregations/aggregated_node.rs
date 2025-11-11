@@ -1,5 +1,5 @@
 use crate::art::ProverArtefacts;
-use crate::art::art_node::{ArtNode, NodeIterWithPath};
+use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::changes::aggregations::{
     AggregationData, AggregationTree, ProverAggregationData, RelatedData, VerifierAggregationData,
 };
@@ -84,7 +84,9 @@ impl<D> AggregationNode<D> {
     pub fn get_mut_node_with_path(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut current_node = self;
         for dir in path {
-            current_node = current_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
+            current_node = current_node
+                .get_mut_child(*dir)
+                .ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(current_node)

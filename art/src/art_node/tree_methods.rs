@@ -1,11 +1,11 @@
-use crate::art::art_node::{ArtNode, NodeIterWithPath};
-use crate::art::art_types::{PrivateArt, PublicArt};
+use crate::art::{PrivateArt, PublicArt};
+use crate::art::{PrivateZeroArt, PublicZeroArt};
+use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
-use crate::art::{PrivateZeroArt, PublicZeroArt};
 
 /// A collection of helper methods to interact with tree.
 ///

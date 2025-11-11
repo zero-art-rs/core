@@ -1,7 +1,6 @@
-use crate::TreeMethods;
-use crate::art::art_node::{ArtNode, LeafIterWithPath, LeafStatus};
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
+use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
@@ -12,6 +11,7 @@ use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
+/// Standard ART tree with public keys.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
 pub struct PublicArt<G>
@@ -21,7 +21,7 @@ where
     pub(crate) tree_root: ArtNode<G>,
 }
 
-/// ART structure, which stores and operates with some user secrets.
+/// ART structure, which stores and operates with some user secrets. Wrapped around `PublicArt`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct PrivateArt<G>
@@ -297,17 +297,19 @@ where
         } else {
             *current_node.get_mut_weight()? -= 1;
         }
-        
+
         for dir in path.iter() {
-            current_node = current_node.get_mut_child(*dir).ok_or(ArtError::PathNotExists)?;
-            
+            current_node = current_node
+                .get_mut_child(*dir)
+                .ok_or(ArtError::PathNotExists)?;
+
             if increment {
                 *current_node.get_mut_weight()? += 1;
             } else {
                 *current_node.get_mut_weight()? -= 1;
             }
         }
-        
+
         Ok(())
     }
 
@@ -585,7 +587,10 @@ where
     }
 
     /// Ok if change can be applied to the ART tree. Else Err.
-    pub(crate) fn verify_change_applicability(&self, change: &BranchChange<G>) -> Result<(), ArtError> {
+    pub(crate) fn verify_change_applicability(
+        &self,
+        change: &BranchChange<G>,
+    ) -> Result<(), ArtError> {
         if self.get_node_index().is_subpath_of(&change.node_index)? {
             match change.change_type {
                 BranchChangeType::RemoveMember => return Err(ArtError::InapplicableBlanking),
@@ -594,7 +599,7 @@ where
                 BranchChangeType::AddMember => {}
             }
         }
-        
+
         Ok(())
     }
 
@@ -950,9 +955,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::TreeMethods;
-    use crate::art::art_node::LeafIterWithPath;
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
+    use crate::art_node::{LeafIterWithPath, TreeMethods};
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;

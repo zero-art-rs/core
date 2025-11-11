@@ -78,8 +78,8 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let pk_marker = prepare_short_marker_for_option(&self.public_key.x());
 
-
-        let co_pk_marker = prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
+        let co_pk_marker =
+            prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
 
         let sk_marker = prepare_short_marker_for_option(&Some(self.secret_key));
         let bl_marker = prepare_short_marker_for_option(&Some(self.blinding_factor));
@@ -107,7 +107,8 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let pk_marker = prepare_short_marker_for_option(&self.public_key.x());
 
-        let co_pk_marker = prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
+        let co_pk_marker =
+            prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
 
         write!(
             f,

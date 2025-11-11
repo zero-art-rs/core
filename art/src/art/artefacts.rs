@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
+/// Additional data, which can be used for proof creation.
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
 pub struct ProverArtefacts<G>
 where
@@ -29,6 +30,7 @@ where
     pub secrets: Vec<G::ScalarField>,
 }
 
+/// Additional data, which can be used for proof verification.
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq, Default)]
 pub struct VerifierArtefacts<G>
 where

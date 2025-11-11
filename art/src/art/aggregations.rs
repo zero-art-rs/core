@@ -1,10 +1,9 @@
+use crate::art::PrivateArt;
 use crate::art::PrivateZeroArt;
-use crate::art::art_types::PrivateArt;
 use crate::changes::aggregations::{AggregatedChange, AggregationTree, ProverAggregationData};
 use crate::errors::ArtError;
 use crate::helper_tools::default_prover_engine;
 use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::rc::Rc;
@@ -12,6 +11,7 @@ use zrt_zk::EligibilityArtefact;
 use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::engine::ZeroArtProverEngine;
 
+/// Context for Aggregation changes and their proof creation
 pub struct AggregationContext<T, G, R>
 where
     G: AffineRepr,
@@ -101,10 +101,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::TreeMethods;
-    use crate::art::art_node::LeafIterWithPath;
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+    use crate::art_node::{LeafIterWithPath, TreeMethods};
     use crate::changes::ApplicableChange;
     use crate::changes::aggregations::{
         AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
@@ -120,7 +119,6 @@ mod tests {
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
-    use tracing::debug;
     use zrt_zk::aggregated_art::ProverAggregationTree;
 
     /// Test if non-mergable changes (without blank for the second time) can be aggregated and
@@ -398,8 +396,7 @@ mod tests {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
         agg.leave_group(Fr::rand(&mut rng)).unwrap();
 
-        let plain_agg =
-            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         plain_agg.apply(&mut user1).unwrap();
 

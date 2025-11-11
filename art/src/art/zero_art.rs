@@ -1,22 +1,21 @@
-use ark_ec::CurveGroup;
-use crate::TreeMethods;
-use crate::art::ArtUpdateOutput;
-use crate::art::art_node::{ArtNode, LeafStatus};
-use crate::art::art_types::{PrivateArt, PublicArt};
+use crate::art::{ArtUpdateOutput, PrivateArt, PublicArt};
+use crate::art_node::{ArtNode, LeafStatus, TreeMethods};
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
+use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::rc::Rc;
-use serde::{Deserialize, Serialize};
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
+/// Context for public art operations.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct PublicZeroArt<G>
@@ -98,15 +97,12 @@ where
         let mut preview = self.upstream_art.clone();
 
         for change in &self.stashed_confirm_removals {
-            preview
-                .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
+            preview.apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
 
             PublicArt::change_leaf_status_by_change_type(
-                preview
-                    .get_mut_node_at(&change.node_index.get_path()?)?,
+                preview.get_mut_node_at(&change.node_index.get_path()?)?,
                 &change.change_type,
             )?;
-
         }
 
         Ok(preview)
@@ -148,6 +144,7 @@ where
 }
 
 // TODO: Remove clone
+/// Context for private art operations.
 #[derive(Clone, Serialize)]
 #[serde(bound = "")]
 pub struct PrivateZeroArt<G, R>
@@ -311,8 +308,7 @@ where
                 .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
 
             PublicArt::change_leaf_status_by_change_type(
-                preview
-                    .get_mut_node_at(&change.node_index.get_path()?)?,
+                preview.get_mut_node_at(&change.node_index.get_path()?)?,
                 &change.change_type,
             )?;
 
@@ -451,10 +447,7 @@ where
         .node_index
         .is_subpath_of_vec(target_node_path)?
     {
-        let secret = *upstream_art
-            .secrets
-            .first()
-            .ok_or(ArtError::EmptyArt)?;
+        let secret = *upstream_art.secrets.first().ok_or(ArtError::EmptyArt)?;
 
         upstream_art.secrets.insert(0, secret);
         return Ok(true);
@@ -504,9 +497,9 @@ pub(crate) fn handle_potential_marker_tree_node_extension_on_add_member(
 
 #[cfg(test)]
 mod test {
-    use crate::TreeMethods;
-    use crate::art::art_types::{PrivateArt, PublicArt};
     use crate::art::{ArtAdvancedOps, PrivateZeroArt};
+    use crate::art::{PrivateArt, PublicArt};
+    use crate::art_node::TreeMethods;
     use crate::changes::ApplicableChange;
     use crate::changes::branch_change::BranchChange;
     use crate::init_tracing;

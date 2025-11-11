@@ -1,16 +1,16 @@
-use crate::art::art_node::LeafStatus;
-use crate::art::art_types::PrivateArt;
+use crate::art::PrivateArt;
 use crate::art::{AggregationContext, ArtBasicOps, PrivateZeroArt};
+use crate::art_node::{LeafStatus, TreeMethods};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::node_index::NodeIndex;
-use crate::tree_methods::TreeMethods;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
 use zrt_zk::EligibilityArtefact;
 
+/// Advanced ART operations like remove member, leave group, update key, etc.
 pub trait ArtAdvancedOps<G, R>
 where
     G: AffineRepr,
@@ -198,11 +198,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::TreeMethods;
-    use crate::art::{AggregationContext, PrivateZeroArt};
     use crate::art::art_advanced_operations::ArtAdvancedOps;
-    use crate::art::art_node::{LeafIterWithPath, LeafStatus};
-    use crate::art::art_types::{PrivateArt, PublicArt};
+    use crate::art::{AggregationContext, PrivateZeroArt};
+    use crate::art::{PrivateArt, PublicArt};
+    use crate::art_node::{LeafIterWithPath, LeafStatus, TreeMethods};
     use crate::changes::aggregations::{
         AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
         ProverAggregationData, VerifierAggregationData,
@@ -857,21 +856,20 @@ mod tests {
     fn test_weights_correctness_for_make_blank() {
         init_tracing();
         let mut rng = StdRng::seed_from_u64(0);
-        let secrets = (0..9)
-            .map(|_| Fr::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..9).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
 
-
-        let mut user0 = PrivateZeroArt::new(
-            PrivateArt::setup(&secrets).unwrap(),
-            Box::new(thread_rng()),
-        ).unwrap();
-        let target_user_path = user0.get_path_to_leaf_with(
-            CortadoAffine::generator().mul(secrets[3]).into_affine(),
-        ).unwrap();
+        let mut user0 =
+            PrivateZeroArt::new(PrivateArt::setup(&secrets).unwrap(), Box::new(thread_rng()))
+                .unwrap();
+        let target_user_path = user0
+            .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+            .unwrap();
         let target_user_index = NodeIndex::from(target_user_path);
 
-        let change = user0.remove_member(&target_user_index, Fr::rand(&mut rng)).unwrap().branch_change;
+        let change = user0
+            .remove_member(&target_user_index, Fr::rand(&mut rng))
+            .unwrap()
+            .branch_change;
         change.apply(&mut user0).unwrap();
         assert!(user0.stashed_confirm_removals.is_empty());
         user0.commit().unwrap();

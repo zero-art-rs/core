@@ -111,9 +111,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::TreeMethods;
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+    use crate::art_node::TreeMethods;
     use crate::changes::aggregations::{
         AggregatedChange, AggregationData, AggregationTree, VerifierAggregationData,
     };
@@ -481,8 +481,7 @@ mod tests {
             )
             .unwrap();
 
-        let plain_agg =
-            AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
         let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
             &agg.prover_aggregation,

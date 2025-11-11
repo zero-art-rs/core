@@ -1,4 +1,4 @@
-use crate::art::art_node::{ArtNode, LeafStatus};
+use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::AggregationNode;
 use crate::helper_tools::prepare_short_marker_for_option;
 use crate::node_index::Direction;

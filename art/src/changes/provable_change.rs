@@ -1,4 +1,4 @@
-use crate::art::art_types::PrivateArt;
+use crate::art::PrivateArt;
 use crate::art::{AggregationContext, PrivateZeroArt};
 use crate::changes::branch_change::PrivateBranchChange;
 use crate::errors::ArtError;
