@@ -295,7 +295,7 @@ where
         if self.branch_change.change_type == BranchChangeType::UpdateKey
             && art.base_art.node_index == self.branch_change.node_index
         {
-            return self.inner_apply_own_key_update(art, self.secret);
+            return self.inner_apply_own_key_update(art, self.leaf_secret);
         }
 
         self.branch_change.apply(art)

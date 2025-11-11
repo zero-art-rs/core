@@ -574,7 +574,7 @@ mod test {
         let new_sk = Fr::rand(&mut rng);
         let private_change = merge_context0.update_key(new_sk).unwrap();
         let change = private_change.branch_change.clone();
-        assert_eq!(new_sk, private_change.secret);
+        assert_eq!(new_sk, private_change.leaf_secret);
 
         // change.apply_own_key_update(&mut merge_context0, private_change.get_secret()).unwrap();
         private_change.apply(&mut merge_context0).unwrap();

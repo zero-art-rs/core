@@ -53,7 +53,8 @@ where
     pub(crate) branch_change: BranchChange<G>,
     pub(crate) prover_branch: Vec<ProverNodeData<G>>,
     pub(crate) eligibility: EligibilityArtefact,
-    pub(crate) secret: G::ScalarField,
+    pub(crate) leaf_secret: G::ScalarField,
+    pub(crate) root_secret: G::ScalarField,
     pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
 }
 
@@ -65,14 +66,16 @@ where
         branch_change: BranchChange<G>,
         prover_branch: Vec<ProverNodeData<G>>,
         eligibility: EligibilityArtefact,
-        secret: G::ScalarField,
+        leaf_secret: G::ScalarField,
+        root_secret: G::ScalarField,
         prover_engine: Rc<ZeroArtProverEngine>,
     ) -> Result<Self, ArtError> {
         Ok(Self {
             branch_change,
             prover_branch,
             eligibility,
-            secret,
+            leaf_secret,
+            root_secret,
             prover_engine,
         })
     }
@@ -86,7 +89,7 @@ where
     }
 
     pub fn get_secret(&self) -> G::ScalarField {
-        self.secret
+        self.leaf_secret
     }
 
     pub fn get_prover_branch(&self) -> &Vec<ProverNodeData<G>> {

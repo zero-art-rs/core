@@ -8,7 +8,6 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::{CortadoAffine, Fr};
 use std::rc::Rc;
-use tracing::debug;
 use zrt_zk::EligibilityArtefact;
 
 /// Basic ART operations like update key of some node and add new node to the ART tree.
@@ -62,7 +61,7 @@ where
             self.upstream_art.get_leaf_public_key(),
         ));
 
-        let (_, change, artefacts) = self
+        let (root_secret, change, artefacts) = self
             .upstream_art
             .ephemeral_update_art_branch_with_leaf_secret_key(new_key, &target_leaf.get_path()?)?;
 
@@ -70,7 +69,8 @@ where
             branch_change: change,
             prover_branch: artefacts.to_prover_branch(&mut self.rng)?,
             eligibility,
-            secret: new_key,
+            leaf_secret: new_key,
+            root_secret,
             prover_engine: Rc::clone(&self.prover_engine),
         })
     }
@@ -85,13 +85,14 @@ where
             self.upstream_art.get_leaf_public_key(),
         ));
 
-        let (_, change, artefacts) = self.ephemeral_private_add_node(new_key)?;
+        let (root_secret, change, artefacts) = self.ephemeral_private_add_node(new_key)?;
 
         Ok(PrivateBranchChange {
             branch_change: change,
             prover_branch: artefacts.to_prover_branch(&mut self.rng)?,
             eligibility,
-            secret: new_key,
+            leaf_secret: new_key,
+            root_secret,
             prover_engine: Rc::clone(&self.prover_engine),
         })
     }
