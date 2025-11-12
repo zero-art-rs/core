@@ -10,6 +10,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::mem;
 
 /// Standard ART tree with public keys.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -717,6 +718,22 @@ where
     pub(crate) fn update_node_index(&mut self) -> Result<(), ArtError> {
         let path = self.get_path_to_leaf_with(self.get_leaf_public_key())?;
         self.node_index = NodeIndex::Direction(path).as_index()?;
+
+        Ok(())
+    }
+
+    /// Updates users node index by researching it in a tree.
+    pub(crate) fn update_node_index_and_extend_secrets(&mut self) -> Result<(), ArtError> {
+        let path = self.get_path_to_leaf_with(self.get_leaf_public_key())?;
+        let secrets_extension_len = path.len().saturating_sub(self.node_index.get_path()?.len());
+        self.node_index = NodeIndex::Direction(path).as_index()?;
+
+        if secrets_extension_len != 0 {
+            let mut new_secrets = vec![self.get_leaf_secret_key(); secrets_extension_len];
+            let mut secrets = mem::take(&mut self.secrets);
+            new_secrets.append(&mut secrets);
+            self.secrets = new_secrets;
+        }
 
         Ok(())
     }

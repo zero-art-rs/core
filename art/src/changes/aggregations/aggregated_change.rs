@@ -15,6 +15,7 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use tracing::debug;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
@@ -225,7 +226,8 @@ where
     pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.public_art)?;
 
-        art.update_node_index()?;
+        // art.update_node_index()?;
+        art.update_node_index_and_extend_secrets()?;
         self.update_path_secrets_with_aggregation_tree(art)?;
 
         Ok(())

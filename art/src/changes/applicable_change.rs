@@ -5,7 +5,7 @@ use crate::art::{
     insert_first_secret_at_start_if_need,
 };
 use crate::art_node::{LeafStatus, TreeMethods};
-use crate::changes::aggregations::AggregatedChange;
+use crate::changes::aggregations::{AggregatedChange, AggregationNode};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::node_index::Direction;
@@ -84,6 +84,7 @@ impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<Cortado
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.upstream_art)?;
         art.commit()?;
+        art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
 
         Ok(())
     }
@@ -98,6 +99,7 @@ where
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
         self.update_private_art(&mut art.upstream_art)?;
         art.commit()?;
+        art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
 
         Ok(())
     }
@@ -113,6 +115,7 @@ where
     fn apply(&self, art: &mut PrivateZeroArt<G, R1>) -> Result<(), ArtError> {
         art.upstream_art = self.operation_tree.clone();
         art.commit()?;
+        art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
 
         Ok(())
     }

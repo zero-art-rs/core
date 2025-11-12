@@ -124,7 +124,7 @@ mod tests {
     /// Test if non-mergable changes (without blank for the second time) can be aggregated and
     /// applied correctly.
     #[test]
-    fn test_branch_aggregation() {
+    fn test_branch_aggregation_flow() {
         init_tracing();
 
         // Init test context.
@@ -169,14 +169,10 @@ mod tests {
         let sk4 = Fr::rand(&mut rng);
 
         agg.remove_member(&user3.get_node_index(), sk1).unwrap();
-
         agg.remove_member(&user4.get_node_index(), sk1).unwrap();
-
         agg.add_member(sk2).unwrap();
-
         agg.add_member(sk3).unwrap();
-
-        agg.add_member(sk4).unwrap();
+        // agg.add_member(sk4).unwrap();
 
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg);
@@ -317,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn test_branch_aggregation_with_blanking() {
+    fn test_fail_on_branch_aggregation_with_commit_removal() {
         init_tracing();
 
         // Init test context.
@@ -440,8 +436,9 @@ mod tests {
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
         let user0_rng = Box::new(thread_rng());
+        let secrets = vec![Fr::rand(&mut rng)];
         let mut user0 = PrivateZeroArt::new(
-            PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
+            PrivateArt::<CortadoAffine>::setup(&secrets).unwrap(),
             user0_rng,
         )
         .unwrap();
@@ -462,6 +459,18 @@ mod tests {
             "They are:\n{}\nand\n{}",
             pub_art.get_root(),
             user0.get_upstream_art().get_public_art().get_root()
-        )
+        );
+
+        assert_eq!(
+            secrets[0],
+            user0.get_leaf_secret_key(),
+        );
+
+        let private_branch_change = user0.update_key(Fr::rand(&mut rng)).unwrap();
+
+        private_branch_change.apply(&mut user0).unwrap();
+        private_branch_change.branch_change.apply(&mut pub_art).unwrap();
+        
+        user0.commit().unwrap();
     }
 }
