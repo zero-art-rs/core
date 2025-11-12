@@ -173,7 +173,7 @@ where
                         merge,
                     } => {
                         if !*merge {
-                            art.update_branch_weight(&item_path, false)?;
+                            art.update_weight(&item_path, false)?;
                         }
 
                         self.update_public_art_upper_branch(&item_path, art, false, 0)?;
@@ -184,7 +184,7 @@ where
                         corresponding_item.set_public_key(*blank_pk);
                     }
                     BranchChangesTypeHint::AddMember { pk, ext_pk } => {
-                        art.update_branch_weight(&item_path, true)?;
+                        art.update_weight(&item_path, true)?;
 
                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?
                             .extend_or_replace(ArtNode::new_leaf(*pk))?;
@@ -441,7 +441,7 @@ where
         art.get_mut_node_at(path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
-            art.public_art.update_branch_weight(path, false)?;
+            art.public_art.update_weight(path, false)?;
         }
 
         Ok((tk, change, artefacts))
@@ -456,10 +456,7 @@ where
     where
         R: Rng + ?Sized,
     {
-        let path = match art.get_public_art().find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => art.get_public_art().find_path_to_lowest_leaf()?,
-        };
+        let path = art.get_public_art().find_place_for_new_node()?;
 
         let hint = matches!(
             art.get_public_art()

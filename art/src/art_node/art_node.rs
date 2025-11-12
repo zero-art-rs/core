@@ -204,6 +204,19 @@ where
 
         Ok(())
     }
+
+    /// Increment or decrement weight by 1. Return error for leaf node.
+    pub(crate) fn update_weight(&mut self, increment: bool) -> Result<(), ArtError> {
+        match self {
+            ArtNode::Leaf { .. } => return Err(ArtError::InternalNodeOnly),
+            ArtNode::Internal { weight, .. } => match increment {
+                true => *weight += 1,
+                false => *weight -= 1,
+            },
+        }
+
+        Ok(())
+    }
 }
 
 pub struct NodeIterWithPath<'a, G>

@@ -520,7 +520,7 @@ mod tests {
             user0.get_base_art().get_public_art().clone(),
             secrets[1],
         )
-            .unwrap();
+        .unwrap();
 
         let target_3 = user0
             .get_base_art()
@@ -561,7 +561,7 @@ mod tests {
         let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
             &agg.prover_aggregation,
         )
-            .unwrap();
+        .unwrap();
 
         let extracted_agg = plain_agg
             .add_co_path(&agg.operation_tree.get_public_art())

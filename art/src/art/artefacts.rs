@@ -96,10 +96,6 @@ impl<G> VerifierArtefacts<G>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
 {
-    pub fn new(path: Vec<G>, co_path: Vec<G>) -> Self {
-        Self { path, co_path }
-    }
-
     pub fn to_verifier_branch(&self) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
         if self.path.len() != self.co_path.len() + 1 {
             error!(

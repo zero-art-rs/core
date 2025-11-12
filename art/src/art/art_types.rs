@@ -44,26 +44,6 @@ impl<G> PublicArt<G>
 where
     G: AffineRepr,
 {
-    /// Update weight of the branch for nodes on the given `path`. If `increment_weight` is `true`,
-    /// then increment weight by one, else decrement it by one.
-    pub(crate) fn update_branch_weight(
-        &mut self,
-        path: &[Direction],
-        increment_weight: bool,
-    ) -> Result<(), ArtError> {
-        for i in 0..path.len() {
-            let weight = self.get_mut_node_at(&path[0..i])?.get_mut_weight()?;
-
-            if increment_weight {
-                *weight += 1;
-            } else {
-                *weight -= 1;
-            }
-        }
-
-        Ok(())
-    }
-
     /// Returns a co-path to the leaf with a given public key. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
     pub(crate) fn get_co_path_values(&self, path: &[Direction]) -> Result<Vec<G>, ArtError> {
@@ -203,49 +183,11 @@ where
         Ok(())
     }
 
-    /// Searches for the left most blank node and returns the vector of directions to it.
-    pub(crate) fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
-        for (node, path) in LeafIterWithPath::new(self.get_root()) {
-            if node.is_leaf() && !matches!(node.get_status(), Some(LeafStatus::Active)) {
-                let mut node_path = Vec::with_capacity(path.len());
-
-                for (_, dir) in path {
-                    node_path.push(dir);
-                }
-
-                return Some(node_path);
-            }
+    pub(crate) fn find_place_for_new_node(&self) -> Result<Vec<Direction>, ArtError> {
+        match self.find_path_to_left_most_blank_node() {
+            Some(path) => Ok(path),
+            None => self.find_path_to_lowest_leaf(),
         }
-
-        None
-    }
-
-    /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
-    /// with the smallest weight. Priority is given to left branch.
-    pub(crate) fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ArtError> {
-        let mut candidate = self.get_root();
-        let mut next = vec![];
-
-        while !candidate.is_leaf() {
-            let l = candidate
-                .get_child(Direction::Left)
-                .ok_or(ArtError::InvalidInput)?;
-            let r = candidate
-                .get_child(Direction::Right)
-                .ok_or(ArtError::InvalidInput)?;
-
-            let next_direction = match l.get_weight() <= r.get_weight() {
-                true => Direction::Left,
-                false => Direction::Right,
-            };
-
-            next.push(next_direction);
-            candidate = candidate
-                .get_child(next_direction)
-                .ok_or(ArtError::InvalidInput)?;
-        }
-
-        Ok(next)
     }
 
     /// Returns helper structure for verification of art update.
@@ -285,30 +227,27 @@ where
         })
     }
 
-    /// update weights on the given branch. If true increment 1, else decrement one. Returns
-    /// error for leaves.
+    /// update weights on the given branch. If true increment 1, else decrement one. Ignore
+    /// leaves, as their weight is automatic.
     pub(crate) fn update_weight(
         &mut self,
         path: &[Direction],
         increment: bool,
     ) -> Result<(), ArtError> {
         let mut current_node = self.get_mut_root();
-        if increment {
-            *current_node.get_mut_weight()? += 1;
-        } else {
-            *current_node.get_mut_weight()? -= 1;
-        }
+
+        if current_node.update_weight(increment).is_err() {
+            return Ok(());
+        };
 
         for dir in path.iter() {
             current_node = current_node
                 .get_mut_child(*dir)
                 .ok_or(ArtError::PathNotExists)?;
 
-            if increment {
-                *current_node.get_mut_weight()? += 1;
-            } else {
-                *current_node.get_mut_weight()? -= 1;
-            }
+            if current_node.update_weight(increment).is_err() {
+                return Ok(());
+            };
         }
 
         Ok(())
@@ -376,21 +315,59 @@ where
         Ok(())
     }
 
-    pub(crate) fn change_leaf_status_by_change_type(
-        target_node: &mut ArtNode<G>,
-        change_type: &BranchChangeType,
-    ) -> Result<(), ArtError> {
-        let target_leaf_status = match change_type {
-            BranchChangeType::UpdateKey => Some(LeafStatus::Active),
-            BranchChangeType::AddMember => None,
-            BranchChangeType::RemoveMember => Some(LeafStatus::Blank),
-            BranchChangeType::Leave => Some(LeafStatus::PendingRemoval),
-        };
-        if let Some(target_leaf_status) = target_leaf_status {
-            target_node.set_status(target_leaf_status)?;
+    /// Searches for the left most blank node and returns the vector of directions to it.
+    fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
+        for (node, path) in LeafIterWithPath::new(self.get_root()) {
+            if node.is_leaf() && !matches!(node.get_status(), Some(LeafStatus::Active)) {
+                let mut node_path = Vec::with_capacity(path.len());
+
+                for (_, dir) in path {
+                    node_path.push(dir);
+                }
+
+                return Some(node_path);
+            }
         }
 
-        Ok(())
+        None
+    }
+
+    /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
+    /// with the smallest weight. Priority is given to left branch.
+    fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ArtError> {
+        let mut candidate = self.get_root();
+        let mut next = vec![];
+
+        while !candidate.is_leaf() {
+            let l = candidate
+                .get_child(Direction::Left)
+                .ok_or(ArtError::PathNotExists)?;
+            let r = candidate
+                .get_child(Direction::Right)
+                .ok_or(ArtError::PathNotExists)?;
+
+            let next_direction = match l.get_weight() <= r.get_weight() {
+                true => Direction::Left,
+                false => Direction::Right,
+            };
+
+            next.push(next_direction);
+            candidate = candidate
+                .get_child(next_direction)
+                .ok_or(ArtError::InvalidInput)?;
+        }
+
+        while let ArtNode::Internal { l, r, .. } = candidate {
+            if l.get_weight() <= r.get_weight() {
+                next.push(Direction::Left);
+                candidate = l;
+            } else {
+                next.push(Direction::Right);
+                candidate = r;
+            }
+        }
+
+        Ok(next)
     }
 }
 
@@ -420,19 +397,17 @@ where
                 Self::fit_leaves_in_one_level(level_nodes, level_secrets)?;
         }
 
-        let (root, _) = Self::compute_root_node(level_nodes, &mut level_secrets)?;
+        let (root, _) = Self::compute_root_node_from_leaves(level_nodes, &mut level_secrets)?;
 
         let public_art = PublicArt {
             tree_root: root.as_ref().to_owned(),
         };
 
-        let pk = G::generator()
-            .mul(secrets.first().ok_or(ArtError::EmptyArt)?)
-            .into_affine();
+        let sk = *secrets.first().ok_or(ArtError::EmptyArt)?;
+        let pk = G::generator().mul(sk).into_affine();
         let path = public_art.get_path_to_leaf_with(pk)?;
         let co_path = public_art.get_co_path_values(&path)?;
-        let artefacts =
-            recompute_artefacts(*secrets.first().ok_or(ArtError::InvalidInput)?, &co_path)?;
+        let artefacts = recompute_artefacts(sk, &co_path)?;
 
         Ok(Self {
             public_art,
@@ -527,64 +502,17 @@ where
         path: &[Direction],
         append_changes: bool,
     ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let mut next = path.to_vec();
-        let mut public_key = G::generator().mul(secret_key).into_affine();
+        let co_path = self.public_art.get_co_path_values(path)?;
+        let artefacts = recompute_artefacts(secret_key, &co_path)?;
+        let tk = *artefacts.secrets.last().ok_or(ArtError::EmptyArt)?;
+        let change = artefacts.derive_branch_change(
+            BranchChangeType::UpdateKey,
+            NodeIndex::from(path.to_vec()).as_index()?,
+        )?;
 
-        let mut co_path_values = vec![];
-        let mut path_values = vec![];
-        let mut secrets = vec![secret_key];
+        self.public_art.update_art_with_changes(&change, append_changes)?;
 
-        let mut ark_level_secret_key = secret_key;
-        while let Some(next_child) = next.pop() {
-            let mut parent = self.get_mut_root();
-            for direction in &next {
-                parent = parent
-                    .get_mut_child(*direction)
-                    .ok_or(ArtError::InvalidInput)?;
-            }
-
-            // Update public art
-            parent
-                .get_mut_child(next_child)
-                .ok_or(ArtError::InvalidInput)?
-                .set_public_key_with_options(public_key, append_changes);
-            let other_child_public_key = parent
-                .get_child(next_child.other())
-                .ok_or(ArtError::InvalidInput)?
-                .get_public_key();
-
-            path_values.push(public_key);
-            co_path_values.push(other_child_public_key);
-
-            let common_secret = other_child_public_key
-                .mul(ark_level_secret_key)
-                .into_affine();
-
-            ark_level_secret_key = iota_function(&common_secret)?;
-            secrets.push(ark_level_secret_key);
-
-            public_key = G::generator().mul(ark_level_secret_key).into_affine();
-        }
-
-        self.get_mut_root()
-            .set_public_key_with_options(public_key, append_changes);
-        path_values.push(public_key);
-
-        let artefacts = ProverArtefacts {
-            path: path_values.clone(),
-            co_path: co_path_values,
-            secrets,
-        };
-
-        path_values.reverse();
-
-        let changes = BranchChange {
-            change_type: BranchChangeType::UpdateKey,
-            public_keys: path_values,
-            node_index: NodeIndex::Index(NodeIndex::get_index_from_path(path)?),
-        };
-
-        Ok((ark_level_secret_key, changes, artefacts))
+        Ok((tk, change, artefacts))
     }
 
     /// Ok if change can be applied to the ART tree. Else Err.
@@ -637,7 +565,7 @@ where
 
         let artefact_secrets = self.get_artefact_secrets_from_change(change)?;
 
-        self.zip_update_path_secrets(artefact_secrets, &change.node_index, append_changes)?;
+        self.update_secrets_on_intersection(artefact_secrets, &change.node_index, append_changes)?;
 
         Ok(())
     }
@@ -645,55 +573,22 @@ where
     /// If `append_changes` is false, works as `set_path_secrets`. In the other case, it will
     /// append secrets to available ones. Works correctly if `self.node_index` isn't a subpath
     /// of the `other`. The `other` is used to properly decide, which secrets did change.
-    pub(crate) fn zip_update_path_secrets(
+    pub(crate) fn update_secrets_on_intersection(
         &mut self,
-        mut other_path_secrets: Vec<G::ScalarField>,
+        other_path_secrets: Vec<G::ScalarField>,
         other: &NodeIndex,
         append_changes: bool,
     ) -> Result<(), ArtError> {
-        let mut path_secrets = self.secrets.clone();
+        let intersection = other.intersect_with(self.get_node_index())?;
 
-        if path_secrets.is_empty() {
-            return Err(ArtError::EmptyArt);
-        }
+        let start = other_path_secrets
+            .len()
+            .saturating_sub(intersection.len() + 1);
 
-        // if self.get_node_index().is_subpath_of(other)? {
-        //     return Err(ArtError::SubPath);
-        // }
-
-        // It is a partial update of the path.
-        let node_path = self.get_node_index().get_path()?;
-        let other_node_path = other.get_path()?;
-
-        // Reverse secrets to perform computations starting from the root.
-        other_path_secrets.reverse();
-        path_secrets.reverse();
-
-        // Always update art root key.
-        match append_changes {
-            true => path_secrets[0] += other_path_secrets[0],
-            false => path_secrets[0] = other_path_secrets[0],
-        }
-
-        // Update other keys on the path.
-        for (i, (a, b)) in node_path.iter().zip(other_node_path.iter()).enumerate() {
-            if a == b {
-                match append_changes {
-                    true => path_secrets[i + 1] += other_path_secrets[i + 1],
-                    false => path_secrets[i + 1] = other_path_secrets[i + 1],
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Reverse path_secrets back to normal order, and update change old secrets.
-        path_secrets.reverse();
-        self.secrets = path_secrets;
-
-        Ok(())
+        self.update_secrets(&other_path_secrets[start..], append_changes)
     }
 
+    /// Update upper half of secrets.
     pub(crate) fn update_secrets(
         &mut self,
         updated_secrets: &[G::ScalarField],
@@ -730,8 +625,7 @@ where
 
         if secrets_extension_len != 0 {
             let mut new_secrets = vec![self.get_leaf_secret_key(); secrets_extension_len];
-            let mut secrets = mem::take(&mut self.secrets);
-            new_secrets.append(&mut secrets);
+            new_secrets.append(&mut mem::take(&mut self.secrets));
             self.secrets = new_secrets;
         }
 
@@ -748,7 +642,7 @@ where
         let (tk, changes, artefacts) =
             self.update_art_branch_with_leaf_secret_key(new_key, &path, append_changes)?;
 
-        self.zip_update_path_secrets(
+        self.update_secrets_on_intersection(
             artefacts.secrets.clone(),
             &changes.node_index,
             append_changes,
@@ -761,22 +655,19 @@ where
         &mut self,
         new_key: G::ScalarField,
     ) -> Result<ArtUpdateOutput<G>, ArtError> {
-        let mut path = match self.public_art.find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => self.public_art.find_path_to_lowest_leaf()?,
-        };
+        let mut path = self.public_art.find_place_for_new_node()?;
 
         let new_leaf = ArtNode::new_leaf(G::generator().mul(new_key).into_affine());
-        let target_leaf = self.get_mut_node_at(&path)?;
+        let target_leaf = self.get_node_at(&path)?;
 
         if !target_leaf.is_leaf() {
             return Err(ArtError::LeafOnly);
         }
 
         let extend_node = matches!(target_leaf.get_status(), Some(LeafStatus::Active));
-        target_leaf.extend_or_replace(new_leaf)?;
 
-        self.public_art.update_branch_weight(&path, true)?;
+        self.public_art.update_weight(&path, true)?;
+        self.get_mut_node_at(&path)?.extend_or_replace(new_leaf)?;
 
         if extend_node {
             path.push(Direction::Right);
@@ -792,14 +683,14 @@ where
         }
         self.update_node_index()?;
 
-        self.zip_update_path_secrets(artefacts.secrets.clone(), &changes.node_index, false)?;
+        self.update_secrets_on_intersection(artefacts.secrets.clone(), &changes.node_index, false)?;
 
         Ok((tk, changes, artefacts))
     }
 
     /// Computes the ART assuming that `level_nodes` and `level_secrets` are a power of two. If
     /// they are not they can be lifted with `fit_leaves_in_one_level` method.
-    fn compute_root_node(
+    fn compute_root_node_from_leaves(
         level_nodes: Vec<Box<ArtNode<G>>>,
         level_secrets: &mut [G::ScalarField],
     ) -> Result<(Box<ArtNode<G>>, G::ScalarField), ArtError> {

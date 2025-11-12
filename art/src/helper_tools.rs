@@ -1,4 +1,6 @@
 use crate::art::ProverArtefacts;
+use crate::art_node::{ArtNode, LeafStatus};
+use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
@@ -104,4 +106,24 @@ pub(crate) fn default_verifier_engine() -> ZeroArtVerifierEngine {
 
 pub(crate) fn default_prover_engine() -> ZeroArtProverEngine {
     ZeroArtProverEngine::new(default_proof_basis(), ZeroArtEngineOptions::default())
+}
+
+pub(crate) fn change_leaf_status_by_change_type<G>(
+    target_node: &mut ArtNode<G>,
+    change_type: &BranchChangeType,
+) -> Result<(), ArtError>
+where
+    G: AffineRepr,
+{
+    let target_leaf_status = match change_type {
+        BranchChangeType::UpdateKey => Some(LeafStatus::Active),
+        BranchChangeType::AddMember => None,
+        BranchChangeType::RemoveMember => Some(LeafStatus::Blank),
+        BranchChangeType::Leave => Some(LeafStatus::PendingRemoval),
+    };
+    if let Some(target_leaf_status) = target_leaf_status {
+        target_node.set_status(target_leaf_status)?;
+    }
+
+    Ok(())
 }

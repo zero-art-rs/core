@@ -60,7 +60,7 @@ where
         self.get_mut_node_at(&path)?.set_status(LeafStatus::Blank)?;
 
         if !append_changes {
-            self.public_art.update_branch_weight(&path, false)?;
+            self.public_art.update_weight(&path, false)?;
         }
 
         Ok(change)

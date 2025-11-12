@@ -3,6 +3,7 @@ use crate::art_node::{ArtNode, LeafStatus, TreeMethods};
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
+use crate::helper_tools;
 use crate::helper_tools::{default_proof_basis, default_verifier_engine, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
@@ -99,7 +100,7 @@ where
         for change in &self.stashed_confirm_removals {
             preview.apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
 
-            PublicArt::change_leaf_status_by_change_type(
+            helper_tools::change_leaf_status_by_change_type(
                 preview.get_mut_node_at(&change.node_index.get_path()?)?,
                 &change.change_type,
             )?;
@@ -282,7 +283,7 @@ where
                 .public_art
                 .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
 
-            PublicArt::change_leaf_status_by_change_type(
+            helper_tools::change_leaf_status_by_change_type(
                 self.upstream_art
                     .get_mut_node_at(&change.node_index.get_path()?)?,
                 &change.change_type,
@@ -307,7 +308,7 @@ where
                 .public_art
                 .apply_as_merge_conflict(&change.public_keys, &change.node_index.get_path()?)?;
 
-            PublicArt::change_leaf_status_by_change_type(
+            helper_tools::change_leaf_status_by_change_type(
                 preview.get_mut_node_at(&change.node_index.get_path()?)?,
                 &change.change_type,
             )?;
@@ -364,10 +365,7 @@ where
         new_key: G::ScalarField,
     ) -> Result<ArtUpdateOutput<G>, ArtError> {
         let target_art = self.get_upstream_art();
-        let mut path = match target_art.public_art.find_path_to_left_most_blank_node() {
-            Some(path) => path,
-            None => target_art.public_art.find_path_to_lowest_leaf()?,
-        };
+        let mut path = target_art.public_art.find_place_for_new_node()?;
 
         let target_leaf = target_art.get_node_at(&path)?;
         let target_public_key = target_leaf.get_public_key();

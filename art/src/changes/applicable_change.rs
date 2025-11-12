@@ -8,6 +8,7 @@ use crate::art_node::{LeafStatus, TreeMethods};
 use crate::changes::aggregations::{AggregatedChange, AggregationNode};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
+use crate::helper_tools;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -186,7 +187,7 @@ where
             &mut art.marker_tree,
         )?;
 
-        PublicArt::change_leaf_status_by_change_type(
+        helper_tools::change_leaf_status_by_change_type(
             art.upstream_art
                 .get_mut_node_at(&self.node_index.get_path()?)?,
             &self.change_type,
@@ -265,7 +266,7 @@ where
             &mut art.marker_tree,
         )?;
 
-        PublicArt::change_leaf_status_by_change_type(
+        helper_tools::change_leaf_status_by_change_type(
             art.upstream_art
                 .get_mut_node_at(&self.node_index.get_path()?)?,
             &self.change_type,

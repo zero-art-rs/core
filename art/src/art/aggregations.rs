@@ -461,16 +461,16 @@ mod tests {
             user0.get_upstream_art().get_public_art().get_root()
         );
 
-        assert_eq!(
-            secrets[0],
-            user0.get_leaf_secret_key(),
-        );
+        assert_eq!(secrets[0], user0.get_leaf_secret_key(),);
 
         let private_branch_change = user0.update_key(Fr::rand(&mut rng)).unwrap();
 
         private_branch_change.apply(&mut user0).unwrap();
-        private_branch_change.branch_change.apply(&mut pub_art).unwrap();
-        
+        private_branch_change
+            .branch_change
+            .apply(&mut pub_art)
+            .unwrap();
+
         user0.commit().unwrap();
     }
 }
