@@ -13,6 +13,8 @@ use serde_bytes::ByteBuf;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
+use crate::changes::aggregations::AggregationNode;
+use crate::node_index::Direction;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -126,4 +128,22 @@ where
     }
 
     Ok(())
+}
+
+/// Computes how many nodes in `marker_tree` on the given `path` are marked as updated.
+pub(crate) fn compute_merge_bound(marker_tree: &AggregationNode<bool>, path: &[Direction]) -> Result<usize, ArtError> {
+    let mut parent = marker_tree;
+    let mut secrets_amount_to_merge = parent.data as usize;
+    if parent.data {
+        for (_, dir) in path.iter().enumerate() {
+            parent = parent.get_child(*dir).ok_or(ArtError::PathNotExists)?;
+            if parent.data {
+                secrets_amount_to_merge += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    Ok(secrets_amount_to_merge)
 }

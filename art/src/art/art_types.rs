@@ -510,7 +510,8 @@ where
             NodeIndex::from(path.to_vec()).as_index()?,
         )?;
 
-        self.public_art.update_art_with_changes(&change, append_changes)?;
+        self.public_art
+            .update_art_with_changes(&change, append_changes)?;
 
         Ok((tk, change, artefacts))
     }
@@ -588,7 +589,8 @@ where
         self.update_secrets(&other_path_secrets[start..], append_changes)
     }
 
-    /// Update upper half of secrets.
+    /// Update upper half of secrets. All beyond the merge_bound will be replaces. If there
+    /// are remaining ones, they will be skipped.
     pub(crate) fn update_secrets(
         &mut self,
         updated_secrets: &[G::ScalarField],
@@ -601,6 +603,28 @@ where
         {
             if merge_key {
                 self.secrets[i] += sk;
+            } else {
+                self.secrets[i] = *sk;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn update_secrets_with_merge_bound(
+        &mut self,
+        updated_secrets: &[G::ScalarField],
+        mut merge_bound: usize,
+    ) -> Result<(), ArtError> {
+        for (sk, i) in updated_secrets
+            .iter()
+            .rev()
+            .zip((0..self.secrets.len()).rev())
+        {
+            if merge_bound != 0 {
+                self.secrets[i] += sk;
+
+                merge_bound -= 1;
             } else {
                 self.secrets[i] = *sk;
             }
@@ -882,10 +906,11 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        for i in (TEST_GROUP_SIZE - 1)..TEST_GROUP_SIZE {
-            let secrets = (0..i).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-
-            let private_art = PrivateArt::setup(&secrets).unwrap();
+        let secrets = (0..TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+        for i in (1..TEST_GROUP_SIZE).step_by(7) {
+            let private_art = PrivateArt::setup(&secrets[..i]).unwrap();
             let public_art_bytes = to_allocvec(&private_art.get_public_art()).unwrap();
 
             // Try to deserialize art for every other user in a group

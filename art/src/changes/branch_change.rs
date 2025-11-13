@@ -2,7 +2,7 @@
 
 use crate::art::PrivateZeroArt;
 use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se, recompute_artefacts};
+use crate::helper_tools::{ark_de, ark_se, compute_merge_bound, recompute_artefacts};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -114,17 +114,7 @@ where
         let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
         let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
 
-        // get updates secrets length
-        let mut parent = &art.marker_tree;
-        let mut secrets_amount_to_merge = parent.data as usize;
-        if parent.data {
-            for dir in &path {
-                parent = parent.get_child(*dir).ok_or(ArtError::PathNotExists)?;
-                if parent.data {
-                    secrets_amount_to_merge += 1;
-                }
-            }
-        }
+        let merge_bound = compute_merge_bound(&art.marker_tree, &path)?;
 
         let marker_tree = &mut art.marker_tree;
         art.upstream_art.public_art.merge_by_marker(
@@ -133,12 +123,7 @@ where
             marker_tree,
         )?;
 
-        let old_secrets = art.upstream_art.secrets.clone();
-        art.upstream_art.secrets = artefacts.secrets;
-
-        let start = old_secrets.len() - secrets_amount_to_merge;
-        let finish = old_secrets.len();
-        art.update_secrets(&old_secrets[start..finish], true)?;
+        art.upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
 
         Ok(())
     }

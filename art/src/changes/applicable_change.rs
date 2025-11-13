@@ -15,6 +15,7 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
+use crate::helper_tools::compute_merge_bound;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -260,6 +261,8 @@ where
                 .update_weight(&target_path, false)?;
         }
 
+        let merge_bound = compute_merge_bound(&art.marker_tree, &self.node_index.get_path()?)?;
+
         art.upstream_art.public_art.merge_by_marker(
             &self.public_keys,
             &self.node_index.get_path()?,
@@ -273,7 +276,8 @@ where
         )?;
 
         let updated_secrets = art.get_updated_secrets(self)?;
-        art.update_secrets(&updated_secrets, change_must_be_merged)?;
+        // art.update_secrets(&updated_secrets, change_must_be_merged)?;
+        art.upstream_art.update_secrets_with_merge_bound(&updated_secrets, merge_bound)?;
 
         Ok(())
     }

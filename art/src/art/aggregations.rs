@@ -134,7 +134,7 @@ mod tests {
         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
 
         // Serialise and deserialize art for the other users.
-        let mut user1 = PrivateZeroArt::new(
+        let user1 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[2]).unwrap(),
             Box::new(thread_rng()),
         )
@@ -149,12 +149,12 @@ mod tests {
         let user1_2rng = Box::new(thread_rng());
         let user1_2 = user1.clone_without_rng(user1_2rng);
 
-        let mut user3 = PrivateZeroArt::new(
+        let user3 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[4]).unwrap(),
             Box::new(thread_rng()),
         )
         .unwrap();
-        let mut user4 = PrivateZeroArt::new(
+        let user4 = PrivateZeroArt::new(
             PrivateArt::new(user0.get_public_art().clone(), secrets[5]).unwrap(),
             Box::new(thread_rng()),
         )
@@ -172,7 +172,7 @@ mod tests {
         agg.remove_member(&user4.get_node_index(), sk1).unwrap();
         agg.add_member(sk2).unwrap();
         agg.add_member(sk3).unwrap();
-        // agg.add_member(sk4).unwrap();
+        agg.add_member(sk4).unwrap();
 
         // Check successful ProverAggregationTree conversion to tree_ds tree
         let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg);
@@ -184,8 +184,7 @@ mod tests {
 
             let aggregation = AggregatedChange::try_from(&agg).unwrap();
 
-            let mut user2_clone_rng = Box::new(thread_rng());
-            let mut user2_clone = user2.clone_without_rng(user2_clone_rng);
+            let mut user2_clone = user2.clone_without_rng(Box::new(thread_rng()));
             aggregation.apply(&mut user2_clone).unwrap();
 
             assert_eq!(
@@ -318,7 +317,7 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let group_length = 7;
+        let group_length = 78;
         let secrets = (0..group_length)
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
@@ -360,13 +359,13 @@ mod tests {
 
         // Init test context.
         let mut rng = StdRng::seed_from_u64(0);
-        let group_length = 7;
+        let group_length = 97;
         let secrets = (0..group_length)
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
 
-        let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-        let mut user0 = PrivateZeroArt::new(user0, Box::new(thread_rng())).unwrap();
+        let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let user0 = PrivateZeroArt::new(user0, Box::new(thread_rng())).unwrap();
         let mut user1 = PrivateArt::<CortadoAffine>::new(
             user0.get_base_art().get_public_art().clone(),
             secrets[1],
@@ -379,6 +378,7 @@ mod tests {
             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
             .unwrap();
         let target_3_index = NodeIndex::Direction(target_3.to_vec());
+
         // Create aggregation
         let mut agg = AggregationContext::new(user0.base_art.clone(), Box::new(thread_rng()));
 
@@ -397,6 +397,26 @@ mod tests {
         plain_agg.apply(&mut user1).unwrap();
 
         assert_eq!(&agg.operation_tree, &user1);
+    }
+
+    #[test]
+    fn test_empty_aggregation() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let user0 =
+            PrivateZeroArt::setup(&vec![Fr::rand(&mut rng)], Box::new(thread_rng())).unwrap();
+
+        let mut public_art = user0.get_base_art().get_public_art().clone();
+
+        let agg = AggregationContext::new(user0.base_art.clone(), Box::new(thread_rng()));
+        let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
+
+        assert!(matches!(
+            plain_agg.apply(&mut public_art),
+            Err(ArtError::NoChanges)
+        ));
     }
 
     #[test]
