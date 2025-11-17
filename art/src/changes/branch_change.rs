@@ -1,21 +1,15 @@
 //! Module with branch changes of the ART.
 
-use crate::art::PrivateZeroArt;
-use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se, compute_merge_bound, recompute_artefacts};
+use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::rc::Rc;
-use tracing::debug;
-use zrt_zk::EligibilityArtefact;
-use zrt_zk::art::ProverNodeData;
-use zrt_zk::engine::ZeroArtProverEngine;
+use std::{fmt::Debug, rc::Rc};
+use zrt_zk::{EligibilityArtefact, art::ProverNodeData, engine::ZeroArtProverEngine};
 
+
+/// Marker for a `BranchChange` type.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
     #[default]
@@ -44,7 +38,7 @@ where
     pub node_index: NodeIndex,
 }
 
-/// Helper data structure, which along with the `branch_change` of a the contain additional
+/// Helper data type, which along with the `branch_change` contain additional
 /// artefacts, which can be used to create a proof.
 #[derive(Clone)]
 pub struct PrivateBranchChange<G>
@@ -63,24 +57,6 @@ impl<G> PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
-    pub fn new(
-        branch_change: BranchChange<G>,
-        prover_branch: Vec<ProverNodeData<G>>,
-        eligibility: EligibilityArtefact,
-        leaf_secret: G::ScalarField,
-        root_secret: G::ScalarField,
-        prover_engine: Rc<ZeroArtProverEngine>,
-    ) -> Result<Self, ArtError> {
-        Ok(Self {
-            branch_change,
-            prover_branch,
-            eligibility,
-            leaf_secret,
-            root_secret,
-            prover_engine,
-        })
-    }
-
     pub fn get_root_secret(&self) -> G::ScalarField {
         self.root_secret
     }
@@ -111,6 +87,8 @@ where
     }
 }
 
+/// Marker for a `BranchChange` type. Similar to `BranchChangesType`, but with
+/// additional public data.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangesTypeHint<G>
 where
@@ -145,6 +123,7 @@ where
         pk: G,
     },
 }
+
 
 impl<G> From<&BranchChangesTypeHint<G>> for BranchChangeType
 where

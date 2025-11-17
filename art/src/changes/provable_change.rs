@@ -17,8 +17,6 @@ use zrt_zk::art::ArtProof;
 ///   * `eligibility` - the optional eligibility artefact. If None, then the default one will be used if possible.
 ///
 /// If proof generation succeeds, an `ArtProof` is returned, else an `ArtError`.
-///
-/// # Type Parameters
 pub trait ProvableChange {
     fn prove(
         &self,

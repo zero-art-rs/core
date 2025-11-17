@@ -129,7 +129,6 @@ mod tests {
     use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
     use std::ops::Mul;
-    use tracing::{debug, info, trace};
     use zrt_zk::EligibilityRequirement;
     use zrt_zk::art::ArtProof;
 

@@ -17,6 +17,10 @@ use std::rc::Rc;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 /// Context for public art operations.
+///
+/// This structure manages merge changes by having two Art trees. `base_art` with previous state
+/// of the art, and `upstream_art` with current state of the art. When the method `commit()`
+/// is called, `base_art` will be changed to the upstream_art.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct PublicZeroArt<G>
@@ -35,6 +39,7 @@ impl<G> PublicZeroArt<G>
 where
     G: AffineRepr,
 {
+    /// Create new art from the provided `base_art`.
     pub fn new(base_art: PublicArt<G>) -> Result<Self, ArtError> {
         let upstream_art = base_art.clone();
         let marker_tree = AggregationNode::<bool>::try_from(base_art.get_root())?;
@@ -48,6 +53,8 @@ where
         })
     }
 
+    /// Finishes current epoch. This will apply all the unapplied removal confirms and
+    /// change `base_art` to the `upstream_art`.
     pub fn commit(&mut self) -> Result<(), ArtError> {
         let changes = mem::take(&mut self.stashed_confirm_removals);
         for change in &changes {
@@ -61,6 +68,7 @@ where
         Ok(())
     }
 
+    /// Removes all the applied changes from the ART tree by resetting `upstream_art` to `base_art`.
     pub fn discard(&mut self) {
         self.marker_tree.data = false;
         self.upstream_art = self.base_art.clone();
@@ -93,7 +101,7 @@ where
         }
     }
 
-    /// Returns a new art preview, without commiting changes to the upstream art.
+    /// Returns a new art preview, without commiting changes with `commit()`.
     pub fn get_preview(&self) -> Result<PublicArt<G>, ArtError> {
         let mut preview = self.upstream_art.clone();
 

@@ -376,6 +376,8 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
+    /// Create new ART tree with given secrets as leaves secrets. Return art with the left most
+    /// secret as own.
     pub fn setup(secrets: &[G::ScalarField]) -> Result<Self, ArtError> {
         if secrets.is_empty() {
             return Err(ArtError::InvalidInput);
@@ -416,6 +418,7 @@ where
         })
     }
 
+    /// Create new PrivateArt from `public_art` and user leaf `secret_key`.
     pub fn new(public_art: PublicArt<G>, secret_key: G::ScalarField) -> Result<Self, ArtError> {
         let leaf_path =
             public_art.get_path_to_leaf_with(G::generator().mul(secret_key).into_affine())?;
@@ -429,6 +432,8 @@ where
         })
     }
 
+    /// Create new PrivateArt from `public_art` and all the `secrets` on path from the
+    /// user leaf to root.
     pub fn restore(
         public_art: PublicArt<G>,
         secrets: Vec<G::ScalarField>,
@@ -444,6 +449,7 @@ where
         })
     }
 
+    /// Returns index, pointing on the user leaf node.
     pub fn get_node_index(&self) -> &NodeIndex {
         &self.node_index
     }
@@ -452,22 +458,24 @@ where
         self.secrets[0]
     }
 
-    pub fn get_root_secret_key(&self) -> G::ScalarField {
-        self.secrets[self.secrets.len() - 1]
-    }
-
-    pub fn get_secrets(&self) -> &Vec<G::ScalarField> {
-        &self.secrets
-    }
-
     pub fn get_leaf_public_key(&self) -> G {
         G::generator().mul(self.get_leaf_secret_key()).into_affine()
+    }
+
+    pub fn get_root_secret_key(&self) -> G::ScalarField {
+        self.secrets[self.secrets.len() - 1]
     }
 
     pub fn get_root_public_key(&self) -> G {
         G::generator().mul(self.get_root_secret_key()).into_affine()
     }
 
+    /// Returns all the secrets of nodes on path from user leaf to the root.
+    pub fn get_secrets(&self) -> &Vec<G::ScalarField> {
+        &self.secrets
+    }
+
+    /// Returns inner `PublicArt` tree.
     pub fn get_public_art(&self) -> &PublicArt<G> {
         &self.public_art
     }

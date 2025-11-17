@@ -1,7 +1,7 @@
 use crate::art::ProverArtefacts;
 use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::changes::aggregations::{
-    AggregationData, AggregationTree, ProverAggregationData, RelatedData, VerifierAggregationData,
+    AggregationData, AggregationTree, ProverAggregationData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
 use crate::errors::ArtError;
@@ -18,11 +18,9 @@ use zrt_zk::{
     art::{ProverNodeData, VerifierNodeData},
 };
 
+/// Node of the aggregation tree. nodes contain data of some generic type `D`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AggregationNode<D>
-// where
-//     D: RelatedData + Clone,
-{
+pub struct AggregationNode<D> {
     pub l: Option<Box<Self>>,
     pub r: Option<Box<Self>>,
     pub data: D,
@@ -320,8 +318,8 @@ where
 
 impl<D1, D2> TryFrom<&AggregationNode<D1>> for AggregationNode<D2>
 where
-    D1: RelatedData + Clone + Default,
-    D2: RelatedData + From<D1> + Clone + Default,
+    D1: Clone + Default,
+    D2: From<D1> + Clone + Default,
 {
     type Error = ArtError;
 
@@ -441,20 +439,19 @@ where
     }
 }
 
+/// Iterator for aggregation tree (`AggregationNode`).
+///
+/// `AggregationNodeIterWithPath` can be used for traversal of all the nodes in the
+/// aggregation tree. Besides the target node, this iterator also returns pairs of
+/// `(&'a AggregationNode<D>, Direction)` on path from the root to the current node.
 #[derive(Debug, Clone)]
-pub struct AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-{
-    pub current_node: Option<&'a AggregationNode<D>>,
-    pub path: Vec<(&'a AggregationNode<D>, Direction)>,
+pub struct AggregationNodeIterWithPath<'a, D> {
+    pub(crate) current_node: Option<&'a AggregationNode<D>>,
+    pub(crate) path: Vec<(&'a AggregationNode<D>, Direction)>,
 }
 
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
-impl<'a, D> AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-{
+impl<'a, D> AggregationNodeIterWithPath<'a, D> {
     pub fn new(root: &'a AggregationNode<D>) -> Self {
         AggregationNodeIterWithPath {
             current_node: Some(root),
@@ -463,10 +460,7 @@ where
     }
 }
 
-impl<'a, D> From<&'a AggregationTree<D>> for AggregationNodeIterWithPath<'a, D>
-where
-    D: RelatedData + Clone,
-{
+impl<'a, D> From<&'a AggregationTree<D>> for AggregationNodeIterWithPath<'a, D> {
     fn from(value: &'a AggregationTree<D>) -> Self {
         match &value.root {
             None => AggregationNodeIterWithPath {
@@ -480,7 +474,7 @@ where
 
 impl<'a, D> Iterator for AggregationNodeIterWithPath<'a, D>
 where
-    D: RelatedData + Clone + Default,
+    D: Default,
 {
     type Item = (
         &'a AggregationNode<D>,

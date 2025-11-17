@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
+/// Helper structure. Can be stored in aggregation tree. Contains all the public keys, required
+/// to update art and create proofs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct ProverAggregationData<G>
@@ -35,6 +37,20 @@ where
     pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
+impl<G> ProverAggregationData<G>
+where
+    G: AffineRepr,
+{
+    pub(crate) fn aggregate(&mut self, other: Self) {
+        self.public_key = other.public_key;
+        self.secret_key = other.secret_key;
+        self.co_public_key = other.co_public_key;
+        self.change_type.extend(other.change_type);
+        self.blinding_factor = other.blinding_factor;
+    }
+}
+
+/// Helper structure. Stores all the updated public keys by the user.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct AggregationData<G>
@@ -49,9 +65,18 @@ where
     pub change_type: Vec<BranchChangesTypeHint<G>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EmptyData {}
+impl<G> AggregationData<G>
+where
+    G: AffineRepr,
+{
+    pub(crate) fn aggregate(&mut self, other: Self) {
+        self.public_key = other.public_key;
+        self.change_type.extend(other.change_type);
+    }
+}
 
+/// Helper structure. Similar to `AggregationData`, but with additional co-path values for
+/// proof verification.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct VerifierAggregationData<G>
@@ -179,15 +204,6 @@ where
             co_public_key: prover_data.co_public_key,
             change_type: prover_data.change_type,
         }
-    }
-}
-
-impl<G> From<ProverAggregationData<G>> for EmptyData
-where
-    G: AffineRepr,
-{
-    fn from(_: ProverAggregationData<G>) -> Self {
-        Self {}
     }
 }
 

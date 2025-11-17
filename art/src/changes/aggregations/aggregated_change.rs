@@ -4,7 +4,7 @@ use crate::art::{PrivateArt, PublicArt};
 use crate::art_node::{ArtNode, LeafStatus, TreeMethods};
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, ProverAggregationData,
-    RelatedData, VerifierAggregationData,
+    VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangesTypeHint};
 use crate::errors::ArtError;
@@ -15,7 +15,6 @@ use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use tracing::debug;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
@@ -28,17 +27,11 @@ pub(crate) type VerifierChangeAggregation<G> = AggregationTree<VerifierAggregati
 /// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
-pub struct AggregationTree<D>
-where
-    D: RelatedData + Clone,
-{
+pub struct AggregationTree<D> {
     pub(crate) root: Option<AggregationNode<D>>,
 }
 
-impl<D> AggregationTree<D>
-where
-    D: RelatedData + Clone,
-{
+impl<D> AggregationTree<D> {
     pub fn get_root(&self) -> Option<&AggregationNode<D>> {
         self.root.as_ref()
     }
@@ -522,8 +515,8 @@ where
 
 impl<'a, D1, D2> TryFrom<&'a AggregationTree<D1>> for AggregationTree<D2>
 where
-    D1: RelatedData + Clone + Default,
-    D2: From<D1> + RelatedData + Clone + Default,
+    D1: Clone + Default,
+    D2: From<D1> + Clone + Default,
     AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ArtError>,
 {
     type Error = ArtError;
@@ -541,7 +534,7 @@ where
 impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
-    D: RelatedData + Clone + Default,
+    D: Clone + Default,
     Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
@@ -557,7 +550,7 @@ where
 
 impl<D> Display for AggregationTree<D>
 where
-    D: RelatedData + Clone + Display + Default,
+    D: Clone + Display + Default,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.get_root() {
@@ -570,7 +563,7 @@ where
 impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
-    D: RelatedData + Clone + Default,
+    D: Clone + Default,
     Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
 {
     type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
