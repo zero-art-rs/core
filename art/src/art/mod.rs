@@ -16,8 +16,7 @@ pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use zero_art::{PrivateZeroArt, PublicZeroArt};
 pub(crate) use zero_art::{
     handle_potential_art_node_extension_on_add_member,
-    handle_potential_marker_tree_node_extension_on_add_member,
-    insert_first_secret_at_start_if_need,
+    handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
 };
 
 /// Helper data type, returned after the most art update operations.

@@ -1,7 +1,9 @@
 use crate::art::{PrivateZeroArt, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafStatus};
+use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
+use crate::node_index::Direction;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
 use ark_ff::{BigInteger, PrimeField};
@@ -14,8 +16,6 @@ use serde_bytes::ByteBuf;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
-use crate::changes::aggregations::AggregationNode;
-use crate::node_index::Direction;
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -132,7 +132,10 @@ where
 }
 
 /// Computes how many nodes in `marker_tree` on the given `path` are marked as updated.
-pub(crate) fn compute_merge_bound(marker_tree: &AggregationNode<bool>, path: &[Direction]) -> Result<usize, ArtError> {
+pub(crate) fn compute_merge_bound(
+    marker_tree: &AggregationNode<bool>,
+    path: &[Direction],
+) -> Result<usize, ArtError> {
     let mut parent = marker_tree;
     let mut secrets_amount_to_merge = parent.data as usize;
     if parent.data {
@@ -149,9 +152,10 @@ pub(crate) fn compute_merge_bound(marker_tree: &AggregationNode<bool>, path: &[D
     Ok(secrets_amount_to_merge)
 }
 
+/// apply key update change to the provided `art` tree, with the given leaf `secret_key`.
 pub(crate) fn inner_apply_own_key_update<R, G>(
     art: &mut PrivateZeroArt<G, R>,
-    new_secret_key: G::ScalarField,
+    secret_key: G::ScalarField,
 ) -> Result<G::ScalarField, ArtError>
 where
     R: Rng + ?Sized,
@@ -160,18 +164,22 @@ where
 {
     let path = art.get_node_index().get_path()?;
     let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
-    let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
-
+    let artefacts = recompute_artefacts(secret_key, &co_path)?;
     let merge_bound = compute_merge_bound(&art.marker_tree, &path)?;
 
-    let marker_tree = &mut art.marker_tree;
-    art.upstream_art.public_art.merge_by_marker(
+    let mut upstream_art = art.upstream_art.clone();
+    let mut marker_tree = art.marker_tree.clone();
+    upstream_art.public_art.merge_by_marker(
         &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
         &path,
-        marker_tree,
+        &mut marker_tree,
     )?;
+    upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
 
-    art.upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
+    let tk = *artefacts.secrets.last().ok_or(ArtError::EmptyArt)?;
 
-    artefacts.secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk)
+    art.upstream_art = upstream_art;
+    art.marker_tree = marker_tree;
+
+    Ok(tk)
 }

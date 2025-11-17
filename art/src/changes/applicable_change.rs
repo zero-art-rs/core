@@ -1,21 +1,19 @@
 use crate::art::{
     AggregationContext, PrivateArt, PrivateZeroArt, PublicArt, PublicZeroArt,
     handle_potential_art_node_extension_on_add_member,
-    handle_potential_marker_tree_node_extension_on_add_member,
-    insert_first_secret_at_start_if_need,
+    handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
 };
 use crate::art_node::{LeafStatus, TreeMethods};
 use crate::changes::aggregations::{AggregatedChange, AggregationNode};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::helper_tools;
-use crate::node_index::Direction;
+use crate::helper_tools::compute_merge_bound;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
 use cortado::CortadoAffine;
 use std::mem;
-use crate::helper_tools::compute_merge_bound;
 
 /// A trait for ART change that can be applied to the ART.
 ///
@@ -84,6 +82,10 @@ where
 
 impl ApplicableChange<PublicZeroArt<CortadoAffine>, ()> for AggregatedChange<CortadoAffine> {
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
+        if art.marker_tree.data {
+            return Err(ArtError::InapplicableAggregation);
+        }
+
         self.update_public_art(&mut art.upstream_art)?;
         art.commit()?;
         art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
@@ -99,6 +101,10 @@ where
     R: Rng + ?Sized,
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+        if art.marker_tree.data {
+            return Err(ArtError::InapplicableAggregation);
+        }
+
         self.update_private_art(&mut art.upstream_art)?;
         art.commit()?;
         art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
@@ -107,7 +113,8 @@ where
     }
 }
 
-impl<G, R1, R2> ApplicableChange<PrivateZeroArt<G, R1>, ()> for AggregationContext<PrivateArt<G>, G, R2>
+impl<G, R1, R2> ApplicableChange<PrivateZeroArt<G, R1>, ()>
+    for AggregationContext<PrivateArt<G>, G, R2>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -115,6 +122,10 @@ where
     R2: Rng + ?Sized,
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R1>) -> Result<(), ArtError> {
+        if art.marker_tree.data {
+            return Err(ArtError::InapplicableAggregation);
+        }
+
         art.upstream_art = self.operation_tree.clone();
         art.commit()?;
         art.marker_tree = AggregationNode::<bool>::try_from(art.base_art.get_root())?;
@@ -141,58 +152,63 @@ where
     G: AffineRepr,
 {
     fn apply(&self, art: &mut PublicZeroArt<G>) -> Result<(), ArtError> {
+        let mut marker_tree = art.marker_tree.clone();
+        let mut upstream_art = art.upstream_art.clone();
+
         let mut target_path = self.node_index.get_path()?;
         let last_direction = target_path.pop().ok_or(ArtError::NoChanges)?;
 
         if let BranchChangeType::AddMember = &self.change_type {
-            if art.marker_tree.data {
+            if marker_tree.data {
                 return Err(ArtError::InvalidMergeInput);
             }
 
             let art_tree_increased = handle_potential_art_node_extension_on_add_member(
-                &mut art.upstream_art,
+                &mut upstream_art,
                 &target_path,
                 last_direction,
             )?;
 
             handle_potential_marker_tree_node_extension_on_add_member(
-                &mut art.marker_tree,
+                &mut marker_tree,
                 &target_path,
                 last_direction,
             )?;
 
             if art_tree_increased {
-                art.upstream_art.update_weight(&target_path, true)?;
+                upstream_art.update_weight(&target_path, true)?;
             }
         }
 
         if let BranchChangeType::RemoveMember = &self.change_type {
             if matches!(
-                art.upstream_art.get_node(&self.node_index)?.get_status(),
+                upstream_art.get_node(&self.node_index)?.get_status(),
                 Some(LeafStatus::Blank)
             ) {
                 art.stashed_confirm_removals.push(self.clone());
                 return Ok(());
             }
 
-            art.upstream_art.update_weight(&target_path, false)?;
+            upstream_art.update_weight(&target_path, false)?;
         }
 
         if let BranchChangeType::Leave = &self.change_type {
-            art.upstream_art.update_weight(&target_path, false)?;
+            upstream_art.update_weight(&target_path, false)?;
         }
 
-        art.upstream_art.merge_by_marker(
+        upstream_art.merge_by_marker(
             &self.public_keys,
             &self.node_index.get_path()?,
-            &mut art.marker_tree,
+            &mut marker_tree,
         )?;
 
         helper_tools::change_leaf_status_by_change_type(
-            art.upstream_art
-                .get_mut_node_at(&self.node_index.get_path()?)?,
+            upstream_art.get_mut_node_at(&self.node_index.get_path()?)?,
             &self.change_type,
         )?;
+
+        art.marker_tree = marker_tree;
+        art.upstream_art = upstream_art;
 
         Ok(())
     }
@@ -205,82 +221,75 @@ where
     R: Rng + ?Sized,
 {
     fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<G::ScalarField, ArtError> {
-        let change_must_be_merged = art.marker_tree.data;
+        let mut marker_tree = art.marker_tree.clone();
+        let mut upstream_art = art.upstream_art.clone();
 
-        art.upstream_art.verify_change_applicability(self)?;
+        upstream_art.verify_change_applicability(self)?;
         let mut target_path = self.node_index.get_path()?;
         let last_direction = target_path.pop().ok_or(ArtError::NoChanges)?;
 
         if let BranchChangeType::AddMember = &self.change_type {
-            if change_must_be_merged {
+            if marker_tree.data {
                 return Err(ArtError::InvalidMergeInput);
             }
 
             let art_tree_increased = handle_potential_art_node_extension_on_add_member(
-                &mut art.upstream_art.public_art,
+                &mut upstream_art.public_art,
                 &target_path,
                 last_direction,
             )?;
 
             let _ = handle_potential_marker_tree_node_extension_on_add_member(
-                &mut art.marker_tree,
+                &mut marker_tree,
                 &target_path,
                 last_direction,
             )?;
 
             if art_tree_increased {
-                let secret_increase_was_performed =
-                    insert_first_secret_at_start_if_need(&mut art.upstream_art, &target_path)?;
-                if secret_increase_was_performed {
-                    art.upstream_art.node_index.push(Direction::Left);
-                }
-
-                art.upstream_art
-                    .public_art
-                    .update_weight(&target_path, true)?;
+                update_secrets_if_need(&mut upstream_art, &target_path)?;
+                upstream_art.public_art.update_weight(&target_path, true)?;
             }
         }
 
         if let BranchChangeType::RemoveMember = &self.change_type {
             if matches!(
-                art.upstream_art.get_node(&self.node_index)?.get_status(),
+                upstream_art.get_node(&self.node_index)?.get_status(),
                 Some(LeafStatus::Blank)
             ) {
                 art.stashed_confirm_removals.push(self.clone());
                 let updated_secrets = art.get_updated_secrets(self)?;
-                return updated_secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk);
+                return Ok(*updated_secrets.last().ok_or(ArtError::EmptyArt)?);
             }
 
-            art.upstream_art
-                .public_art
-                .update_weight(&target_path, false)?;
+            upstream_art.public_art.update_weight(&target_path, false)?;
         }
 
         if let BranchChangeType::Leave = &self.change_type {
-            art.upstream_art
-                .public_art
-                .update_weight(&target_path, false)?;
+            upstream_art.public_art.update_weight(&target_path, false)?;
         }
 
-        let merge_bound = compute_merge_bound(&art.marker_tree, &self.node_index.get_path()?)?;
+        let merge_bound = compute_merge_bound(&marker_tree, &self.node_index.get_path()?)?;
 
-        art.upstream_art.public_art.merge_by_marker(
+        upstream_art.public_art.merge_by_marker(
             &self.public_keys,
             &self.node_index.get_path()?,
-            &mut art.marker_tree,
+            &mut marker_tree,
         )?;
 
         helper_tools::change_leaf_status_by_change_type(
-            art.upstream_art
-                .get_mut_node_at(&self.node_index.get_path()?)?,
+            upstream_art.get_mut_node_at(&self.node_index.get_path()?)?,
             &self.change_type,
         )?;
 
         let updated_secrets = art.get_updated_secrets(self)?;
-        // art.update_secrets(&updated_secrets, change_must_be_merged)?;
-        art.upstream_art.update_secrets_with_merge_bound(&updated_secrets, merge_bound)?;
+        upstream_art.update_secrets_with_merge_bound(&updated_secrets, merge_bound)?;
 
-        updated_secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk)
+        let tk = *updated_secrets.last().ok_or(ArtError::EmptyArt)?;
+
+        art.marker_tree = marker_tree;
+        art.upstream_art = upstream_art;
+
+        Ok(tk)
     }
 }
 

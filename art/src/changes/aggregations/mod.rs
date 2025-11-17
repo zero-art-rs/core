@@ -9,6 +9,4 @@ mod aggregation_data;
 
 pub use aggregated_change::{AggregatedChange, AggregationTree};
 pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};
-pub use aggregation_data::{
-    AggregationData, ProverAggregationData, VerifierAggregationData,
-};
+pub use aggregation_data::{AggregationData, ProverAggregationData, VerifierAggregationData};

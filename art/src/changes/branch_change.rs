@@ -1,13 +1,18 @@
 //! Module with branch changes of the ART.
 
+use crate::art::{
+    PrivateArt, PublicArt, handle_potential_art_node_extension_on_add_member,
+    handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
+};
+use crate::changes::aggregations::AggregationNode;
+use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
-use crate::node_index::NodeIndex;
+use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, rc::Rc};
 use zrt_zk::{EligibilityArtefact, art::ProverNodeData, engine::ZeroArtProverEngine};
-
 
 /// Marker for a `BranchChange` type.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -123,7 +128,6 @@ where
         pk: G,
     },
 }
-
 
 impl<G> From<&BranchChangesTypeHint<G>> for BranchChangeType
 where
