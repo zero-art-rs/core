@@ -261,6 +261,85 @@ mod tests {
     }
 
     #[test]
+    fn test_leave_proof() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let public_art = private_art.get_public_art().clone();
+
+        let mut art = PrivateZeroArt::new(
+            private_art,
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        ).unwrap();
+
+        let mut test_art = PrivateZeroArt::new(
+            PrivateArt::new(public_art, secrets[1]).unwrap(),
+            Box::new(StdRng::seed_from_u64(rand::random()))
+        ).unwrap();
+
+        let new_secret_key = Fr::rand(&mut rng);
+        let associated_data = b"Some data for proof";
+
+        let leave_group_output = art.leave_group(new_secret_key).unwrap();
+
+        let proof = leave_group_output
+            .prove(associated_data, None)
+            .unwrap();
+        let mut proof_bytes = Vec::new();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
+        let leave_group_change = leave_group_output.branch_change.clone();
+
+        assert_eq!(
+            art.get_base_art().get_root().get_public_key(),
+            CortadoAffine::generator()
+                .mul(art.get_base_art().get_root_secret_key())
+                .into_affine()
+        );
+
+        let eligibility_requirement = EligibilityRequirement::Member(
+            test_art
+                .get_base_art()
+                .get_node(&leave_group_change.node_index)
+                .unwrap()
+                .get_public_key(),
+        );
+        let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
+        let verification_result = leave_group_change.verify(
+            &test_art,
+            associated_data,
+            eligibility_requirement,
+            &deserialized_proof,
+        );
+
+        assert!(
+            matches!(verification_result, Ok(())),
+            "Must successfully verify, while get {:?} result",
+            verification_result
+        );
+
+        // Try to remove leaf with LeafStatus::PendingBalance
+        leave_group_output.apply(&mut test_art).unwrap();
+        test_art.commit().unwrap();
+        // info!("test_art:\n{}", test_art.base_art.get_root());
+        let remove_output = test_art.remove_member(art.get_node_index(), Fr::rand(&mut rng)).unwrap();
+        let proof = remove_output.prove(associated_data, None).unwrap();
+        let remove_change = remove_output.branch_change.clone();
+
+        let eligibility_requirement = EligibilityRequirement::Member(
+            test_art
+                .get_base_art()
+                .get_root_public_key(),
+        );
+        remove_change.verify(&test_art, associated_data, eligibility_requirement, &proof).unwrap();
+
+    }
+
+    #[test]
     fn test_append_node_proof() {
         init_tracing();
 
