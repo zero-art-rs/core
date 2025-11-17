@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::mem;
 
+/// Status of the `ArtNode` leaf.
 #[derive(Deserialize, Serialize, Default, Debug, Clone, Copy, Eq, PartialEq)]
 #[serde(bound = "")]
 pub enum LeafStatus {
@@ -17,6 +18,7 @@ pub enum LeafStatus {
     Blank,
 }
 
+/// The node in the ART tree.
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[serde(bound = "")]
 pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
@@ -219,6 +221,10 @@ where
     }
 }
 
+/// `NodeIterWithPath` iterates over all the nodes, performing a depth-first traversal.
+///
+/// In addition to the node, this iterator returns vector of pairs
+/// `(&'a ArtNode<G>, Direction)` on path from root to the node.
 pub struct NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
@@ -227,7 +233,6 @@ where
     pub path: Vec<(&'a ArtNode<G>, Direction)>,
 }
 
-/// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, G> NodeIterWithPath<'a, G>
 where
     G: AffineRepr,
@@ -280,6 +285,11 @@ where
     }
 }
 
+/// `LeafIterWithPath` iterates over all the leaves in a tree from left most to right most,
+/// performing a depth-first traversal.
+///
+/// Along with the leaf, this iterator returns pairs `(&'a ArtNode<G>, Direction)` on path from
+/// root to the node, as `NodeIterWithPath` do.
 pub struct LeafIterWithPath<'a, G>
 where
     G: AffineRepr,
@@ -287,7 +297,6 @@ where
     pub inner_iter: NodeIterWithPath<'a, G>,
 }
 
-/// LeafIterWithPath iterates ove leaves from left most to right most
 impl<'a, G> LeafIterWithPath<'a, G>
 where
     G: AffineRepr,
@@ -316,6 +325,7 @@ where
     }
 }
 
+/// `NodeIter` iterates over all the nodes, performing a depth-first traversal.
 pub struct NodeIter<'a, G>
 where
     G: AffineRepr,
@@ -323,7 +333,6 @@ where
     pub inner_iter: NodeIterWithPath<'a, G>,
 }
 
-/// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, G> NodeIter<'a, G>
 where
     G: AffineRepr,
@@ -346,6 +355,9 @@ where
     }
 }
 
+/// `LeafIter` iterates over leaves from left most to right most, performing a depth-first traversal
+///
+/// It is a default iterator for `ArtNode`.
 pub struct LeafIter<'a, G>
 where
     G: AffineRepr,
@@ -353,7 +365,6 @@ where
     pub inner_iter: NodeIterWithPath<'a, G>,
 }
 
-/// LeafIter iterates ove leaves from left most to right most
 impl<'a, G> LeafIter<'a, G>
 where
     G: AffineRepr,
@@ -378,7 +389,6 @@ where
     }
 }
 
-/// Default iterator iterates over all the leaves from left to right
 impl<'a, G> IntoIterator for &'a ArtNode<G>
 where
     G: AffineRepr,

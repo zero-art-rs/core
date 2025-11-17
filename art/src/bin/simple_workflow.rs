@@ -61,7 +61,7 @@ fn example_of_simple_flow() {
     // Any user can update his public art with the next method.
     let output_1 = art_1.update_key(new_secret_key_1).unwrap();
     // Apply ephemeral operation to the ART tree with private branch change.
-    output_1.apply(&mut art_1).unwrap();
+    output_1.get_secret().apply(&mut art_1).unwrap();
     art_1.commit().unwrap();
 
     // Retrieve change from the private branch change

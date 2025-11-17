@@ -303,9 +303,21 @@ where
         if self.branch_change.change_type == BranchChangeType::UpdateKey
             && art.base_art.node_index == self.branch_change.node_index
         {
-            return self.inner_apply_own_key_update(art, self.leaf_secret);
+            return self.leaf_secret.apply(art);
         }
 
         self.branch_change.apply(art)
+    }
+}
+
+impl<G, R, S> ApplicableChange<PrivateZeroArt<G, R>> for S
+where
+    S: PrimeField,
+    G: AffineRepr<ScalarField = S>,
+    G::BaseField: PrimeField,
+    R: Rng + ?Sized,
+{
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+        helper_tools::inner_apply_own_key_update(art, *self)
     }
 }

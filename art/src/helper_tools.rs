@@ -1,4 +1,4 @@
-use crate::art::ProverArtefacts;
+use crate::art::{PrivateZeroArt, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
@@ -6,6 +6,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ed25519::EdwardsAffine;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+use ark_std::rand::Rng;
 use bulletproofs::PedersenGens;
 use cortado::CortadoAffine;
 use curve25519_dalek::Scalar;
@@ -146,4 +147,31 @@ pub(crate) fn compute_merge_bound(marker_tree: &AggregationNode<bool>, path: &[D
     }
 
     Ok(secrets_amount_to_merge)
+}
+
+pub(crate) fn inner_apply_own_key_update<R, G>(
+    art: &mut PrivateZeroArt<G, R>,
+    new_secret_key: G::ScalarField,
+) -> Result<(), ArtError>
+where
+    R: Rng + ?Sized,
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    let path = art.get_node_index().get_path()?;
+    let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
+    let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
+
+    let merge_bound = compute_merge_bound(&art.marker_tree, &path)?;
+
+    let marker_tree = &mut art.marker_tree;
+    art.upstream_art.public_art.merge_by_marker(
+        &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
+        &path,
+        marker_tree,
+    )?;
+
+    art.upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
+
+    Ok(())
 }

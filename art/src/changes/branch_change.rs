@@ -11,6 +11,7 @@ use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::rc::Rc;
+use tracing::debug;
 use zrt_zk::EligibilityArtefact;
 use zrt_zk::art::ProverNodeData;
 use zrt_zk::engine::ZeroArtProverEngine;
@@ -98,34 +99,6 @@ where
 
     pub fn get_prover_branch(&self) -> &Vec<ProverNodeData<G>> {
         &self.prover_branch
-    }
-
-    pub(crate) fn inner_apply_own_key_update<R>(
-        &self,
-        art: &mut PrivateZeroArt<G, R>,
-        new_secret_key: G::ScalarField,
-    ) -> Result<(), ArtError>
-    where
-        R: Rng + ?Sized,
-        G: AffineRepr,
-        G::BaseField: PrimeField,
-    {
-        let path = art.get_node_index().get_path()?;
-        let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
-        let artefacts = recompute_artefacts(new_secret_key, &co_path)?;
-
-        let merge_bound = compute_merge_bound(&art.marker_tree, &path)?;
-
-        let marker_tree = &mut art.marker_tree;
-        art.upstream_art.public_art.merge_by_marker(
-            &self.branch_change.public_keys,
-            &path,
-            marker_tree,
-        )?;
-
-        art.upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
-
-        Ok(())
     }
 }
 

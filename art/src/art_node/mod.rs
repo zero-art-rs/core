@@ -1,3 +1,5 @@
+//! Crate with the ART tree structure.
+
 mod art_node;
 mod tree_methods;
 

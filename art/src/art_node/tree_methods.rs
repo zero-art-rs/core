@@ -9,8 +9,8 @@ use ark_std::rand::Rng;
 
 /// A collection of helper methods to interact with tree.
 ///
-/// This trait provides access to the root node and other leaves. There are several
-/// similar methods, which differ only on input type. They can be differentiated by the postfix.
+/// This trait provides access to the root, internal nodes and leaves. There are several
+/// similar methods, which differ by input type. They can be differentiated by the postfix.
 /// If the method takes as input `NodeIndex`, then there is no specific postfixes. If it takes
 /// a slice `[Direction]`, then the postfix is `_at`. The last postfix `_with` is for methods,
 /// which searches for a node with the provided public key.

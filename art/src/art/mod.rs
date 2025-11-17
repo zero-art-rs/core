@@ -1,4 +1,5 @@
-//! Crate with ART types, operations and tools.
+//! Crate with ART types, which are build on top of the ART tree. Includes ART update operations
+//! and other tools.
 
 mod aggregations;
 mod art_advanced_operations;
