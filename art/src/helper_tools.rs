@@ -152,7 +152,7 @@ pub(crate) fn compute_merge_bound(marker_tree: &AggregationNode<bool>, path: &[D
 pub(crate) fn inner_apply_own_key_update<R, G>(
     art: &mut PrivateZeroArt<G, R>,
     new_secret_key: G::ScalarField,
-) -> Result<(), ArtError>
+) -> Result<G::ScalarField, ArtError>
 where
     R: Rng + ?Sized,
     G: AffineRepr,
@@ -173,5 +173,5 @@ where
 
     art.upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
 
-    Ok(())
+    artefacts.secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk)
 }

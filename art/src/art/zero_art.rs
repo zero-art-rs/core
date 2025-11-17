@@ -743,7 +743,7 @@ mod test {
         let mut user1_test_art = user1.clone();
         private_change1.apply(&mut user1_test_art).unwrap();
         for change in &all_but_1_changes {
-            change.apply(&mut user1_test_art).unwrap()
+            change.apply(&mut user1_test_art).unwrap();
         }
         user1_test_art.commit().unwrap();
 
@@ -772,7 +772,7 @@ mod test {
             let mut art_1_analog = user1.clone();
             private_change1.apply(&mut art_1_analog).unwrap();
             for change in &permutation {
-                change.apply(&mut art_1_analog).unwrap()
+                change.apply(&mut art_1_analog).unwrap();
             }
             art_1_analog.commit().unwrap();
 

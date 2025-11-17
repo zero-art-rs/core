@@ -23,12 +23,12 @@ use crate::helper_tools::compute_merge_bound;
 ///
 /// # Type Parameters
 /// * `T` – The type of the ART tree type being updated.
-pub trait ApplicableChange<T> {
-    /// Apply a change to the provided art.
-    fn apply(&self, art: &mut T) -> Result<(), ArtError>;
+pub trait ApplicableChange<T, R> {
+    /// Apply a change to the provided art. Return secret root key mede from the change.
+    fn apply(&self, art: &mut T) -> Result<R, ArtError>;
 }
 
-impl<G> ApplicableChange<PublicArt<G>> for BranchChange<G>
+impl<G> ApplicableChange<PublicArt<G>, ()> for BranchChange<G>
 where
     G: AffineRepr,
 {
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>> for BranchChange<G>
+impl<G> ApplicableChange<PrivateArt<G>, ()> for BranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -62,7 +62,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PublicArt<G>> for AggregatedChange<G>
+impl<G> ApplicableChange<PublicArt<G>, ()> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PrivateArt<G>> for AggregatedChange<G>
+impl<G> ApplicableChange<PrivateArt<G>, ()> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -82,7 +82,7 @@ where
     }
 }
 
-impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
+impl ApplicableChange<PublicZeroArt<CortadoAffine>, ()> for AggregatedChange<CortadoAffine> {
     fn apply(&self, art: &mut PublicZeroArt<CortadoAffine>) -> Result<(), ArtError> {
         self.update_public_art(&mut art.upstream_art)?;
         art.commit()?;
@@ -92,7 +92,7 @@ impl ApplicableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<Cortado
     }
 }
 
-impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for AggregatedChange<G>
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>, ()> for AggregatedChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -107,7 +107,7 @@ where
     }
 }
 
-impl<G, R1, R2> ApplicableChange<PrivateZeroArt<G, R1>> for AggregationContext<PrivateArt<G>, G, R2>
+impl<G, R1, R2> ApplicableChange<PrivateZeroArt<G, R1>, ()> for AggregationContext<PrivateArt<G>, G, R2>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -123,7 +123,7 @@ where
     }
 }
 
-impl<G, R> ApplicableChange<PrivateArt<G>> for AggregationContext<PrivateArt<G>, G, R>
+impl<G, R> ApplicableChange<PrivateArt<G>, ()> for AggregationContext<PrivateArt<G>, G, R>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -136,7 +136,7 @@ where
     }
 }
 
-impl<G> ApplicableChange<PublicZeroArt<G>> for BranchChange<G>
+impl<G> ApplicableChange<PublicZeroArt<G>, ()> for BranchChange<G>
 where
     G: AffineRepr,
 {
@@ -198,13 +198,13 @@ where
     }
 }
 
-impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for BranchChange<G>
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>, G::ScalarField> for BranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<G::ScalarField, ArtError> {
         let change_must_be_merged = art.marker_tree.data;
 
         art.upstream_art.verify_change_applicability(self)?;
@@ -247,7 +247,8 @@ where
                 Some(LeafStatus::Blank)
             ) {
                 art.stashed_confirm_removals.push(self.clone());
-                return Ok(());
+                let updated_secrets = art.get_updated_secrets(self)?;
+                return updated_secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk);
             }
 
             art.upstream_art
@@ -279,11 +280,11 @@ where
         // art.update_secrets(&updated_secrets, change_must_be_merged)?;
         art.upstream_art.update_secrets_with_merge_bound(&updated_secrets, merge_bound)?;
 
-        Ok(())
+        updated_secrets.last().ok_or(ArtError::EmptyArt).map(|tk| *tk)
     }
 }
 
-impl<G> ApplicableChange<PublicZeroArt<G>> for PrivateBranchChange<G>
+impl<G> ApplicableChange<PublicZeroArt<G>, ()> for PrivateBranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -293,13 +294,13 @@ where
     }
 }
 
-impl<G, R> ApplicableChange<PrivateZeroArt<G, R>> for PrivateBranchChange<G>
+impl<G, R> ApplicableChange<PrivateZeroArt<G, R>, G::ScalarField> for PrivateBranchChange<G>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<G::ScalarField, ArtError> {
         if self.branch_change.change_type == BranchChangeType::UpdateKey
             && art.base_art.node_index == self.branch_change.node_index
         {
@@ -310,14 +311,14 @@ where
     }
 }
 
-impl<G, R, S> ApplicableChange<PrivateZeroArt<G, R>> for S
+impl<G, R, S> ApplicableChange<PrivateZeroArt<G, R>, G::ScalarField> for S
 where
     S: PrimeField,
     G: AffineRepr<ScalarField = S>,
     G::BaseField: PrimeField,
     R: Rng + ?Sized,
 {
-    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<(), ArtError> {
+    fn apply(&self, art: &mut PrivateZeroArt<G, R>) -> Result<G::ScalarField, ArtError> {
         helper_tools::inner_apply_own_key_update(art, *self)
     }
 }

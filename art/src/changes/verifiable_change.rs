@@ -159,7 +159,11 @@ mod tests {
         let associated_data = b"Some data for proof";
 
         let key_update_change_output = art.update_key(new_secret_key).unwrap();
-        key_update_change_output.apply(&mut art).unwrap();
+        let tk = key_update_change_output.apply(&mut art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            key_update_change_output.branch_change.public_keys[0]
+        );
         art.commit().unwrap();
 
         let proof = key_update_change_output
@@ -232,7 +236,11 @@ mod tests {
         let make_blank_change_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
-        make_blank_change_output.apply(&mut art).unwrap();
+        let tk = make_blank_change_output.apply(&mut art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            make_blank_change_output.branch_change.public_keys[0]
+        );
 
         let proof = make_blank_change_output
             .prove(associated_data, None)
@@ -282,7 +290,11 @@ mod tests {
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
 
-        append_node_changes_output.apply(&mut art).unwrap();
+        let tk = append_node_changes_output.apply(&mut art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            append_node_changes_output.branch_change.public_keys[0]
+        );
         art.commit().unwrap();
 
         let proof = append_node_changes_output
@@ -343,7 +355,11 @@ mod tests {
         let make_blank_changes_output = art
             .remove_member(&target_node_index, new_secret_key)
             .unwrap();
-        make_blank_changes_output.apply(&mut art).unwrap();
+        let tk = make_blank_changes_output.apply(&mut art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            make_blank_changes_output.branch_change.public_keys[0]
+        );
         art.commit().unwrap();
 
         let proof1 = make_blank_changes_output
@@ -366,7 +382,11 @@ mod tests {
             verification_result
         );
 
-        make_blank_changes.apply(&mut test_art).unwrap();
+        let tk = make_blank_changes.apply(&mut test_art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            make_blank_changes.public_keys[0].clone()
+        );
         test_art.commit().unwrap();
 
         assert_eq!(
@@ -386,7 +406,11 @@ mod tests {
         );
 
         let append_node_changes_output = art.add_member(new_secret_key).unwrap();
-        append_node_changes_output.apply(&mut art).unwrap();
+        let tk = append_node_changes_output.apply(&mut art).unwrap();
+        assert_eq!(
+            CortadoAffine::generator().mul(tk).into_affine(),
+            append_node_changes_output.branch_change.public_keys[0]
+        );
         art.commit().unwrap();
 
         assert_eq!(

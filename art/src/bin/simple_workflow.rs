@@ -182,25 +182,31 @@ fn example_of_merging_concurrent_changes() {
     let new_root = new_root.into_affine();
 
     // Apply changes to ART trees. Use private_change to apply change of the user own key.
-    private_change0.apply(&mut user0).unwrap();
-    change2.apply(&mut user0).unwrap();
-    change3.apply(&mut user0).unwrap();
+    // Every application returns partial root secret, i.e. the one, provided with the
+    // change itself.
+    let tk11 = private_change0.get_secret().apply(&mut user0).unwrap();
+    let tk21 = change2.apply(&mut user0).unwrap();
+    let tk31 = change3.apply(&mut user0).unwrap();
     user0.commit().unwrap();
+    assert_eq!(tk11 + tk21 + tk31, user0.get_root_secret_key());
 
-    change0.apply(&mut user1).unwrap();
-    change2.apply(&mut user1).unwrap();
-    change3.apply(&mut user1).unwrap();
+    let tk12 = change0.apply(&mut user1).unwrap();
+    let tk22 = change2.apply(&mut user1).unwrap();
+    let tk32 = change3.apply(&mut user1).unwrap();
     user1.commit().unwrap();
+    assert_eq!(tk12 + tk22 + tk32, user1.get_root_secret_key());
 
-    change0.apply(&mut user2).unwrap();
-    private_change2.apply(&mut user2).unwrap();
-    change3.apply(&mut user2).unwrap();
+    let tk13 = change0.apply(&mut user2).unwrap();
+    let tk23 = private_change2.apply(&mut user2).unwrap();
+    let tk33 = change3.apply(&mut user2).unwrap();
     user2.commit().unwrap();
+    assert_eq!(tk13 + tk23 + tk33, user2.get_root_secret_key());
 
-    change0.apply(&mut user3).unwrap();
-    change2.apply(&mut user3).unwrap();
-    private_change3.apply(&mut user3).unwrap();
+    let tk14 = change0.apply(&mut user3).unwrap();
+    let tk24 = change2.apply(&mut user3).unwrap();
+    let tk34 = private_change3.apply(&mut user3).unwrap();
     user3.commit().unwrap();
+    assert_eq!(tk14 + tk24 + tk34, user3.get_root_secret_key());
 
     assert_eq!(user0.get_upstream_art().get_root_public_key(), new_root);
     assert_eq!(user1.get_upstream_art().get_root_public_key(), new_root);
