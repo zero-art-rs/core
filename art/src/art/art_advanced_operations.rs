@@ -155,15 +155,15 @@ where
     ) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
         let path = target_leaf.get_path()?;
         let eligibility = if matches!(
-            self.base_art.get_node_at(&path)?.get_status(),
+            self.upstream_art.get_node_at(&path)?.get_status(),
             Some(LeafStatus::Active)
         ) {
-            let sk = self.base_art.get_leaf_secret_key();
-            let pk = self.base_art.get_leaf_public_key();
+            let sk = self.upstream_art.get_leaf_secret_key();
+            let pk = self.upstream_art.get_leaf_public_key();
             EligibilityArtefact::Owner((sk, pk))
         } else {
-            let sk = self.base_art.get_root_secret_key();
-            let pk = self.base_art.get_root().get_public_key();
+            let sk = self.upstream_art.get_root_secret_key();
+            let pk = self.upstream_art.get_root().get_public_key();
             EligibilityArtefact::Member((sk, pk))
         };
 
@@ -179,7 +179,7 @@ where
     }
 
     fn leave_group(&mut self, new_key: Fr) -> Result<PrivateBranchChange<CortadoAffine>, ArtError> {
-        let index = self.base_art.get_node_index().clone();
+        let index = self.upstream_art.get_node_index().clone();
         let output = self
             .update_node_key(&index, new_key, false)
             .map(|mut output| {
