@@ -58,7 +58,7 @@ where
         proof: &ArtProof,
     ) -> Result<(), ArtError> {
         let verification_branch = art
-            .upstream_art
+            .base_art
             .get_public_art()
             .compute_artefacts_for_verification(self)?
             .to_verifier_branch()?;
@@ -199,6 +199,85 @@ mod tests {
             "Must successfully verify, while get {:?} result",
             verification_result
         );
+    }
+
+    #[test]
+    fn test_double_key_update_proof() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(rand::random());
+        let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let public_art = private_art.get_public_art().clone();
+
+        let mut user0 = PrivateZeroArt::new(
+            private_art,
+            Box::new(StdRng::seed_from_u64(rand::random()))
+        ).unwrap();
+
+        let mut user1 = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
+            Box::new(StdRng::seed_from_u64(rand::random()))
+        ).unwrap();
+
+        let mut user2 = PrivateZeroArt::new(
+            PrivateArt::new(public_art.clone(), secrets[2]).unwrap(),
+            Box::new(StdRng::seed_from_u64(rand::random()))
+        ).unwrap();
+
+        let associated_data0_0 = b"Some data for proof";
+        let associated_data0_1 = b"another data for proof";
+
+        let key_update_change_output0_0 = user0.update_key(Fr::rand(&mut rng)).unwrap();
+        let key_update_change_output0_1 = user1.update_key(Fr::rand(&mut rng)).unwrap();
+
+        let proof0_0 = key_update_change_output0_0
+            .prove(associated_data0_0, None)
+            .unwrap();
+
+        let proof0_1 = key_update_change_output0_1
+            .prove(associated_data0_1, None)
+            .unwrap();
+
+        let key_update_change0_0 = key_update_change_output0_0.get_branch_change().clone();
+        let key_update_change0_1 = key_update_change_output0_1.get_branch_change().clone();
+
+        let eligibility_requirement0_0 = EligibilityRequirement::Member(
+            user2
+                .get_base_art()
+                .get_node(&key_update_change0_0.node_index)
+                .unwrap()
+                .get_public_key(),
+        );
+
+        key_update_change0_0.verify(
+            &user2,
+            associated_data0_0,
+            eligibility_requirement0_0,
+            &proof0_0,
+        ).unwrap();
+
+        key_update_change0_0.apply(&mut user2).unwrap();
+
+        let eligibility_requirement0_1 = EligibilityRequirement::Member(
+            user2
+                .get_base_art()
+                .get_node(&key_update_change0_1.node_index)
+                .unwrap()
+                .get_public_key(),
+        );
+
+        key_update_change0_1.verify(
+            &user2,
+            associated_data0_1,
+            eligibility_requirement0_1,
+            &proof0_1,
+        ).unwrap();
+
+        key_update_change0_1.apply(&mut user2).unwrap();
     }
 
     #[test]
