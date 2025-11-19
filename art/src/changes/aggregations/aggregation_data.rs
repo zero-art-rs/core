@@ -1,4 +1,4 @@
-use crate::changes::branch_change::{BranchChangeType, BranchChangesTypeHint};
+use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::helper_tools::prepare_short_marker_for_option;
 use crate::helper_tools::{ark_de, ark_se};
 use ark_ec::AffineRepr;
@@ -34,7 +34,7 @@ where
     pub blinding_factor: G::ScalarField,
 
     /// Change type marker
-    pub change_type: Vec<BranchChangesTypeHint<G>>,
+    pub change_type: Vec<BranchChangeTypeHint<G>>,
 }
 
 impl<G> ProverAggregationData<G>
@@ -62,7 +62,7 @@ where
     pub public_key: G,
 
     /// Change type marker
-    pub change_type: Vec<BranchChangesTypeHint<G>>,
+    pub change_type: Vec<BranchChangeTypeHint<G>>,
 }
 
 impl<G> AggregationData<G>
@@ -92,7 +92,7 @@ where
     pub co_public_key: Option<G>,
 
     /// Change type marker
-    pub change_type: Vec<BranchChangesTypeHint<G>>,
+    pub change_type: Vec<BranchChangeTypeHint<G>>,
 }
 
 impl<G> Display for ProverAggregationData<G>

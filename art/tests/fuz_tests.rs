@@ -35,7 +35,7 @@ mod tests {
         fn min_max_leaf_height(&self) -> Result<(u64, u64), ArtError> {
             let mut min_height = u64::MAX;
             let mut max_height = u64::MIN;
-            let root = self.get_root();
+            let root = self.root();
 
             for (_, path) in LeafIterWithPath::new(root) {
                 min_height = min(min_height, path.len() as u64);
@@ -218,7 +218,7 @@ mod tests {
                 group_arts[i].get_disbalance().unwrap() < 2,
                 "Sanity check: art disbalance {} stays low. in art\n{}",
                 group_arts[i].get_disbalance().unwrap(),
-                group_arts[i].get_root(),
+                group_arts[i].root(),
             );
         }
 

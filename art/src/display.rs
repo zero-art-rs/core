@@ -36,19 +36,19 @@ where
             ArtNode::Internal { .. } => "",
         };
 
-        let pk_marker = prepare_short_marker_for_option(&node.get_public_key().x());
+        let pk_marker = prepare_short_marker_for_option(&node.public_key().x());
 
         match node {
             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
                 public_key: format!(
                     "{} leaf of weight: {}, x: {}",
                     blank_marker,
-                    node.get_weight(),
+                    node.weight(),
                     pk_marker,
                 ),
             },
             ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-                public_key: format!("Node of weight: {}, x: {}", node.get_weight(), pk_marker,),
+                public_key: format!("Node of weight: {}, x: {}", node.weight(), pk_marker,),
                 left: Box::new(ARTDisplayTree::from(l.as_ref())),
                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
             },

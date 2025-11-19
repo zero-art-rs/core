@@ -11,6 +11,8 @@ pub enum ArtError {
     ArtLogic,
     #[error("Invalid input provided.")]
     InvalidInput,
+    #[error("Invalid PublicBranchChange provided.")]
+    InvalidBranchChange,
     #[error("Fail to update. Path to user leaf is a subpath of updated path.")]
     SubPath,
     #[error("Postcard error: {0}")]

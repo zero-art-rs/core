@@ -8,5 +8,6 @@ mod aggregated_node;
 mod aggregation_data;
 
 pub use aggregated_change::{AggregatedChange, AggregationTree};
-pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath};
+pub(crate) use aggregated_node::TreeIterHelper;
+pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath, TreeNodeIterWithPath};
 pub use aggregation_data::{AggregationData, ProverAggregationData, VerifierAggregationData};

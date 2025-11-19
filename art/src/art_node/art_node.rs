@@ -1,3 +1,4 @@
+use crate::art::PublicMergeData;
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::Direction;
@@ -61,7 +62,7 @@ where
 
     /// Creates a new ArtNode internal node with the given public key.
     pub fn new_internal_node(public_key: G, l: Box<Self>, r: Box<Self>) -> Self {
-        let weight = l.get_weight() + r.get_weight();
+        let weight = l.weight() + r.weight();
 
         Self::Internal {
             public_key,
@@ -72,7 +73,7 @@ where
     }
 
     /// Returns the weight of the node.
-    pub fn get_weight(&self) -> usize {
+    pub fn weight(&self) -> usize {
         match self {
             Self::Internal { weight, .. } => *weight,
             Self::Leaf { status, .. } => match status {
@@ -82,7 +83,7 @@ where
         }
     }
 
-    pub fn get_mut_weight(&mut self) -> Result<&mut usize, ArtError> {
+    pub fn mut_weight(&mut self) -> Result<&mut usize, ArtError> {
         match self {
             ArtNode::Leaf { .. } => Err(ArtError::InternalNodeOnly),
             ArtNode::Internal { weight, .. } => Ok(weight),
@@ -90,7 +91,7 @@ where
     }
 
     /// If the node is leaf, return its status, else None
-    pub fn get_status(&self) -> Option<LeafStatus> {
+    pub fn status(&self) -> Option<LeafStatus> {
         match self {
             Self::Leaf { status, .. } => Some(*status),
             Self::Internal { .. } => None,
@@ -108,7 +109,7 @@ where
     }
 
     // Returns a copy of its public key
-    pub fn get_public_key(&self) -> G {
+    pub fn public_key(&self) -> G {
         match self {
             Self::Internal { public_key, .. } => *public_key,
             Self::Leaf { public_key, .. } => *public_key,
@@ -122,9 +123,16 @@ where
         }
     }
 
+    pub fn mut_public_key(&mut self) -> &mut G {
+        match self {
+            Self::Internal { public_key, .. } => public_key,
+            Self::Leaf { public_key, .. } => public_key,
+        }
+    }
+
     pub fn set_public_key_with_options(&mut self, new_public_key: G, append: bool) {
         let new_public_key = match append {
-            true => new_public_key.add(self.get_public_key()).into_affine(),
+            true => new_public_key.add(self.public_key()).into_affine(),
             false => new_public_key,
         };
 
@@ -132,10 +140,10 @@ where
     }
 
     pub fn merge_public_key(&mut self, new_public_key: G) {
-        self.set_public_key(new_public_key.add(self.get_public_key()).into_affine());
+        self.set_public_key(new_public_key.add(self.public_key()).into_affine());
     }
 
-    pub fn get_child(&self, child: Direction) -> Option<&Self> {
+    pub fn child<'a>(&'a self, child: Direction) -> Option<&'a Self> {
         match self {
             ArtNode::Leaf { .. } => None,
             ArtNode::Internal { l, r, .. } => match child {
@@ -145,15 +153,15 @@ where
         }
     }
 
-    pub fn get_left(&self) -> Option<&Self> {
-        self.get_child(Direction::Left)
+    pub fn left(&self) -> Option<&Self> {
+        self.child(Direction::Left)
     }
 
-    pub fn get_right(&self) -> Option<&Self> {
-        self.get_child(Direction::Right)
+    pub fn right(&self) -> Option<&Self> {
+        self.child(Direction::Right)
     }
 
-    pub fn get_mut_child(&mut self, child: Direction) -> Option<&mut Self> {
+    pub fn mut_child(&mut self, child: Direction) -> Option<&mut Self> {
         match self {
             ArtNode::Leaf { .. } => None,
             ArtNode::Internal { l, r, .. } => match child {
@@ -163,6 +171,20 @@ where
         }
     }
 
+    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
+    pub(crate) fn mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ArtError> {
+        let mut node = self;
+        for direction in path {
+            if let Some(child_node) = node.mut_child(*direction) {
+                node = child_node;
+            } else {
+                return Err(ArtError::PathNotExists);
+            }
+        }
+
+        Ok(node)
+    }
+
     pub fn is_leaf(&self) -> bool {
         matches!(self, ArtNode::Leaf { .. })
     }
@@ -170,13 +192,13 @@ where
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
-        let new_weight = self.get_weight() + other.get_weight();
+        let new_weight = self.weight() + other.weight();
 
         let mut tmp = Self::default();
         mem::swap(self, &mut tmp);
 
         let mut new_self = Self::Internal {
-            public_key: self.get_public_key(),
+            public_key: self.public_key(),
             l: Box::new(tmp),
             r: Box::new(other),
             weight: new_weight,
@@ -207,6 +229,42 @@ where
         Ok(())
     }
 
+    /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
+    pub(crate) fn leaf_with(&self, public_key: G) -> Result<&Self, ArtError> {
+        for (node, _) in NodeIterWithPath::new(self) {
+            if node.is_leaf() && node.public_key().eq(&public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
+    /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
+    pub(crate) fn node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
+        for (node, _) in NodeIterWithPath::new(self) {
+            if node.public_key().eq(&public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
+    /// Searches for a leaf with the provided `public_key`. If there is no such leaf, return `ArtError`.
+    pub fn path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
+        for (node, path) in NodeIterWithPath::new(self) {
+            if node.is_leaf() && node.public_key().eq(&public_key) {
+                return Ok(path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>());
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
     /// Increment or decrement weight by 1. Return error for leaf node.
     pub(crate) fn update_weight(&mut self, increment: bool) -> Result<(), ArtError> {
         match self {
@@ -218,6 +276,28 @@ where
         }
 
         Ok(())
+    }
+
+    pub(crate) fn preview_public_key(&self, merge_data: &PublicMergeData<G>) -> G {
+        let mut resulting_public_key = self.public_key();
+
+        if let Some(strong_key) = merge_data.strong_key() {
+            resulting_public_key = strong_key;
+        }
+
+        if let Some(weak_key) = merge_data.weak_key() {
+            resulting_public_key = resulting_public_key.add(&weak_key).into_affine();
+        }
+
+        resulting_public_key
+    }
+
+    pub(crate) fn commit(&mut self, merge_data: Option<&PublicMergeData<G>>) -> G {
+        if let Some(merge_data) = merge_data {
+            *self.mut_public_key() = self.preview_public_key(merge_data)
+        };
+
+        self.public_key()
     }
 }
 
@@ -263,7 +343,7 @@ where
                                 self.current_node = Some(parent);
                             } else if last_direction == Direction::Left {
                                 self.path.push((parent, Direction::Right));
-                                self.current_node = parent.get_child(Direction::Right);
+                                self.current_node = parent.child(Direction::Right);
                                 break;
                             }
                         }
@@ -275,7 +355,7 @@ where
                 }
             } else {
                 self.path.push((current_node, Direction::Left));
-                self.current_node = current_node.get_child(Direction::Left);
+                self.current_node = current_node.child(Direction::Left);
             }
 
             Some(return_item)

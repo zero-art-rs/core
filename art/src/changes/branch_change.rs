@@ -1,10 +1,10 @@
 //! Module with branch changes of the ART.
 
-use crate::art::{
-    PrivateArt, PublicArt, handle_potential_art_node_extension_on_add_member,
-    handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
-};
-use crate::changes::aggregations::AggregationNode;
+// use crate::art::{
+//     PrivateArt, PublicArt, handle_potential_art_node_extension_on_add_member,
+//     handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
+// };
+// use crate::changes::aggregations::AggregationNode;
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
@@ -95,7 +95,7 @@ where
 /// Marker for a `BranchChange` type. Similar to `BranchChangesType`, but with
 /// additional public data.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-pub enum BranchChangesTypeHint<G>
+pub enum BranchChangeTypeHint<G>
 where
     G: AffineRepr,
 {
@@ -129,16 +129,16 @@ where
     },
 }
 
-impl<G> From<&BranchChangesTypeHint<G>> for BranchChangeType
+impl<G> From<&BranchChangeTypeHint<G>> for BranchChangeType
 where
     G: AffineRepr,
 {
-    fn from(value: &BranchChangesTypeHint<G>) -> Self {
+    fn from(value: &BranchChangeTypeHint<G>) -> Self {
         match value {
-            BranchChangesTypeHint::RemoveMember { .. } => BranchChangeType::RemoveMember,
-            BranchChangesTypeHint::AddMember { .. } => BranchChangeType::AddMember,
-            BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
-            BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
+            BranchChangeTypeHint::RemoveMember { .. } => BranchChangeType::RemoveMember,
+            BranchChangeTypeHint::AddMember { .. } => BranchChangeType::AddMember,
+            BranchChangeTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
+            BranchChangeTypeHint::Leave { .. } => BranchChangeType::Leave,
         }
     }
 }

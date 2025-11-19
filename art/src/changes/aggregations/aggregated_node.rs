@@ -1,9 +1,9 @@
-use crate::art::ProverArtefacts;
-use crate::art_node::{ArtNode, NodeIterWithPath};
+use crate::art::{ArtNodePreview, ProverArtefacts};
+use crate::art_node::{ArtNode, NodeIterWithPath, TreeMethods};
 use crate::changes::aggregations::{
     AggregationData, AggregationTree, ProverAggregationData, VerifierAggregationData,
 };
-use crate::changes::branch_change::{BranchChange, BranchChangesTypeHint};
+use crate::changes::branch_change::{BranchChange, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
@@ -27,22 +27,33 @@ pub struct AggregationNode<D> {
 }
 
 impl<D> AggregationNode<D> {
-    pub fn get_node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
+    pub fn new_leaf(data: D) -> Self {
+        Self {
+            l: None,
+            r: None,
+            data,
+        }
+    }
+
+    pub fn node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;
         for direction in path {
-            parent = parent
-                .get_child(*direction)
-                .ok_or(ArtError::PathNotExists)?;
+            parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(parent)
     }
 
-    pub fn get_mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
+    pub fn is_leaf(&self) -> bool {
+        self.l.is_none() && self.r.is_none()
+    }
+
+    pub fn mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut parent = self;
         for direction in path {
             parent = parent
-                .get_mut_child(*direction)
+                .mut_child(*direction)
+                .as_mut()
                 .ok_or(ArtError::InternalNodeOnly)?;
         }
 
@@ -53,7 +64,7 @@ impl<D> AggregationNode<D> {
     pub fn contains(&self, path: &[Direction]) -> bool {
         let mut current_node = self;
         for direction in path {
-            if let Some(child) = current_node.get_child(*direction) {
+            if let Some(child) = current_node.child(*direction) {
                 current_node = child;
             } else {
                 return false;
@@ -68,7 +79,7 @@ impl<D> AggregationNode<D> {
         let mut intersection = Vec::new();
         let mut current_node = self;
         for dir in path {
-            if let Some(child) = current_node.get_child(*dir) {
+            if let Some(child) = current_node.child(*dir) {
                 intersection.push(*dir);
                 current_node = child;
             } else {
@@ -83,7 +94,8 @@ impl<D> AggregationNode<D> {
         let mut current_node = self;
         for dir in path {
             current_node = current_node
-                .get_mut_child(*dir)
+                .mut_child(*dir)
+                .as_mut()
                 .ok_or(ArtError::PathNotExists)?;
         }
 
@@ -114,6 +126,10 @@ impl<D> AggregationNode<D> {
         *child = Box::new(node);
         child.as_mut()
     }
+
+    pub(crate) fn node_iter_with_path(&self) -> AggregationNodeIterWithPath<'_, D> {
+        AggregationNodeIterWithPath::new(self)
+    }
 }
 
 impl<G> AggregationNode<ProverAggregationData<G>>
@@ -128,7 +144,7 @@ where
         rng: &mut R,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
-        change_type_hint: BranchChangesTypeHint<G>,
+        change_type_hint: BranchChangeTypeHint<G>,
     ) -> Result<(), ArtError> {
         let mut leaf_path = change.node_index.get_path()?;
 
@@ -136,7 +152,7 @@ where
             return Err(ArtError::EmptyArt);
         }
 
-        if let BranchChangesTypeHint::AddMember {
+        if let BranchChangeTypeHint::AddMember {
             ext_pk: Some(_), ..
         } = change_type_hint
         {
@@ -145,7 +161,7 @@ where
 
         self.extend_tree_with(rng, change, prover_artefacts)?;
 
-        let target_leaf = self.get_mut_node(&leaf_path)?;
+        let target_leaf = self.mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
 
         Ok(())
@@ -187,12 +203,12 @@ where
             };
 
             // update other_co_path
-            if let Some(child) = parent.get_mut_child(dir.other()) {
+            if let Some(child) = parent.mut_child(dir.other()) {
                 child.data.co_public_key = Some(change.public_keys[i + 1]);
             }
 
             // Update co_node
-            if let Some(co_node) = parent.get_mut_child(dir.other()) {
+            if let Some(co_node) = parent.mut_child(dir.other()) {
                 co_node.data.co_public_key = Some(child_data.public_key);
             }
 
@@ -216,7 +232,7 @@ where
         &mut self,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
-        change_type_hint: BranchChangesTypeHint<G>,
+        change_type_hint: BranchChangeTypeHint<G>,
     ) -> Result<(), ArtError> {
         let mut leaf_path = change.node_index.get_path()?;
 
@@ -224,7 +240,7 @@ where
             return Err(ArtError::EmptyArt);
         }
 
-        if let BranchChangesTypeHint::AddMember {
+        if let BranchChangeTypeHint::AddMember {
             ext_pk: Some(_), ..
         } = change_type_hint
         {
@@ -233,7 +249,7 @@ where
 
         self.extend_tree_with(change, prover_artefacts)?;
 
-        let target_leaf = self.get_mut_node(&leaf_path)?;
+        let target_leaf = self.mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
 
         Ok(())
@@ -276,30 +292,35 @@ where
 }
 
 // impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
-impl<D> AggregationNode<D>
-// where
-//     D: RelatedData + Clone + Default,
-{
+impl<D> AggregationNode<D> {
     /// Return a reference on a child on the given direction. Return None, if there is no
     /// child there.
-    pub(crate) fn get_child(&self, dir: Direction) -> Option<&Self> {
-        let child = match dir {
-            Direction::Right => self.r.as_ref(),
-            Direction::Left => self.l.as_ref(),
-        };
-
-        child.map(|r| r.as_ref())
+    pub(crate) fn child(&self, dir: Direction) -> Option<&Self> {
+        match dir {
+            Direction::Right => self.r.as_ref().map(|node| node.as_ref()),
+            Direction::Left => self.l.as_ref().map(|node| node.as_ref()),
+        }
     }
 
     /// Return a mutable reference on a child on the given direction. Return None,
     /// if there is no child there.
-    pub(crate) fn get_mut_child(&mut self, dir: Direction) -> Option<&mut Self> {
-        let child = match dir {
-            Direction::Right => self.r.as_mut(),
-            Direction::Left => self.l.as_mut(),
-        };
+    pub(crate) fn mut_child(&mut self, dir: Direction) -> &mut Option<Box<Self>> {
+        match dir {
+            Direction::Right => &mut self.r,
+            Direction::Left => &mut self.l,
+        }
+    }
 
-        child.map(|r| r.as_mut())
+    /// Return a mutable reference on a child on the given direction. Return None,
+    /// if there is no child there.
+    pub(crate) fn mut_child_or_default(&mut self, dir: Direction) -> &mut Self
+    where
+        D: Default,
+    {
+        match dir {
+            Direction::Right => self.r.get_or_insert_default().as_mut(),
+            Direction::Left => self.l.get_or_insert_default().as_mut(),
+        }
     }
 }
 
@@ -336,7 +357,7 @@ where
                 let verifier_data = D2::from(node.data.clone());
                 let next_node = AggregationNode::from(verifier_data);
 
-                if let Ok(child) = aggregation.get_mut_node(&node_path) {
+                if let Ok(child) = aggregation.mut_node(&node_path) {
                     child.set_child(last_dir, next_node);
                 }
             }
@@ -363,7 +384,7 @@ where
             if let Some(last_dir) = node_path.pop() {
                 let next_node = AggregationNode::from(false);
 
-                if let Ok(child) = aggregation.get_mut_node(&node_path) {
+                if let Ok(child) = aggregation.mut_node(&node_path) {
                     child.set_child(last_dir, next_node);
                 }
             }
@@ -512,11 +533,115 @@ where
                                 } else if last_direction == Direction::Left {
                                     // go on the right.
                                     self.path.push((parent, Direction::Right));
-                                    self.current_node = parent.get_child(Direction::Right);
+                                    self.current_node = parent.child(Direction::Right);
                                     break;
                                 }
                             } else if let (Some(_), None) | (None, Some(_)) = (&parent.l, &parent.r)
                             {
+                                // Go up
+                                self.current_node = Some(parent);
+                            } // parent node can't be a leaf node
+                        } else {
+                            self.current_node = None;
+                            return Some(return_item);
+                        }
+                    }
+                }
+            }
+
+            return Some(return_item);
+        }
+
+        None
+    }
+}
+
+// pub(crate) struct Child<'a, N> {
+//     child: Option<N>,
+// }
+
+pub(crate) trait TreeIterHelper {
+    type Child;
+
+    /// Return left and right child of the node
+    fn children(&self) -> (Option<Self::Child>, Option<Self::Child>) {
+        (self.child(Direction::Left), self.child(Direction::Right))
+    }
+
+    /// Return concreate_child of a node
+    fn child(&self, dir: Direction) -> Option<Self::Child>;
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeIterWithPath<N> {
+    pub(crate) current_node: Option<N>,
+    pub(crate) path: Vec<(N, Direction)>,
+}
+
+/// NodeIter iterates over all the nodes, performing a depth-first traversal
+impl<N> TreeNodeIterWithPath<N> {
+    pub fn new(root: N) -> Self {
+        Self {
+            current_node: Some(root),
+            path: vec![],
+        }
+    }
+}
+
+impl<'a, G> Iterator for TreeNodeIterWithPath<ArtNodePreview<'a, G>>
+where
+    G: AffineRepr,
+{
+    type Item = (
+        ArtNodePreview<'a, G>,
+        Vec<(ArtNodePreview<'a, G>, Direction)>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(current_node) = self.current_node {
+            let return_item = (current_node, self.path.clone());
+
+            match (
+                current_node.child(Direction::Left),
+                current_node.child(Direction::Right),
+            ) {
+                // (&current_node.l, &current_node.r)
+                (Some(l), Some(_)) => {
+                    // Try to go further down, to the left. The right case will be handled by the leaf case.
+                    self.path.push((current_node, Direction::Left));
+                    self.current_node = Some(l);
+                }
+                (Some(l), None) => {
+                    // Try to go further down. Pass through.
+                    self.path.push((current_node, Direction::Left));
+                    self.current_node = Some(l);
+                }
+                (None, Some(r)) => {
+                    // Try to go further down. Pass through.
+                    self.path.push((current_node, Direction::Right));
+                    self.current_node = Some(r);
+                }
+                (None, None) => {
+                    loop {
+                        if let Some((parent, last_direction)) = self.path.pop() {
+                            if let (Some(_), Some(_)) = (
+                                parent.child(Direction::Left),
+                                parent.child(Direction::Right),
+                            ) {
+                                // Try to go right, or else go up
+                                if last_direction == Direction::Right {
+                                    // Go up.
+                                    self.current_node = Some(parent);
+                                } else if last_direction == Direction::Left {
+                                    // go on the right.
+                                    self.path.push((parent, Direction::Right));
+                                    self.current_node = parent.child(Direction::Right);
+                                    break;
+                                }
+                            } else if let (Some(_), None) | (None, Some(_)) = (
+                                parent.child(Direction::Left),
+                                parent.child(Direction::Right),
+                            ) {
                                 // Go up
                                 self.current_node = Some(parent);
                             } // parent node can't be a leaf node

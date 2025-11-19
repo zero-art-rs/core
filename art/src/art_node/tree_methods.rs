@@ -1,11 +1,16 @@
 use crate::art::{PrivateArt, PublicArt};
-use crate::art::{PrivateZeroArt, PublicZeroArt};
+// use crate::art::{PrivateZeroArt, PublicZeroArt};
 use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
+
+pub(crate) trait TreeNode {
+    fn child(&self, dir: Direction) -> Option<&Self>;
+    fn mut_child(&self, dir: Direction) -> Option<&mut Self>;
+}
 
 /// A collection of helper methods to interact with tree.
 ///
@@ -19,33 +24,32 @@ use ark_std::rand::Rng;
 ///
 /// # Type Parameters
 /// * `G` - The affine curve representation used for nodes in the tree.
-pub trait TreeMethods<G>
-where
-    G: AffineRepr,
-{
+pub trait TreeMethods {
+    type Node: TreeNode;
+
     /// Return the reference on the root node of the tree.
-    fn get_root(&self) -> &ArtNode<G>;
+    fn root(&self) -> &Self::Node;
 
     /// Return the mutable reference on the root node of the tree
-    fn get_mut_root(&mut self) -> &mut ArtNode<G>;
+    fn mut_root(&mut self) -> &mut Self::Node;
 
     /// If exists, returns a reference on the node with the given index, in correspondence to the
     /// root node. Else return `ArtError`.
-    fn get_node(&self, index: &NodeIndex) -> Result<&ArtNode<G>, ArtError> {
-        self.get_node_at(&index.get_path()?)
+    fn node(&self, index: &NodeIndex) -> Result<&Self::Node, ArtError> {
+        self.node_at(&index.get_path()?)
     }
 
     /// If exists, returns mutable reference on the node with the given index, in correspondence
     /// to the root node. Else return `ArtError`.
-    fn get_mut_node(&mut self, index: &NodeIndex) -> Result<&mut ArtNode<G>, ArtError> {
-        self.get_mut_node_at(&index.get_path()?)
+    fn mut_node(&mut self, index: &NodeIndex) -> Result<&mut Self::Node, ArtError> {
+        self.mut_node_at(&index.get_path()?)
     }
 
     /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
-    fn get_node_at(&self, path: &[Direction]) -> Result<&ArtNode<G>, ArtError> {
-        let mut node = self.get_root();
+    fn node_at(&self, path: &[Direction]) -> Result<&Self::Node, ArtError> {
+        let mut node = self.root();
         for direction in path {
-            if let Some(child_node) = node.get_child(*direction) {
+            if let Some(child_node) = node.child(*direction) {
                 node = child_node;
             } else {
                 return Err(ArtError::PathNotExists);
@@ -56,117 +60,98 @@ where
     }
 
     /// If exists, returns a mutable reference on the node at the end of the given `path` form root. Else return `ArtError`.
-    fn get_mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ArtError> {
-        let mut node = self.get_mut_root();
+    fn mut_node_at(&mut self, path: &[Direction]) -> Result<&mut Self::Node, ArtError> {
+        let mut node = self.mut_root();
         for direction in path {
-            node = node
-                .get_mut_child(*direction)
-                .ok_or(ArtError::PathNotExists)?;
+            node = node.mut_child(*direction).ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(node)
     }
-
-    /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
-    fn get_leaf_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self.get_root()) {
-            if node.is_leaf() && node.get_public_key().eq(&public_key) {
-                return Ok(node);
-            }
-        }
-
-        Err(ArtError::PathNotExists)
-    }
-
-    /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
-    fn get_node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self.get_root()) {
-            if node.get_public_key().eq(&public_key) {
-                return Ok(node);
-            }
-        }
-
-        Err(ArtError::PathNotExists)
-    }
-
-    /// Searches for a leaf with the provided `public_key`. If there is no such leaf, retutrn `ArtError`.
-    fn get_path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
-        for (node, path) in NodeIterWithPath::new(self.get_root()) {
-            if node.is_leaf() && node.get_public_key().eq(&public_key) {
-                return Ok(path
-                    .iter()
-                    .map(|(_, direction)| *direction)
-                    .collect::<Vec<Direction>>());
-            }
-        }
-
-        Err(ArtError::PathNotExists)
-    }
 }
 
-impl<G> TreeMethods<G> for ArtNode<G>
+impl<G> TreeNode for ArtNode<G>
 where
     G: AffineRepr,
 {
-    fn get_root(&self) -> &ArtNode<G> {
+    fn child(&self, dir: Direction) -> Option<&Self> {
+        self.child(dir)
+    }
+
+    fn mut_child(&self, dir: Direction) -> Option<&mut Self> {
+        self.mut_child(dir)
+    }
+}
+
+impl<G> TreeMethods for ArtNode<G>
+where
+    G: AffineRepr,
+{
+    type Node = ArtNode<G>;
+
+    fn root(&self) -> &ArtNode<G> {
         self
     }
 
-    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
+    fn mut_root(&mut self) -> &mut ArtNode<G> {
         self
     }
 }
 
-impl<G> TreeMethods<G> for PublicArt<G>
+impl<G> TreeMethods for PublicArt<G>
 where
     G: AffineRepr,
 {
-    fn get_root(&self) -> &ArtNode<G> {
-        self.tree_root.get_root()
+    type Node = ArtNode<G>;
+
+    fn root(&self) -> &ArtNode<G> {
+        self.tree_root.root()
     }
 
-    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-        self.tree_root.get_mut_root()
+    fn mut_root(&mut self) -> &mut ArtNode<G> {
+        self.tree_root.mut_root()
     }
 }
 
-impl<G> TreeMethods<G> for PrivateArt<G>
+impl<G> TreeMethods for PrivateArt<G>
 where
     G: AffineRepr,
 {
-    fn get_root(&self) -> &ArtNode<G> {
-        self.public_art.tree_root.get_root()
+    type Node = ArtNode<G>;
+
+    fn root(&self) -> &ArtNode<G> {
+        self.public_art.tree_root.root()
     }
 
-    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-        self.public_art.tree_root.get_mut_root()
+    fn mut_root(&mut self) -> &mut ArtNode<G> {
+        self.public_art.tree_root.mut_root()
     }
 }
 
-impl<G> TreeMethods<G> for PublicZeroArt<G>
-where
-    G: AffineRepr,
-{
-    fn get_root(&self) -> &ArtNode<G> {
-        self.base_art.tree_root.get_root()
-    }
-
-    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-        self.base_art.tree_root.get_mut_root()
-    }
-}
-
-impl<G, R> TreeMethods<G> for PrivateZeroArt<G, R>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-    R: Rng + ?Sized,
-{
-    fn get_root(&self) -> &ArtNode<G> {
-        self.base_art.public_art.tree_root.get_root()
-    }
-
-    fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-        self.base_art.public_art.tree_root.get_mut_root()
-    }
-}
+// impl<G> TreeMethods<G> for PublicZeroArt<G>
+// where
+//     G: AffineRepr,
+// {
+//     fn get_root(&self) -> &ArtNode<G> {
+//         self.base_art.tree_root.get_root()
+//     }
+//
+//     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
+//         self.base_art.tree_root.get_mut_root()
+//     }
+// }
+//
+// impl<G, R> TreeMethods<G> for PrivateZeroArt<G, R>
+// where
+//     G: AffineRepr,
+//     G::BaseField: PrimeField,
+//     R: Rng + ?Sized,
+// {
+//     fn get_root(&self) -> &ArtNode<G> {
+//         self.base_art.public_art.tree_root.get_root()
+//     }
+//
+//     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
+//         self.base_art.public_art.tree_root.get_mut_root()
+//     }
+// }

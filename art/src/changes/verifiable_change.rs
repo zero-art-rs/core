@@ -1,4 +1,4 @@
-use crate::art::{PrivateZeroArt, PublicZeroArt};
+// use crate::art::{PrivateZeroArt, PublicZeroArt};
 use crate::changes::aggregations::AggregatedChange;
 use crate::changes::branch_change::BranchChange;
 use crate::errors::ArtError;
@@ -7,107 +7,107 @@ use cortado::CortadoAffine;
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::ArtProof;
-
-/// Describes an ART change, which can be verified.
-///
-/// Verification requires the next input:
-/// - `art` - the current of the ART
-/// - `ad` - the associated auxiliary data used in proof
-/// - `eligibility_requirement` - an eligibility requirement defining the update right of the proof creator
-/// - `proof` - proof which will be verified
-pub trait VerifiableChange<T> {
-    /// Fail if proof is invalid. Else returns `Ok(())`.
-    fn verify(
-        &self,
-        art: &T,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError>;
-}
-
-impl VerifiableChange<PublicZeroArt<CortadoAffine>> for BranchChange<CortadoAffine> {
-    fn verify(
-        &self,
-        art: &PublicZeroArt<CortadoAffine>,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError> {
-        let verification_branch = art
-            .base_art
-            .compute_artefacts_for_verification(self)?
-            .to_verifier_branch()?;
-
-        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
-        verifier_context.verify(proof, &verification_branch)?;
-
-        Ok(())
-    }
-}
-
-impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for BranchChange<CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
-    fn verify(
-        &self,
-        art: &PrivateZeroArt<CortadoAffine, R>,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError> {
-        let verification_branch = art
-            .base_art
-            .get_public_art()
-            .compute_artefacts_for_verification(self)?
-            .to_verifier_branch()?;
-
-        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
-        verifier_context.verify(proof, &verification_branch)?;
-
-        Ok(())
-    }
-}
-
-impl VerifiableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
-    fn verify(
-        &self,
-        art: &PublicZeroArt<CortadoAffine>,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError> {
-        let extracted_agg = self.add_co_path(&art.base_art)?;
-        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
-
-        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
-        verifier_context.verify_aggregated(&verifier_tree, proof)?;
-
-        Ok(())
-    }
-}
-
-impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for AggregatedChange<CortadoAffine>
-where
-    R: Rng + ?Sized,
-{
-    fn verify(
-        &self,
-        art: &PrivateZeroArt<CortadoAffine, R>,
-        ad: &[u8],
-        eligibility_requirement: EligibilityRequirement,
-        proof: &ArtProof,
-    ) -> Result<(), ArtError> {
-        let extracted_agg = self.add_co_path(&art.base_art.public_art)?;
-        let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
-
-        let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
-        verifier_context.verify_aggregated(&verifier_tree, proof)?;
-
-        Ok(())
-    }
-}
+//
+// /// Describes an ART change, which can be verified.
+// ///
+// /// Verification requires the next input:
+// /// - `art` - the current of the ART
+// /// - `ad` - the associated auxiliary data used in proof
+// /// - `eligibility_requirement` - an eligibility requirement defining the update right of the proof creator
+// /// - `proof` - proof which will be verified
+// pub trait VerifiableChange<T> {
+//     /// Fail if proof is invalid. Else returns `Ok(())`.
+//     fn verify(
+//         &self,
+//         art: &T,
+//         ad: &[u8],
+//         eligibility_requirement: EligibilityRequirement,
+//         proof: &ArtProof,
+//     ) -> Result<(), ArtError>;
+// }
+//
+// impl VerifiableChange<PublicZeroArt<CortadoAffine>> for BranchChange<CortadoAffine> {
+//     fn verify(
+//         &self,
+//         art: &PublicZeroArt<CortadoAffine>,
+//         ad: &[u8],
+//         eligibility_requirement: EligibilityRequirement,
+//         proof: &ArtProof,
+//     ) -> Result<(), ArtError> {
+//         let verification_branch = art
+//             .base_art
+//             .compute_artefacts_for_verification(self)?
+//             .to_verifier_branch()?;
+//
+//         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+//         verifier_context.verify(proof, &verification_branch)?;
+//
+//         Ok(())
+//     }
+// }
+//
+// impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for BranchChange<CortadoAffine>
+// where
+//     R: Rng + ?Sized,
+// {
+//     fn verify(
+//         &self,
+//         art: &PrivateZeroArt<CortadoAffine, R>,
+//         ad: &[u8],
+//         eligibility_requirement: EligibilityRequirement,
+//         proof: &ArtProof,
+//     ) -> Result<(), ArtError> {
+//         let verification_branch = art
+//             .base_art
+//             .get_public_art()
+//             .compute_artefacts_for_verification(self)?
+//             .to_verifier_branch()?;
+//
+//         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+//         verifier_context.verify(proof, &verification_branch)?;
+//
+//         Ok(())
+//     }
+// }
+//
+// impl VerifiableChange<PublicZeroArt<CortadoAffine>> for AggregatedChange<CortadoAffine> {
+//     fn verify(
+//         &self,
+//         art: &PublicZeroArt<CortadoAffine>,
+//         ad: &[u8],
+//         eligibility_requirement: EligibilityRequirement,
+//         proof: &ArtProof,
+//     ) -> Result<(), ArtError> {
+//         let extracted_agg = self.add_co_path(&art.base_art)?;
+//         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
+//
+//         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+//         verifier_context.verify_aggregated(&verifier_tree, proof)?;
+//
+//         Ok(())
+//     }
+// }
+//
+// impl<R> VerifiableChange<PrivateZeroArt<CortadoAffine, R>> for AggregatedChange<CortadoAffine>
+// where
+//     R: Rng + ?Sized,
+// {
+//     fn verify(
+//         &self,
+//         art: &PrivateZeroArt<CortadoAffine, R>,
+//         ad: &[u8],
+//         eligibility_requirement: EligibilityRequirement,
+//         proof: &ArtProof,
+//     ) -> Result<(), ArtError> {
+//         let extracted_agg = self.add_co_path(&art.base_art.public_art)?;
+//         let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg)?;
+//
+//         let verifier_context = art.verifier_engine.new_context(ad, eligibility_requirement);
+//         verifier_context.verify_aggregated(&verifier_tree, proof)?;
+//
+//         Ok(())
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -173,7 +173,7 @@ mod tests {
         let key_update_change = BranchChange::from(key_update_change_output);
 
         assert_eq!(
-            art.get_base_art().get_root().get_public_key(),
+            art.get_base_art().get_root().public_key(),
             CortadoAffine::generator()
                 .mul(art.get_base_art().get_root_secret_key())
                 .into_affine()
@@ -182,9 +182,9 @@ mod tests {
         let eligibility_requirement = EligibilityRequirement::Member(
             test_art
                 .get_base_art()
-                .get_node(&key_update_change.node_index)
+                .node(&key_update_change.node_index)
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
         );
         let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
         let verification_result = key_update_change.verify(
@@ -213,20 +213,21 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut user0 = PrivateZeroArt::new(
-            private_art,
-            Box::new(StdRng::seed_from_u64(rand::random()))
-        ).unwrap();
+        let mut user0 =
+            PrivateZeroArt::new(private_art, Box::new(StdRng::seed_from_u64(rand::random())))
+                .unwrap();
 
         let mut user1 = PrivateZeroArt::new(
             PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
-            Box::new(StdRng::seed_from_u64(rand::random()))
-        ).unwrap();
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        )
+        .unwrap();
 
         let mut user2 = PrivateZeroArt::new(
             PrivateArt::new(public_art.clone(), secrets[2]).unwrap(),
-            Box::new(StdRng::seed_from_u64(rand::random()))
-        ).unwrap();
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        )
+        .unwrap();
 
         let associated_data0_0 = b"Some data for proof";
         let associated_data0_1 = b"another data for proof";
@@ -248,34 +249,38 @@ mod tests {
         let eligibility_requirement0_0 = EligibilityRequirement::Member(
             user2
                 .get_base_art()
-                .get_node(&key_update_change0_0.node_index)
+                .node(&key_update_change0_0.node_index)
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
         );
 
-        key_update_change0_0.verify(
-            &user2,
-            associated_data0_0,
-            eligibility_requirement0_0,
-            &proof0_0,
-        ).unwrap();
+        key_update_change0_0
+            .verify(
+                &user2,
+                associated_data0_0,
+                eligibility_requirement0_0,
+                &proof0_0,
+            )
+            .unwrap();
 
         key_update_change0_0.apply(&mut user2).unwrap();
 
         let eligibility_requirement0_1 = EligibilityRequirement::Member(
             user2
                 .get_base_art()
-                .get_node(&key_update_change0_1.node_index)
+                .node(&key_update_change0_1.node_index)
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
         );
 
-        key_update_change0_1.verify(
-            &user2,
-            associated_data0_1,
-            eligibility_requirement0_1,
-            &proof0_1,
-        ).unwrap();
+        key_update_change0_1
+            .verify(
+                &user2,
+                associated_data0_1,
+                eligibility_requirement0_1,
+                &proof0_1,
+            )
+            .unwrap();
 
         key_update_change0_1.apply(&mut user2).unwrap();
     }
@@ -351,30 +356,28 @@ mod tests {
         let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let public_art = private_art.get_public_art().clone();
 
-        let mut art = PrivateZeroArt::new(
-            private_art,
-            Box::new(StdRng::seed_from_u64(rand::random())),
-        ).unwrap();
+        let mut art =
+            PrivateZeroArt::new(private_art, Box::new(StdRng::seed_from_u64(rand::random())))
+                .unwrap();
 
         let mut test_art = PrivateZeroArt::new(
             PrivateArt::new(public_art, secrets[1]).unwrap(),
-            Box::new(StdRng::seed_from_u64(rand::random()))
-        ).unwrap();
+            Box::new(StdRng::seed_from_u64(rand::random())),
+        )
+        .unwrap();
 
         let new_secret_key = Fr::rand(&mut rng);
         let associated_data = b"Some data for proof";
 
         let leave_group_output = art.leave_group(new_secret_key).unwrap();
 
-        let proof = leave_group_output
-            .prove(associated_data, None)
-            .unwrap();
+        let proof = leave_group_output.prove(associated_data, None).unwrap();
         let mut proof_bytes = Vec::new();
         proof.serialize_compressed(&mut proof_bytes).unwrap();
         let leave_group_change = leave_group_output.branch_change.clone();
 
         assert_eq!(
-            art.get_base_art().get_root().get_public_key(),
+            art.get_base_art().get_root().public_key(),
             CortadoAffine::generator()
                 .mul(art.get_base_art().get_root_secret_key())
                 .into_affine()
@@ -383,9 +386,9 @@ mod tests {
         let eligibility_requirement = EligibilityRequirement::Member(
             test_art
                 .get_base_art()
-                .get_node(&leave_group_change.node_index)
+                .node(&leave_group_change.node_index)
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
         );
         let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
         let verification_result = leave_group_change.verify(
@@ -405,17 +408,17 @@ mod tests {
         leave_group_output.apply(&mut test_art).unwrap();
         test_art.commit().unwrap();
         // info!("test_art:\n{}", test_art.base_art.get_root());
-        let remove_output = test_art.remove_member(art.get_node_index(), Fr::rand(&mut rng)).unwrap();
+        let remove_output = test_art
+            .remove_member(art.get_node_index(), Fr::rand(&mut rng))
+            .unwrap();
         let proof = remove_output.prove(associated_data, None).unwrap();
         let remove_change = remove_output.branch_change.clone();
 
-        let eligibility_requirement = EligibilityRequirement::Member(
-            test_art
-                .get_base_art()
-                .get_root_public_key(),
-        );
-        remove_change.verify(&test_art, associated_data, eligibility_requirement, &proof).unwrap();
-
+        let eligibility_requirement =
+            EligibilityRequirement::Member(test_art.get_base_art().get_root_public_key());
+        remove_change
+            .verify(&test_art, associated_data, eligibility_requirement, &proof)
+            .unwrap();
     }
 
     #[test]
@@ -554,9 +557,9 @@ mod tests {
         );
         assert_eq!(
             art.get_base_art()
-                .get_node(art.get_node_index())
+                .node(art.get_node_index())
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
             CortadoAffine::generator()
                 .mul(art.base_art.get_leaf_secret_key())
                 .into_affine()
@@ -573,15 +576,15 @@ mod tests {
         assert_eq!(
             public_key,
             art.get_base_art()
-                .get_node(art.get_node_index())
+                .node(art.get_node_index())
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
         );
         assert_eq!(
             art.get_base_art()
-                .get_node(art.get_node_index())
+                .node(art.get_node_index())
                 .unwrap()
-                .get_public_key(),
+                .public_key(),
             CortadoAffine::generator()
                 .mul(art.base_art.get_leaf_secret_key())
                 .into_affine()
