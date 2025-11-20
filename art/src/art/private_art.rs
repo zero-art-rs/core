@@ -323,7 +323,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::art::PrivateArt;
-    use crate::art_node::LeafIterWithPath;
+    use crate::art_node::{LeafIterWithPath, TreeMethods};
     use crate::test_helper_tools::init_tracing;
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;

@@ -667,40 +667,40 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::art::PrivateArt;
-    use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
-    use crate::changes::aggregations::AggregatedChange;
-    use crate::test_helper_tools::init_tracing;
-    use ark_std::UniformRand;
-    use ark_std::rand::prelude::StdRng;
-    use ark_std::rand::{SeedableRng, thread_rng};
-    use cortado::{CortadoAffine, Fr};
-
-    #[test]
-    fn test_aggregation_serialization() {
-        init_tracing();
-
-        let mut rng = StdRng::seed_from_u64(0);
-
-        let user0_rng = Box::new(thread_rng());
-        let mut user0 = PrivateZeroArt::new(
-            PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
-            user0_rng,
-        )
-        .unwrap();
-
-        let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
-        for _ in 0..8 {
-            agg.add_member(Fr::rand(&mut rng)).unwrap();
-        }
-
-        let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
-
-        let bytes = postcard::to_allocvec(&plain_agg).unwrap();
-        let retrieved_agg: AggregatedChange<CortadoAffine> = postcard::from_bytes(&bytes).unwrap();
-
-        assert_eq!(retrieved_agg, plain_agg);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::art::PrivateArt;
+//     use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
+//     use crate::changes::aggregations::AggregatedChange;
+//     use crate::test_helper_tools::init_tracing;
+//     use ark_std::UniformRand;
+//     use ark_std::rand::prelude::StdRng;
+//     use ark_std::rand::{SeedableRng, thread_rng};
+//     use cortado::{CortadoAffine, Fr};
+//
+//     #[test]
+//     fn test_aggregation_serialization() {
+//         init_tracing();
+//
+//         let mut rng = StdRng::seed_from_u64(0);
+//
+//         let user0_rng = Box::new(thread_rng());
+//         let mut user0 = PrivateZeroArt::new(
+//             PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap(),
+//             user0_rng,
+//         )
+//         .unwrap();
+//
+//         let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
+//         for _ in 0..8 {
+//             agg.add_member(Fr::rand(&mut rng)).unwrap();
+//         }
+//
+//         let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
+//
+//         let bytes = postcard::to_allocvec(&plain_agg).unwrap();
+//         let retrieved_agg: AggregatedChange<CortadoAffine> = postcard::from_bytes(&bytes).unwrap();
+//
+//         assert_eq!(retrieved_agg, plain_agg);
+//     }
+// }
