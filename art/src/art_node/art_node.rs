@@ -6,11 +6,13 @@ use ark_ec::AffineRepr;
 use ark_ec::CurveGroup;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
+use tracing::debug;
 
 /// Status of the `ArtNode` leaf.
-#[derive(Deserialize, Serialize, Default, Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(bound = "")]
 pub enum LeafStatus {
     #[default]

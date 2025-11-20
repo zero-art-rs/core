@@ -1,4 +1,4 @@
-use crate::art::{PrivateArt, PublicArt};
+use crate::art::{ArtNodePreview, PrivateArt, PublicArt};
 // use crate::art::{PrivateZeroArt, PublicZeroArt};
 use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::errors::ArtError;

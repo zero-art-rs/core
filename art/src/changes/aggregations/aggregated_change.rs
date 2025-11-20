@@ -16,6 +16,7 @@ use ark_std::iterable::Iterable;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use tracing::error;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
@@ -35,6 +36,10 @@ pub struct AggregationTree<D> {
 impl<D> AggregationTree<D> {
     pub fn root(&self) -> Option<&AggregationNode<D>> {
         self.root.as_ref()
+    }
+
+    pub(crate) fn mut_root(&mut self) -> &mut Option<AggregationNode<D>> {
+        &mut self.root
     }
 
     pub fn node_at(&self, path: &[Direction]) -> Option<&AggregationNode<D>> {
@@ -84,7 +89,11 @@ where
             .into_affine()
     }
 
-    pub(crate) fn update(&mut self, public_key: G, weak_only: bool) {
+    pub fn status(&self) -> Option<LeafStatus> {
+        self.data.status()
+    }
+
+    pub(crate) fn update_public_key(&mut self, public_key: G, weak_only: bool) {
         if !weak_only && self.data.strong_key().is_none() {
             *self.data.mut_strong_key() = Some(public_key);
         } else {
@@ -98,34 +107,38 @@ impl<G> AggregationTree<PublicMergeData<G>>
 where
     G: AffineRepr,
 {
+    /// Update branch and return the last node updated.
     pub(crate) fn add_branch_keys(
         &mut self,
-        public_keys: &Vec<G>,
-        path: &Vec<Direction>,
+        public_keys: &[G],
+        path: &[Direction],
         weak_only: bool,
-    ) -> Result<(), ArtError> {
+    ) -> Result<&mut AggregationNode<PublicMergeData<G>>, ArtError> {
         if public_keys.len() != path.len() + 1 {
+            error!(
+                "Invalid size for pk path ({}) and direction path: ({})",
+                public_keys.len(),
+                path.len()
+            );
             return Err(ArtError::InvalidBranchChange);
         }
 
-        let mut current_node = self
-            .root
-            .get_or_insert_with(|| AggregationNode::new_leaf(PublicMergeData::default()));
+        let mut current_node = self.root.get_or_insert_default();
 
-        let root_pk = *public_keys.last().ok_or(ArtError::NoChanges)?;
-        current_node.update(root_pk, weak_only);
+        let root_pk = *public_keys.first().ok_or(ArtError::NoChanges)?;
+        current_node.update_public_key(root_pk, weak_only);
 
         if public_keys.len() <= 1 {
-            return Ok(());
+            return Ok(current_node);
         }
 
-        for (dir, pk) in path.iter().zip(public_keys[..public_keys.len() - 1].iter()) {
+        for (dir, pk) in path.iter().zip(public_keys[1..].iter()) {
             current_node = current_node.mut_child(*dir).get_or_insert_default();
 
-            current_node.update(*pk, weak_only);
+            current_node.update_public_key(*pk, weak_only);
         }
 
-        Ok(())
+        Ok(current_node)
     }
 }
 

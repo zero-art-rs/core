@@ -390,11 +390,7 @@ mod tests {
             .node(&NodeIndex::Coordinate(1, 0))
             .unwrap()
             .public_key();
-        let root_pk = tree
-            .root()
-            .child(Direction::Left)
-            .unwrap()
-            .public_key();
+        let root_pk = tree.root().child(Direction::Left).unwrap().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -402,11 +398,7 @@ mod tests {
             .node(&NodeIndex::Coordinate(1, 1))
             .unwrap()
             .public_key();
-        let root_pk = tree
-            .root()
-            .child(Direction::Right)
-            .unwrap()
-            .public_key();
+        let root_pk = tree.root().child(Direction::Right).unwrap().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -502,11 +494,7 @@ mod tests {
             .node(&NodeIndex::Index(2))
             .unwrap()
             .public_key();
-        let root_pk = tree
-            .root()
-            .child(Direction::Left)
-            .unwrap()
-            .public_key();
+        let root_pk = tree.root().child(Direction::Left).unwrap().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -514,11 +502,7 @@ mod tests {
             .node(&NodeIndex::Index(3))
             .unwrap()
             .public_key();
-        let root_pk = tree
-            .root()
-            .child(Direction::Right)
-            .unwrap()
-            .public_key();
+        let root_pk = tree.root().child(Direction::Right).unwrap().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
@@ -540,11 +524,7 @@ mod tests {
 
         let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
         let node_index = NodeIndex::get_index_from_path(
-            &tree
-                .public_art()
-                .root()
-                .path_to_leaf_with(node_pk)
-                .unwrap(),
+            &tree.public_art().root().path_to_leaf_with(node_pk).unwrap(),
         )
         .unwrap();
         let rec_node_pk = tree

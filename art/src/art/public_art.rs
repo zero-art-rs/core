@@ -13,7 +13,8 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::cmp::max;
+use std::fmt::{Debug, Display, write};
 use std::mem;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -22,16 +23,23 @@ where
     G: AffineRepr,
 {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    weak_key: Option<G>,
+    pub(crate) strong_key: Option<G>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    strong_key: Option<G>,
-    status: Option<LeafStatus>,
+    pub(crate) weak_key: Option<G>,
+    pub(crate) status: Option<LeafStatus>,
 }
 
 impl<G> PublicMergeData<G>
 where
     G: AffineRepr,
 {
+    pub fn new(strong_key: Option<G>, weak_key: Option<G>, status: Option<LeafStatus>) -> Self {
+        Self {
+            weak_key,
+            strong_key,
+            status,
+        }
+    }
     pub fn weak_key(&self) -> Option<G> {
         self.weak_key
     }
@@ -52,8 +60,12 @@ where
         self.status
     }
 
-    pub fn mut_status(&mut self) -> &mut Option<LeafStatus> {
-        &mut self.status
+    pub fn update_status(&mut self, status: LeafStatus) {
+        if let Some(inner_status) = &mut self.status {
+            *inner_status = max(status, *inner_status);
+        } else {
+            self.status = Some(status);
+        }
     }
 }
 
@@ -134,8 +146,6 @@ where
     ) -> Result<(), ArtError> {
         for (merge_node, path_data) in merge_tree.node_iter_with_path() {
             let path = path_data.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-
-            let merge_data = &merge_node.data;
             let art_node = self.mut_root().mut_node_at(&path)?;
 
             if art_node.is_leaf() && !merge_node.is_leaf() {
@@ -144,8 +154,9 @@ where
                     .ok_or(ArtError::InvalidBranchChange)?
                     .preview_public_key();
                 art_node.extend(ArtNode::new_leaf(public_key));
+                art_node.commit(Some(&merge_node.data));
             } else {
-                art_node.commit(Some(merge_data));
+                art_node.commit(Some(&merge_node.data));
             }
         }
 
@@ -188,67 +199,6 @@ where
         PublicArtPreview { public_art: self }
     }
 
-    pub(crate) fn post_process_change(
-        &mut self,
-        path: &Vec<Direction>,
-        change_type: BranchChangeType,
-    ) -> Result<(), ArtError> {
-        match change_type {
-            BranchChangeType::UpdateKey => {}
-            BranchChangeType::AddMember => {
-                let mut parent_path = path.clone();
-                let last_path = parent_path.pop().ok_or(ArtError::InvalidBranchChange)?;
-
-                let art_parent_node = self.node_at(&parent_path)?;
-                let art_parent_node_pk = art_parent_node.public_key();
-                let art_parent_node_is_leaf = art_parent_node.is_leaf();
-
-                let merge_parent = self
-                    .merge_tree
-                    .mut_node_at(&parent_path)
-                    .ok_or(ArtError::InvalidBranchChange)?;
-                if art_parent_node_is_leaf {
-                    let child = merge_parent.mut_child_or_default(last_path);
-                    let Some(status) = child.data.mut_status() else {
-                        return Err(ArtError::InvalidBranchChange);
-                    };
-                    *status = LeafStatus::Active
-                } else {
-                    if matches!(last_path, Direction::Left) {
-                        return Err(ArtError::InvalidBranchChange);
-                    }
-
-                    let left_child = merge_parent.mut_child_or_default(Direction::Left);
-                    *left_child.data.mut_strong_key() = Some(art_parent_node_pk);
-                }
-            }
-            BranchChangeType::RemoveMember => {
-                let target_node = self
-                    .merge_tree
-                    .mut_node_at(path)
-                    .ok_or(ArtError::InvalidBranchChange)?;
-                let Some(status) = target_node.data.mut_status() else {
-                    return Err(ArtError::InvalidBranchChange);
-                };
-                *status = LeafStatus::Blank
-            }
-            BranchChangeType::Leave => {
-                let target_node = self
-                    .merge_tree
-                    .mut_node_at(path)
-                    .ok_or(ArtError::InvalidBranchChange)?;
-                let Some(status) = target_node.data.mut_status() else {
-                    return Err(ArtError::InvalidBranchChange);
-                };
-                if matches!(status, LeafStatus::Active) {
-                    *status = LeafStatus::PendingRemoval
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Returns a co-path to the leaf with a given public key. Co-path is a vector of public keys
     /// of nodes on path from user's leaf to root
     pub(crate) fn co_path(&self, path: &[Direction]) -> Result<Vec<G>, ArtError> {
@@ -259,7 +209,7 @@ where
             co_path_values.push(
                 parent
                     .child(direction.other())
-                    .ok_or(ArtError::InvalidInput)?
+                    .ok_or(ArtError::PathNotExists)?
                     .public_key(),
             );
             parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
@@ -268,13 +218,104 @@ where
         co_path_values.reverse();
         Ok(co_path_values)
     }
+
+    pub(crate) fn apply_update_key(
+        &mut self,
+        public_keys: &[G],
+        path: &[Direction],
+    ) -> Result<(), ArtError> {
+        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, false)?;
+
+        if merge_leaf.is_leaf() {
+            merge_leaf.data.update_status(LeafStatus::Active);
+        } else {
+            return Err(ArtError::LeafOnly);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn apply_add_member(
+        &mut self,
+        public_keys: &[G],
+        path: &[Direction],
+        extend_tree: bool,
+    ) -> Result<(), ArtError> {
+        if extend_tree {
+            let new_leaf_public_key = *public_keys.last().ok_or(ArtError::NoChanges)?;
+
+            let target_node = self.node_at(path)?;
+            let public_key = target_node.public_key();
+            let Some(status) = target_node.status() else {
+                return Err(ArtError::InvalidBranchChange);
+            };
+
+            let merge_leaf = self.merge_tree.add_branch_keys(
+                &public_keys[..public_keys.len() - 1],
+                path,
+                false,
+            )?;
+
+            *merge_leaf.mut_child(Direction::Right) = Some(Box::new(AggregationNode::new_leaf(
+                PublicMergeData::new(Some(new_leaf_public_key), None, Some(LeafStatus::Active)),
+            )));
+            *merge_leaf.mut_child(Direction::Left) = Some(Box::new(AggregationNode::new_leaf(
+                PublicMergeData::new(Some(public_key), None, Some(status)),
+            )));
+        } else {
+            let merge_leaf = self.merge_tree.add_branch_keys(
+                &public_keys[..public_keys.len() - 1],
+                path,
+                false,
+            )?;
+            merge_leaf.data.update_status(LeafStatus::Active);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn apply_remove_member(
+        &mut self,
+        public_keys: &[G],
+        path: &[Direction],
+        weak_only: bool,
+    ) -> Result<(), ArtError> {
+        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, weak_only)?;
+
+        if merge_leaf.is_leaf() {
+            merge_leaf.data.update_status(LeafStatus::Blank);
+        } else {
+            return Err(ArtError::LeafOnly);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn apply_leave(
+        &mut self,
+        public_keys: &[G],
+        path: &[Direction],
+    ) -> Result<(), ArtError> {
+        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, false)?;
+
+        if merge_leaf.is_leaf() {
+            merge_leaf.data.update_status(LeafStatus::PendingRemoval);
+        } else {
+            return Err(ArtError::LeafOnly);
+        }
+
+        Ok(())
+    }
 }
 
-impl<G> ApplicableChange<PublicArt<G>, ()> for BranchChange<G>
+impl<G> BranchChange<G>
 where
     G: AffineRepr,
 {
-    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+    pub(crate) fn pub_art_apply_prepare(
+        &self,
+        art: &PublicArt<G>,
+    ) -> Result<(bool, Vec<Direction>), ArtError> {
         let weak_only = if let BranchChangeType::RemoveMember = self.change_type {
             if let ArtNode::Leaf { status, .. } = art.node(&self.node_index)? {
                 matches!(status, LeafStatus::Blank)
@@ -286,17 +327,40 @@ where
         };
 
         let path = self.node_index.get_path()?;
+
+        Ok((weak_only, path))
+    }
+
+    pub(crate) fn pub_art_unrecoverable_apply(
+        &self,
+        art: &mut PublicArt<G>,
+    ) -> Result<(), ArtError> {
+        let path = self.node_index.get_path()?;
+        match self.change_type {
+            BranchChangeType::UpdateKey => art.apply_update_key(&self.public_keys, &path),
+            BranchChangeType::AddMember => {
+                let target_status = art.node_at(&path)?.status();
+                let extend_tree = matches!(target_status, Some(LeafStatus::Active | LeafStatus::PendingRemoval));
+                art.apply_add_member(&self.public_keys, &path, extend_tree)
+            },
+            BranchChangeType::RemoveMember => {
+                let target_status = art.node_at(&path)?.status();
+                let weak_only = matches!(target_status, Some(LeafStatus::Blank));
+                art.apply_remove_member(&self.public_keys, &path, weak_only)
+            },
+            BranchChangeType::Leave => art.apply_leave(&self.public_keys, &path),
+        }
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>, ()> for BranchChange<G>
+where
+    G: AffineRepr,
+{
+    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
         let merge_tree_reserve_copy = art.merge_tree.clone();
 
-        if let Err(err) = art
-            .merge_tree
-            .add_branch_keys(&self.public_keys, &path, weak_only)
-        {
-            art.merge_tree = merge_tree_reserve_copy;
-            return Err(err);
-        }
-
-        if let Err(err) = art.post_process_change(&path, self.change_type) {
+        if let Err(err) = self.pub_art_unrecoverable_apply(art) {
             art.merge_tree = merge_tree_reserve_copy;
             return Err(err);
         }
@@ -346,9 +410,15 @@ where
         ArtNodePreview::new(art_node, merge_node)
     }
 
-    pub fn root(&self) -> ArtNodePreview<G> {
-        ArtNodePreview::ArtNodeOnly {
-            art_node: &self.public_art.tree_root,
+    pub fn root(&self) -> ArtNodePreview<'a, G> {
+        match self.public_art.merge_tree.root.as_ref() {
+            None => ArtNodePreview::ArtNodeOnly {
+                art_node: &self.public_art.tree_root,
+            },
+            Some(merge_tree_root) => ArtNodePreview::Full {
+                art_node: &self.public_art.tree_root,
+                merge_node: &merge_tree_root,
+            },
         }
     }
 
@@ -362,7 +432,7 @@ where
             co_path_values.push(
                 parent
                     .child(direction.other())
-                    .ok_or(ArtError::InvalidInput)?
+                    .ok_or(ArtError::PathNotExists)?
                     .public_key(),
             );
             parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
@@ -400,6 +470,26 @@ where
         }
     }
 
+    /// If exists, returns a reference on the node with the given index, in correspondence to the
+    /// root node. Else return `ArtError`.
+    pub fn node(&self, index: &NodeIndex) -> Result<Self, ArtError> {
+        self.node_at(&index.get_path()?)
+    }
+
+    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
+    pub fn node_at(&self, path: &[Direction]) -> Result<Self, ArtError> {
+        let mut node = self.clone();
+        for direction in path {
+            if let Some(child_node) = node.child(*direction) {
+                node = child_node;
+            } else {
+                return Err(ArtError::PathNotExists);
+            }
+        }
+
+        Ok(node)
+    }
+
     pub fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
         match self {
             ArtNodePreview::ArtNodeOnly { .. } => None,
@@ -416,6 +506,14 @@ where
                 art_node,
                 merge_node,
             } => art_node.preview_public_key(&merge_node.data),
+        }
+    }
+
+    pub fn status(&self) -> Option<LeafStatus> {
+        match self {
+            ArtNodePreview::ArtNodeOnly { art_node } => art_node.status(),
+            ArtNodePreview::MergeNodeOnly { merge_node } => merge_node.status(),
+            ArtNodePreview::Full { merge_node, .. } => merge_node.status(),
         }
     }
 

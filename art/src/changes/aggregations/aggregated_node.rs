@@ -1,5 +1,5 @@
 use crate::art::{ArtNodePreview, ProverArtefacts};
-use crate::art_node::{ArtNode, NodeIterWithPath, TreeMethods};
+use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::aggregations::{
     AggregationData, AggregationTree, ProverAggregationData, VerifierAggregationData,
 };
@@ -21,8 +21,8 @@ use zrt_zk::{
 /// Node of the aggregation tree. nodes contain data of some generic type `D`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationNode<D> {
-    pub l: Option<Box<Self>>,
-    pub r: Option<Box<Self>>,
+    pub(crate) l: Option<Box<Self>>,
+    pub(crate) r: Option<Box<Self>>,
     pub data: D,
 }
 

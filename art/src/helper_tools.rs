@@ -1,5 +1,6 @@
-use crate::art::ProverArtefacts;
+use crate::art::{PrivateArt, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafStatus};
+use crate::changes::ApplicableChange;
 use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
@@ -152,34 +153,24 @@ pub(crate) fn compute_merge_bound(
     Ok(secrets_amount_to_merge)
 }
 
-// /// apply key update change to the provided `art` tree, with the given leaf `secret_key`.
-// pub(crate) fn inner_apply_own_key_update<R, G>(
-//     art: &mut PrivateZeroArt<G, R>,
-//     secret_key: G::ScalarField,
-// ) -> Result<G::ScalarField, ArtError>
-// where
-//     R: Rng + ?Sized,
-//     G: AffineRepr,
-//     G::BaseField: PrimeField,
-// {
-//     let path = art.get_node_index().get_path()?;
-//     let co_path = art.base_art.get_public_art().get_co_path_values(&path)?;
-//     let artefacts = recompute_artefacts(secret_key, &co_path)?;
-//     let merge_bound = compute_merge_bound(&art.marker_tree, &path)?;
-//
-//     let mut upstream_art = art.upstream_art.clone();
-//     let mut marker_tree = art.marker_tree.clone();
-//     upstream_art.public_art.merge_by_marker(
-//         &artefacts.path.iter().rev().cloned().collect::<Vec<_>>(),
-//         &path,
-//         &mut marker_tree,
-//     )?;
-//     upstream_art.update_secrets_with_merge_bound(&artefacts.secrets, merge_bound)?;
-//
-//     let tk = *artefacts.secrets.last().ok_or(ArtError::EmptyArt)?;
-//
-//     art.upstream_art = upstream_art;
-//     art.marker_tree = marker_tree;
-//
-//     Ok(tk)
-// }
+/// apply key update change to the provided `art` tree, with the given leaf `secret_key`.
+pub(crate) fn inner_apply_own_key_update<G>(
+    art: &mut PrivateArt<G>,
+    secret_key: G::ScalarField,
+) -> Result<G::ScalarField, ArtError>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    let path = art.node_index().get_path()?;
+    let co_path = art.public_art().co_path(&path)?;
+    let artefacts = recompute_artefacts(secret_key, &co_path)?;
+
+    let key_update_change =
+        artefacts.derive_branch_change(BranchChangeType::UpdateKey, art.node_index().clone())?;
+    key_update_change.apply(&mut art.public_art)?;
+
+    art.secrets.update_from_root(&artefacts.secrets, false)?;
+
+    Ok(art.root_secret_key())
+}
