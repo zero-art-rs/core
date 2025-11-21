@@ -113,6 +113,7 @@ where
         public_keys: &[G],
         path: &[Direction],
         weak_only: bool,
+        weight_change: Option<bool>,
     ) -> Result<&mut AggregationNode<PublicMergeData<G>>, ArtError> {
         if public_keys.len() != path.len() + 1 {
             error!(
@@ -127,6 +128,9 @@ where
 
         let root_pk = *public_keys.first().ok_or(ArtError::NoChanges)?;
         current_node.update_public_key(root_pk, weak_only);
+        if let Some(weight_change) = weight_change {
+            current_node.data.update_weight_change(weight_change);
+        }
 
         if public_keys.len() <= 1 {
             return Ok(current_node);
@@ -136,6 +140,9 @@ where
             current_node = current_node.mut_child(*dir).get_or_insert_default();
 
             current_node.update_public_key(*pk, weak_only);
+            if let Some(weight_change) = weight_change {
+                current_node.data.update_weight_change(weight_change);
+            }
         }
 
         Ok(current_node)

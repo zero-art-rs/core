@@ -27,17 +27,24 @@ where
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub(crate) weak_key: Option<G>,
     pub(crate) status: Option<LeafStatus>,
+    pub(crate) weight_change: i32,
 }
 
 impl<G> PublicMergeData<G>
 where
     G: AffineRepr,
 {
-    pub fn new(strong_key: Option<G>, weak_key: Option<G>, status: Option<LeafStatus>) -> Self {
+    pub fn new(
+        strong_key: Option<G>,
+        weak_key: Option<G>,
+        status: Option<LeafStatus>,
+        weight_change: i32,
+    ) -> Self {
         Self {
             weak_key,
             strong_key,
             status,
+            weight_change,
         }
     }
     pub fn weak_key(&self) -> Option<G> {
@@ -58,6 +65,14 @@ where
 
     pub fn status(&self) -> Option<LeafStatus> {
         self.status
+    }
+
+    pub fn update_weight_change(&mut self, increment: bool) {
+        if increment {
+            self.weight_change += 1;
+        } else {
+            self.weight_change -= 1;
+        }
     }
 
     pub fn update_status(&mut self, status: LeafStatus) {
@@ -154,9 +169,9 @@ where
                     .ok_or(ArtError::InvalidBranchChange)?
                     .preview_public_key();
                 art_node.extend(ArtNode::new_leaf(public_key));
-                art_node.commit(Some(&merge_node.data));
+                art_node.commit(Some(&merge_node.data))?;
             } else {
-                art_node.commit(Some(&merge_node.data));
+                art_node.commit(Some(&merge_node.data))?;
             }
         }
 
@@ -224,7 +239,9 @@ where
         public_keys: &[G],
         path: &[Direction],
     ) -> Result<(), ArtError> {
-        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, false)?;
+        let merge_leaf = self
+            .merge_tree
+            .add_branch_keys(public_keys, path, false, None)?;
 
         if merge_leaf.is_leaf() {
             merge_leaf.data.update_status(LeafStatus::Active);
@@ -254,19 +271,21 @@ where
                 &public_keys[..public_keys.len() - 1],
                 path,
                 false,
+                Some(true),
             )?;
 
             *merge_leaf.mut_child(Direction::Right) = Some(Box::new(AggregationNode::new_leaf(
-                PublicMergeData::new(Some(new_leaf_public_key), None, Some(LeafStatus::Active)),
+                PublicMergeData::new(Some(new_leaf_public_key), None, Some(LeafStatus::Active), 0),
             )));
             *merge_leaf.mut_child(Direction::Left) = Some(Box::new(AggregationNode::new_leaf(
-                PublicMergeData::new(Some(public_key), None, Some(status)),
+                PublicMergeData::new(Some(public_key), None, Some(status), 0),
             )));
         } else {
             let merge_leaf = self.merge_tree.add_branch_keys(
                 &public_keys[..public_keys.len() - 1],
                 path,
                 false,
+                Some(true),
             )?;
             merge_leaf.data.update_status(LeafStatus::Active);
         }
@@ -280,7 +299,10 @@ where
         path: &[Direction],
         weak_only: bool,
     ) -> Result<(), ArtError> {
-        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, weak_only)?;
+        let weight_change = if weak_only { None } else { Some(false) };
+        let merge_leaf =
+            self.merge_tree
+                .add_branch_keys(public_keys, path, weak_only, weight_change)?;
 
         if merge_leaf.is_leaf() {
             merge_leaf.data.update_status(LeafStatus::Blank);
@@ -296,7 +318,9 @@ where
         public_keys: &[G],
         path: &[Direction],
     ) -> Result<(), ArtError> {
-        let merge_leaf = self.merge_tree.add_branch_keys(public_keys, path, false)?;
+        let merge_leaf = self
+            .merge_tree
+            .add_branch_keys(public_keys, path, false, Some(false))?;
 
         if merge_leaf.is_leaf() {
             merge_leaf.data.update_status(LeafStatus::PendingRemoval);
@@ -340,14 +364,17 @@ where
             BranchChangeType::UpdateKey => art.apply_update_key(&self.public_keys, &path),
             BranchChangeType::AddMember => {
                 let target_status = art.node_at(&path)?.status();
-                let extend_tree = matches!(target_status, Some(LeafStatus::Active | LeafStatus::PendingRemoval));
+                let extend_tree = matches!(
+                    target_status,
+                    Some(LeafStatus::Active | LeafStatus::PendingRemoval)
+                );
                 art.apply_add_member(&self.public_keys, &path, extend_tree)
-            },
+            }
             BranchChangeType::RemoveMember => {
                 let target_status = art.node_at(&path)?.status();
                 let weak_only = matches!(target_status, Some(LeafStatus::Blank));
                 art.apply_remove_member(&self.public_keys, &path, weak_only)
-            },
+            }
             BranchChangeType::Leave => art.apply_leave(&self.public_keys, &path),
         }
     }

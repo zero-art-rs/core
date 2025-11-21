@@ -294,12 +294,27 @@ where
         resulting_public_key
     }
 
-    pub(crate) fn commit(&mut self, merge_data: Option<&PublicMergeData<G>>) -> G {
+    pub(crate) fn commit(
+        &mut self,
+        merge_data: Option<&PublicMergeData<G>>,
+    ) -> Result<G, ArtError> {
         if let Some(merge_data) = merge_data {
-            *self.mut_public_key() = self.preview_public_key(merge_data)
+            *self.mut_public_key() = self.preview_public_key(merge_data);
+
+            if let Some(status) = merge_data.status() {
+                self.set_status(status)?;
+            }
+
+            if let Ok(weight) = self.mut_weight() {
+                match merge_data.weight_change.cmp(&0) {
+                    Ordering::Less => *weight -= merge_data.weight_change.abs() as usize,
+                    Ordering::Equal => {}
+                    Ordering::Greater => *weight += merge_data.weight_change as usize,
+                }
+            }
         };
 
-        self.public_key()
+        Ok(self.public_key())
     }
 }
 

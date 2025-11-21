@@ -14,6 +14,7 @@ use bulletproofs::PedersenGens;
 use cortado::CortadoAffine;
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
+use tracing::debug;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::ristretto255_to_ark;
 use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};

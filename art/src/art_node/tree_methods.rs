@@ -6,10 +6,11 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_std::rand::Rng;
+use tracing::debug;
 
 pub(crate) trait TreeNode {
-    fn child(&self, dir: Direction) -> Option<&Self>;
-    fn mut_child(&self, dir: Direction) -> Option<&mut Self>;
+    fn child_node(&self, dir: Direction) -> Option<&Self>;
+    fn mut_child_node(&mut self, dir: Direction) -> Option<&mut Self>;
 }
 
 /// A collection of helper methods to interact with tree.
@@ -49,7 +50,7 @@ pub trait TreeMethods {
     fn node_at(&self, path: &[Direction]) -> Result<&Self::Node, ArtError> {
         let mut node = self.root();
         for direction in path {
-            if let Some(child_node) = node.child(*direction) {
+            if let Some(child_node) = node.child_node(*direction) {
                 node = child_node;
             } else {
                 return Err(ArtError::PathNotExists);
@@ -63,7 +64,9 @@ pub trait TreeMethods {
     fn mut_node_at(&mut self, path: &[Direction]) -> Result<&mut Self::Node, ArtError> {
         let mut node = self.mut_root();
         for direction in path {
-            node = node.mut_child(*direction).ok_or(ArtError::PathNotExists)?;
+            node = node
+                .mut_child_node(*direction)
+                .ok_or(ArtError::PathNotExists)?;
         }
 
         Ok(node)
@@ -74,11 +77,11 @@ impl<G> TreeNode for ArtNode<G>
 where
     G: AffineRepr,
 {
-    fn child(&self, dir: Direction) -> Option<&Self> {
+    fn child_node(&self, dir: Direction) -> Option<&Self> {
         self.child(dir)
     }
 
-    fn mut_child(&self, dir: Direction) -> Option<&mut Self> {
+    fn mut_child_node(&mut self, dir: Direction) -> Option<&mut Self> {
         self.mut_child(dir)
     }
 }

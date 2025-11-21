@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::mem;
 use std::ops::Add;
+use tracing::debug;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 pub(crate) struct ArtSecret<G>
@@ -69,6 +70,15 @@ where
 
     pub fn extend_with(&mut self, sk: G::ScalarField) {
         self.0.push(ArtSecret::from(sk))
+    }
+
+    pub fn commited_secrets(&self) -> Vec<G::ScalarField> {
+        let mut secrets = Vec::new();
+        for secret in self.0.iter().rev() {
+            secrets.push(secret.key);
+        }
+
+        secrets
     }
 
     pub fn commit(&mut self) {
@@ -367,7 +377,6 @@ where
     ) -> Result<(G::ScalarField, BranchChange<G>), ArtError> {
         let mut co_path = self.preview().co_path(&target_leaf_path)?;
 
-        co_path.reverse();
         let artefacts = recompute_artefacts(new_key, &co_path)?;
 
         let change = artefacts.derive_branch_change(
@@ -500,11 +509,19 @@ where
                 true
             };
 
-        let mut co_path = art.public_art().co_path(&intersection).unwrap();
+        let mut co_path = Vec::new();
 
         if add_co_path_from_change {
-            co_path.push(self.public_keys[intersection.len() + 1]);
+            co_path.push(
+                *self
+                    .public_keys
+                    .get(intersection.len() + 1)
+                    .ok_or(ArtError::InvalidInput)?,
+            );
         }
+        co_path.append(&mut art.public_art().co_path(&intersection).unwrap());
+
+        // co_path.reverse();
 
         let level_sk = art
             .secrets
@@ -526,8 +543,7 @@ where
         weak_only: bool,
     ) -> Result<G::ScalarField, ArtError> {
         self.pub_art_unrecoverable_apply(&mut art.public_art)?;
-        let tk = self
-            .private_art_secrets_unrecoverable_apply(art, weak_only)?;
+        let tk = self.private_art_secrets_unrecoverable_apply(art, weak_only)?;
 
         Ok(tk)
     }
@@ -539,6 +555,15 @@ where
     G::BaseField: PrimeField,
 {
     fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        if art.node_index().is_subpath_of(&self.node_index)? {
+            match self.change_type {
+                BranchChangeType::RemoveMember => return Err(ArtError::InapplicableBlanking),
+                BranchChangeType::UpdateKey => return Err(ArtError::InapplicableKeyUpdate),
+                BranchChangeType::Leave => return Err(ArtError::InapplicableLeave),
+                BranchChangeType::AddMember => {}
+            }
+        }
+
         let (weak_only, _) = self.pub_art_apply_prepare(art.public_art())?;
 
         let merge_tree_reserve_copy = art.public_art().merge_tree.clone();
@@ -561,6 +586,24 @@ where
 {
     fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
         helper_tools::inner_apply_own_key_update(art, *self)
+    }
+}
+
+pub(crate) struct PrivateBranchChange<G: AffineRepr>(G::ScalarField, BranchChange<G>);
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for PrivateBranchChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        if matches!(self.1.change_type, BranchChangeType::UpdateKey)
+            && self.1.node_index.eq(art.node_index())
+        {
+            helper_tools::inner_apply_own_key_update(art, self.0)
+        } else {
+            self.1.apply(art)
+        }
     }
 }
 
@@ -631,20 +674,24 @@ mod tests {
     use crate::art::PrivateArt;
     use crate::art::PublicArt;
     use crate::art::art_advanced_operations::ArtAdvancedOps;
-    use crate::art_node::{LeafIterWithPath, TreeMethods};
+    use crate::art::private_art::PrivateBranchChange;
+    use crate::art_node::{LeafIterWithPath, LeafStatus, TreeMethods};
     use crate::changes::ApplicableChange;
+    use crate::errors::ArtError;
+    use crate::node_index::{Direction, NodeIndex};
     use crate::test_helper_tools::init_tracing;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
-    use ark_std::rand::SeedableRng;
     use ark_std::rand::prelude::StdRng;
+    use ark_std::rand::{SeedableRng, thread_rng};
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::cmp::{max, min};
     use std::ops::Mul;
-    use tracing::{debug, info};
+    use std::panic::panic_any;
+    use tracing::{debug, info, warn};
 
-    const TEST_GROUP_SIZE: usize = 100;
+    const TEST_GROUP_SIZE: usize = 20;
 
     #[test]
     /// Test if art serialization -> deserialization works correctly for unchanged arts
@@ -710,15 +757,6 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let secret_key_0 = Fr::rand(&mut rng);
 
-        info!("secret_key_0: {:?}", secret_key_0);
-        info!(
-            "secret_key_0 pk: {:?}",
-            CortadoAffine::generator()
-                .mul(secret_key_0)
-                .into_affine()
-                .x()
-        );
-
         let mut user0 = PrivateArt::setup(&vec![secret_key_0]).unwrap();
         assert_eq!(
             user0.leaf_public_key(),
@@ -728,17 +766,8 @@ mod tests {
 
         // Add member with user0
         let secret_key_1 = Fr::rand(&mut rng);
-        info!("secret_key_1: {:?}", secret_key_1);
-        info!(
-            "secret_key_1 pk: {:?}",
-            CortadoAffine::generator()
-                .mul(secret_key_1)
-                .into_affine()
-                .x()
-        );
         assert_ne!(secret_key_0, secret_key_1);
         let (_, change0) = user0.add_member(secret_key_1).unwrap();
-        info!("change0: {:#?}", change0);
 
         let tk = user0.apply(&change0).unwrap();
         user0.commit().unwrap();
@@ -772,11 +801,10 @@ mod tests {
 
         assert_eq!(public_art.root(), user0.root());
 
-        info!("Create user 1");
         let mut user1 = PrivateArt::new(public_art, secret_key_1).unwrap();
         assert_eq!(user1.leaf_secret_key(), secret_key_1);
         assert_eq!(user1.root_secret_key(), user0.root_secret_key());
-        // info!("user1\n{}", user1.get_root());
+        // info!("user1\n{}", user1.root());
 
         assert_ne!(
             user0.secrets, user1.secrets,
@@ -794,25 +822,14 @@ mod tests {
         let tk1 = user1.root_secret_key();
 
         let secret_key_3 = Fr::rand(&mut rng);
-        info!("secret_key_3: {:?}", secret_key_3);
-        info!(
-            "secret_key_3 pk: {:?}",
-            CortadoAffine::generator()
-                .mul(secret_key_3)
-                .into_affine()
-                .x()
-        );
 
         // New user updates his key
-        info!("user1 Update secret key: {:?}", user1.secrets);
         assert_ne!(secret_key_1, secret_key_3);
         let (tk2, change_key_update) = user1.update_key(secret_key_3).unwrap();
         // user1.apply(&change_key_update).unwrap();
         user1.apply(&secret_key_3).unwrap();
         user1.commit().unwrap();
         assert_eq!(user1.leaf_secret_key(), secret_key_3);
-
-        info!("user1 change_key_update: {:#?}", change_key_update);
 
         let tk2 = user1.root_secret_key();
         assert_ne!(
@@ -826,17 +843,8 @@ mod tests {
         );
         assert_eq!(user1.leaf_secret_key(), secret_key_3,);
 
-        info!("change_key_update.apply(&mut user0)");
         let tk = change_key_update.apply(&mut user0).unwrap();
-        debug!("uncommited tree:\n{}", user0.root());
-        debug!("uncommited tree:\n{}", user0.preview().root());
         user0.commit().unwrap();
-        info!("Comparison");
-        debug!("user0:\n{}", user0.root());
-        debug!("user0.secrets:\n{:#?}", user0.secrets);
-        debug!("user1:\n{}", user1.root());
-        debug!("user1.secrets:\n{:#?}", user1.secrets);
-        debug!("tree:\n{}", user0.root());
         assert_eq!(user0.root(), user1.root());
         assert_eq!(user0.root_secret_key(), user1.root_secret_key());
         assert_eq!(
@@ -854,637 +862,705 @@ mod tests {
         );
     }
 
-    // /// Creator, after computing the art with several users, removes the target_user. The
-    // /// remaining users updates their art, and one of them, also removes target_user (instead
-    // /// or changing, he merges two updates). Removed user fails to update his art.
-    // #[test]
-    // fn test_removal_of_the_same_user() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secret_key_0 = Fr::rand(&mut rng);
-    //     let secret_key_1 = Fr::rand(&mut rng);
-    //     let secret_key_2 = Fr::rand(&mut rng);
-    //     let secret_key_3 = Fr::rand(&mut rng);
-    //
-    //     let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
-    //         secret_key_0,
-    //         secret_key_1,
-    //         secret_key_2,
-    //         secret_key_3,
-    //     ])
-    //     .unwrap();
-    //
-    //     // Serialise and deserialize art for the other users.
-    //     let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let mut user1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
-    //
-    //     let mut user2: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_2).unwrap();
-    //
-    //     let mut user3: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_3).unwrap();
-    //
-    //     assert!(user0.eq(&user1), "New user received the same art");
-    //     assert!(user0.eq(&user2), "New user received the same art");
-    //     assert!(user0.eq(&user3), "New user received the same art");
-    //
-    //     let tk0 = user0.root_secret_key();
-    //     let tk1 = user1.root_secret_key();
-    //     let tk2 = user2.root_secret_key();
-    //     let tk3 = user2.root_secret_key();
-    //
-    //     let blanking_secret_key_1 = Fr::rand(&mut rng);
-    //     let blanking_secret_key_2 = Fr::rand(&mut rng);
-    //
-    //     // User0 removes second user node from the art.
-    //     let remove_member_change1 = user0
-    //         .remove_member(&user2.node_index(), blanking_secret_key_1)
-    //         .unwrap();
-    //     let tk_r1 = user0.root_secret_key();
-    //     assert_ne!(
-    //         tk1, tk_r1,
-    //         "Sanity check: old tk is different from the stored one."
-    //     );
-    //     assert_ne!(
-    //         user0, user1,
-    //         "Both users have different view on the state of the art, as they are not synced yet."
-    //     );
-    //     assert_ne!(
-    //         user0, user2,
-    //         "Both users have different view on the state of the art, as they are not synced yet."
-    //     );
-    //     assert_eq!(
-    //         user0
-    //             .get_public_art()
-    //             .node(&remove_member_change1.node_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(blanking_secret_key_1)
-    //             .into_affine(),
-    //         "The node was removed correctly."
-    //     );
-    //
-    //     // Sync other users art
-    //     remove_member_change1.apply(&mut user1).unwrap();
-    //     remove_member_change1.apply(&mut user3).unwrap();
-    //
-    //     let err = remove_member_change1.apply(&mut user2).err();
-    //     assert!(
-    //         matches!(err, Some(ArtError::InapplicableBlanking)),
-    //         "Must fail to perform art update using blank leaf, but got {:?}.",
-    //         err
-    //     );
-    //
-    //     assert_eq!(
-    //         user0,
-    //         user1,
-    //         "Both users have the same view on the state of the art, but have: user0:\n{},\nuser1:\n{}",
-    //         user0.get_root(),
-    //         user1.root(),
-    //     );
-    //     assert_eq!(
-    //         user0, user3,
-    //         "Both users have the same view on the state of the art"
-    //     );
-    //     assert_eq!(
-    //         user1
-    //             .get_public_art()
-    //             .node(&remove_member_change1.node_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(blanking_secret_key_1)
-    //             .into_affine(),
-    //         "The node was removed correctly."
-    //     );
-    //
-    //     // User1 removes second user node from the art.
-    //     let remove_member_change2 = user1
-    //         .remove_member(&user2.node_index(), blanking_secret_key_2)
-    //         .unwrap();
-    //     let tk_r2 = user1.root_secret_key();
-    //     assert_eq!(
-    //         user1
-    //             .get_public_art()
-    //             .node(&remove_member_change2.node_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(blanking_secret_key_1 + blanking_secret_key_2)
-    //             .into_affine(),
-    //         "The node was removed correctly."
-    //     );
-    //     assert_eq!(
-    //         user1.root().public_key(),
-    //         CortadoAffine::generator().mul(tk_r2).into_affine(),
-    //         "The node was removed correctly."
-    //     );
-    //     assert_ne!(
-    //         tk_r1, tk_r2,
-    //         "Sanity check: old tk is different from the new one."
-    //     );
-    //     assert_eq!(
-    //         tk_r2,
-    //         user1.root_secret_key(),
-    //         "Sanity check: new tk is the same as the stored one."
-    //     );
-    //     assert_ne!(
-    //         user0, user1,
-    //         "Both users have different view on the state of the art, as they are not synced yet."
-    //     );
-    //     assert_ne!(
-    //         user1, user2,
-    //         "Both users have different view on the state of the art, as they are not synced yet."
-    //     );
-    //
-    //     // Sync other users art
-    //     remove_member_change2.apply(&mut user0).unwrap();
-    //     remove_member_change2.apply(&mut user3).unwrap();
-    //
-    //     assert_eq!(
-    //         user0.root_secret_key(),
-    //         user1.root_secret_key(),
-    //         "Both users have the same view on the state of the art"
-    //     );
-    //
-    //     assert_eq!(
-    //         user0, user1,
-    //         "Both users have the same view on the state of the art"
-    //     );
-    //     assert_eq!(
-    //         user0, user3,
-    //         "Both users have the same view on the state of the art"
-    //     );
-    //     assert_eq!(
-    //         user1
-    //             .get_public_art()
-    //             .node(&remove_member_change1.node_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(blanking_secret_key_1 + blanking_secret_key_2)
-    //             .into_affine(),
-    //         "The node was removed correctly."
-    //     );
-    // }
-    //
-    // #[test]
-    // fn test_art_key_update() {
-    //     init_tracing();
-    //
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let main_user_id = 0;
-    //     let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //
-    //     let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-    //     let public_art = private_art.public_art.clone();
-    //
-    //     let mut users_arts = Vec::new();
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
-    //         users_arts.push(PrivateArt::new(public_art.clone(), secrets[i]).unwrap());
-    //     }
-    //
-    //     let root_key = private_art.root_secret_key();
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
-    //         // Assert creator and users computed the same tree key.
-    //         assert_eq!(users_arts[i].root_secret_key(), root_key);
-    //     }
-    //
-    //     let mut main_user_art = users_arts[main_user_id].clone();
-    //
-    //     // Save old secret key to roll back
-    //     let main_old_key = secrets[main_user_id];
-    //     let main_new_key = Fr::rand(&mut rng);
-    //     let changes = main_user_art.update_key(main_new_key).unwrap();
-    //     assert_ne!(main_user_art.get_leaf_secret_key(), main_old_key);
-    //
-    //     let mut pub_keys = Vec::new();
-    //     let mut parent = main_user_art.get_root();
-    //     for direction in &main_user_art.node_index().get_path().unwrap() {
-    //         pub_keys.push(parent.get_child(*direction).unwrap().get_public_key());
-    //         parent = parent.get_child(*direction).unwrap();
-    //     }
-    //     pub_keys.reverse();
-    //
-    //     for (secret_key, corr_pk) in main_user_art.secrets.iter().zip(pub_keys.iter()) {
-    //         assert_eq!(
-    //             CortadoAffine::generator().mul(secret_key).into_affine(),
-    //             *corr_pk,
-    //             "Multiplication done correctly."
-    //         );
-    //     }
-    //
-    //     let test_user_id = 12;
-    //     changes.apply(&mut users_arts[test_user_id]).unwrap();
-    //     let new_key = main_user_art.root_secret_key();
-    //     assert_eq!(users_arts[test_user_id].root_secret_key(), new_key);
-    //
-    //     let changes = main_user_art.update_key(main_old_key).unwrap();
-    //     let recomputed_old_key = main_user_art.root_secret_key();
-    //
-    //     assert_eq!(root_key, recomputed_old_key);
-    //
-    //     for i in 0..DEFAULT_TEST_GROUP_SIZE as usize {
-    //         if i != main_user_id {
-    //             changes.apply(&mut users_arts[i]).unwrap();
-    //             assert_eq!(users_arts[i].root_secret_key(), recomputed_old_key);
-    //         }
-    //     }
-    // }
-    //
-    // /// Main user creates art with four users, then first, second, and third users updates their
-    // /// arts. The forth user, applies changes, but swaps first two.
-    // #[test]
-    // fn test_wrong_update_ordering() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secret_key_0 = Fr::rand(&mut rng);
-    //     let secret_key_1 = Fr::rand(&mut rng);
-    //     let secret_key_2 = Fr::rand(&mut rng);
-    //     let secret_key_3 = Fr::rand(&mut rng);
-    //     assert_ne!(secret_key_0, secret_key_1);
-    //     assert_ne!(secret_key_1, secret_key_2);
-    //     assert_ne!(secret_key_2, secret_key_3);
-    //
-    //     let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
-    //         secret_key_0,
-    //         secret_key_1,
-    //         secret_key_2,
-    //         secret_key_3,
-    //     ])
-    //     .unwrap();
-    //
-    //     // Serialise and deserialize art for the other users.
-    //     let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let mut user1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
-    //
-    //     let mut user2: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_2).unwrap();
-    //
-    //     let mut user3: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_3).unwrap();
-    //
-    //     // User0 updates his key.
-    //     let new_sk0 = Fr::rand(&mut rng);
-    //     let key_update_change0 = user0.update_key(new_sk0).unwrap();
-    //     let tk_r0 = user0.root_secret_key();
-    //     assert_eq!(
-    //         tk_r0,
-    //         user0.root_secret_key(),
-    //         "Sanity check: new tk is the same as the stored one."
-    //     );
-    //
-    //     // User1 updates his art.
-    //     key_update_change0.apply(&mut user1).unwrap();
-    //     let new_sk1 = Fr::rand(&mut rng);
-    //     let key_update_change1 = user1.update_key(new_sk1).unwrap();
-    //     let tk_r1 = user1.root_secret_key();
-    //     assert_eq!(
-    //         tk_r1,
-    //         user1.root_secret_key(),
-    //         "Sanity check: new tk is the same as the stored one."
-    //     );
-    //
-    //     // User2 updates his art.
-    //     key_update_change0.apply(&mut user2).unwrap();
-    //     key_update_change1.apply(&mut user2).unwrap();
-    //     let new_sk2 = Fr::rand(&mut rng);
-    //     let key_update_change2 = user2.update_key(new_sk2).unwrap();
-    //     let tk_r2 = user2.root_secret_key();
-    //     assert_eq!(
-    //         tk_r2,
-    //         user2.root_secret_key(),
-    //         "Sanity check: new tk is the same as the stored one."
-    //     );
-    //
-    //     // Update art for other users.
-    //     key_update_change1.apply(&mut user3).unwrap();
-    //     key_update_change0.apply(&mut user3).unwrap();
-    //     key_update_change2.apply(&mut user3).unwrap();
-    //
-    //     assert_ne!(
-    //         user3.root(),
-    //         user2.root(),
-    //         "Wrong order of updates will bring to different public arts."
-    //     );
-    // }
-    //
-    // /// The same key update, shouldn't affect the art, as it will be overwritten by itself.
-    // #[test]
-    // fn test_apply_key_update_changes_twice() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secret_key_0 = Fr::rand(&mut rng);
-    //     let secret_key_1 = Fr::rand(&mut rng);
-    //     let secret_key_2 = Fr::rand(&mut rng);
-    //     let secret_key_3 = Fr::rand(&mut rng);
-    //     assert_ne!(secret_key_0, secret_key_1);
-    //
-    //     let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
-    //         secret_key_0,
-    //         secret_key_1,
-    //         secret_key_2,
-    //         secret_key_3,
-    //     ])
-    //     .unwrap();
-    //     let def_tk = user0.root_secret_key();
-    //
-    //     // Serialise and deserialize art for the other users.
-    //     let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let mut user1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
-    //
-    //     // User0 updates his key.
-    //     let new_sk0 = Fr::rand(&mut rng);
-    //     let key_update_change0 = user0.update_key(new_sk0).unwrap();
-    //     let tk_r0 = user0.root_secret_key();
-    //
-    //     // Update art for other users.
-    //     key_update_change0.apply(&mut user1).unwrap();
-    //     key_update_change0.apply(&mut user1).unwrap();
-    //
-    //     assert_eq!(
-    //         user0, user1,
-    //         "Applying of the same key update twice, will give no affect."
-    //     );
-    // }
-    //
-    // #[test]
-    // fn test_correctness_for_method_from() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secret_key_0 = Fr::rand(&mut rng);
-    //     let secret_key_1 = Fr::rand(&mut rng);
-    //     let secret_key_2 = Fr::rand(&mut rng);
-    //     let secret_key_3 = Fr::rand(&mut rng);
-    //
-    //     let user0 = PrivateArt::<CortadoAffine>::setup(&vec![
-    //         secret_key_0,
-    //         secret_key_1,
-    //         secret_key_2,
-    //         secret_key_3,
-    //     ])
-    //     .unwrap();
-    //
-    //     // Serialise and deserialize art for the other users.
-    //     let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let user1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
-    //
-    //     let user1_2 = PrivateArt::restore(public_art.clone(), user1.get_secrets().clone()).unwrap();
-    //
-    //     assert_eq!(user1, user1_2);
-    //
-    //     assert_eq!(user1.get_secrets(), user1_2.get_secrets());
-    // }
-    //
-    // #[test]
-    // fn test_get_node() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let leaf_secrets = (0..DEFAULT_TEST_GROUP_SIZE)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //
-    //     let mut user0: PrivateArt<CortadoAffine> = PrivateArt::setup(&leaf_secrets).unwrap();
-    //
-    //     let random_public_key = CortadoAffine::rand(&mut rng);
-    //     assert!(user0.get_node_with(random_public_key).is_err());
-    //     assert!(
-    //         user0
-    //             .get_public_art()
-    //             .get_leaf_with(random_public_key)
-    //             .is_err()
-    //     );
-    //
-    //     for sk in &leaf_secrets {
-    //         let pk = CortadoAffine::generator().mul(sk).into_affine();
-    //         let leaf = user0.get_public_art().get_leaf_with(pk).unwrap();
-    //         assert_eq!(leaf.get_public_key(), pk);
-    //         assert!(leaf.is_leaf());
-    //     }
-    //
-    //     for sk in &leaf_secrets {
-    //         let pk = CortadoAffine::generator().mul(sk).into_affine();
-    //         let leaf = user0.get_public_art().get_node_with(pk).unwrap();
-    //         assert_eq!(leaf.get_public_key(), pk);
-    //     }
-    //
-    //     for sk in &leaf_secrets {
-    //         let pk = CortadoAffine::generator().mul(sk).into_affine();
-    //         let leaf_path = user0.get_public_art().get_path_to_leaf_with(pk).unwrap();
-    //         let leaf = user0
-    //             .get_public_art()
-    //             .node(&NodeIndex::Direction(leaf_path))
-    //             .unwrap();
-    //         assert_eq!(leaf.get_public_key(), pk);
-    //
-    //         assert!(leaf.is_leaf());
-    //     }
-    // }
-    //
-    // #[test]
-    // fn test_apply_key_update_to_itself() {
-    //     init_tracing();
-    //
-    //     // Init test context.
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secret_key_0 = Fr::rand(&mut rng);
-    //     let secret_key_1 = Fr::rand(&mut rng);
-    //     let secret_key_2 = Fr::rand(&mut rng);
-    //     let secret_key_3 = Fr::rand(&mut rng);
-    //
-    //     let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
-    //         secret_key_0,
-    //         secret_key_1,
-    //         secret_key_2,
-    //         secret_key_3,
-    //     ])
-    //     .unwrap();
-    //
-    //     // Serialise and deserialize art for the other users.
-    //     let public_art_bytes = to_allocvec(&user0.get_public_art()).unwrap();
-    //     let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
-    //
-    //     let mut user1: PrivateArt<CortadoAffine> =
-    //         PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
-    //
-    //     // User0 updates his key.
-    //     let new_sk0 = Fr::rand(&mut rng);
-    //     let key_update_change0 = user0.update_key(new_sk0).unwrap();
-    //
-    //     // User1 fails to update his art.
-    //     assert!(matches!(
-    //         key_update_change0.apply(&mut user1),
-    //         Err(ArtError::InapplicableKeyUpdate)
-    //     ));
-    // }
-    //
-    // #[test]
-    // fn test_art_weights_after_one_add_member() {
-    //     init_tracing();
-    //
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //
-    //     let mut tree: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
-    //     let mut rng = &mut StdRng::seed_from_u64(rand::random());
-    //
-    //     for _ in 1..DEFAULT_TEST_GROUP_SIZE {
-    //         let _ = tree.add_member(Fr::rand(&mut rng)).unwrap();
-    //     }
-    //
-    //     for node in tree.root() {
-    //         if node.is_leaf() {
-    //             if !matches!(node.status(), Some(LeafStatus::Active)) {
-    //                 assert_eq!(node.weight(), 0);
-    //             } else {
-    //                 assert_eq!(node.weight(), 1);
-    //             }
-    //         } else {
-    //             assert_eq!(
-    //                 node.weight(),
-    //                 node.child(Direction::Left).unwrap().weight()
-    //                     + node.child(Direction::Right).unwrap().weight()
-    //             );
-    //         }
-    //     }
-    // }
-    //
-    // #[test]
-    // fn test_weights_correctness_for_make_blank() {
-    //     init_tracing();
-    //     let mut rng = StdRng::seed_from_u64(0);
-    //     let secrets = (0..9).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-    //
-    //     let mut user0 =
-    //         PrivateZeroArt::new(PrivateArt::setup(&secrets).unwrap(), Box::new(thread_rng()))
-    //             .unwrap();
-    //     let target_user_path = user0
-    //         .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-    //         .unwrap();
-    //     let target_user_index = NodeIndex::from(target_user_path);
-    //
-    //     let change = user0
-    //         .remove_member(&target_user_index, Fr::rand(&mut rng))
-    //         .unwrap()
-    //         .branch_change;
-    //     change.apply(&mut user0).unwrap();
-    //     assert!(user0.stashed_confirm_removals.is_empty());
-    //     user0.commit().unwrap();
-    //
-    //     assert_eq!(user0.get_root().weight() + 1, secrets.len());
-    //
-    //     for node in user0.get_root() {
-    //         if node.is_leaf() {
-    //             if !matches!(node.status(), Some(LeafStatus::Active)) {
-    //                 assert_eq!(node.weight(), 0);
-    //             } else {
-    //                 assert_eq!(node.weight(), 1);
-    //             }
-    //         } else {
-    //             assert_eq!(
-    //                 node.weight(),
-    //                 node.child(Direction::Left).unwrap().weight()
-    //                     + node.child(Direction::Right).unwrap().weight()
-    //             );
-    //         }
-    //     }
-    // }
-    //
-    // #[test]
-    // fn test_leaf_status_affect_on_make_blank() {
-    //     init_tracing();
-    //
-    //     if DEFAULT_TEST_GROUP_SIZE < 2 {
-    //         warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
-    //         return;
-    //     }
-    //
-    //     let seed = rand::random();
-    //     let mut rng = StdRng::seed_from_u64(seed);
-    //     let secrets = (0..DEFAULT_TEST_GROUP_SIZE)
-    //         .map(|_| Fr::rand(&mut rng))
-    //         .collect::<Vec<_>>();
-    //     let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-    //
-    //     let sk_1 = Fr::rand(&mut rng);
-    //     let sk_2 = Fr::rand(&mut rng);
-    //     let user_2_path = art
-    //         .get_public_art()
-    //         .get_path_to_leaf_with(CortadoAffine::generator().mul(&secrets[1]).into_affine())
-    //         .unwrap();
-    //     let user_2_index = NodeIndex::from(user_2_path.clone());
-    //
-    //     // usual update
-    //     let mut art1 = art.clone();
-    //     art1.remove_member(&user_2_index, sk_1).unwrap();
-    //     art1.remove_member(&user_2_index, sk_2).unwrap();
-    //     assert_eq!(
-    //         art1.get_public_art()
-    //             .node(&user_2_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
-    //     );
-    //
-    //     let mut art2 = art.clone();
-    //     art2.public_art
-    //         .get_mut_node(&user_2_index)
-    //         .unwrap()
-    //         .set_status(LeafStatus::PendingRemoval)
-    //         .unwrap();
-    //     art2.remove_member(&user_2_index, sk_1).unwrap();
-    //     art2.remove_member(&user_2_index, sk_2).unwrap();
-    //     assert_eq!(
-    //         art2.get_public_art()
-    //             .node(&user_2_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
-    //     );
-    //
-    //     let mut art3 = art.clone();
-    //     art3.public_art
-    //         .get_mut_node(&user_2_index)
-    //         .unwrap()
-    //         .set_status(LeafStatus::Blank)
-    //         .unwrap();
-    //     art3.remove_member(&user_2_index, sk_1).unwrap();
-    //     art3.remove_member(&user_2_index, sk_2).unwrap();
-    //     assert_eq!(
-    //         art3.get_public_art()
-    //             .node(&user_2_index)
-    //             .unwrap()
-    //             .get_public_key(),
-    //         CortadoAffine::generator()
-    //             .mul(&(secrets[1] + sk_1 + sk_2))
-    //             .into_affine()
-    //     );
-    // }
+    /// Creator, after computing the art with several users, removes the target_user. The
+    /// remaining users updates their art, and one of them, also removes target_user (instead
+    /// or changing, he merges two updates). Removed user fails to update his art.
+    #[test]
+    fn test_removal_of_the_same_user() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let mut user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
+
+        let mut user2: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_2).unwrap();
+
+        let mut user3: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_3).unwrap();
+
+        assert!(user0.eq(&user1), "New user received the same art");
+        assert!(user0.eq(&user2), "New user received the same art");
+        assert!(user0.eq(&user3), "New user received the same art");
+
+        let tk0 = user0.root_secret_key();
+        let tk1 = user1.root_secret_key();
+        let tk2 = user2.root_secret_key();
+        let tk3 = user2.root_secret_key();
+
+        let blanking_secret_key_1 = Fr::rand(&mut rng);
+        let blanking_secret_key_2 = Fr::rand(&mut rng);
+
+        // User0 removes second user node from the art.
+        let (tk, remove_member_change1) = user0
+            .remove_member(&user2.node_index(), blanking_secret_key_1)
+            .unwrap();
+
+        remove_member_change1.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+
+        let tk_r1 = user0.root_secret_key();
+        assert_ne!(
+            tk1, tk_r1,
+            "Sanity check: old tk is different from the stored one."
+        );
+        assert_ne!(
+            user0, user1,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_ne!(
+            user0, user2,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_eq!(
+            user0
+                .public_art()
+                .node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key(),
+            CortadoAffine::generator()
+                .mul(blanking_secret_key_1)
+                .into_affine(),
+            "The node was removed correctly."
+        );
+
+        // Sync other users art
+        remove_member_change1.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+        remove_member_change1.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        let err = remove_member_change1.apply(&mut user2).err();
+        assert!(
+            matches!(err, Some(ArtError::InapplicableBlanking)),
+            "Must fail to perform art update using blank leaf, but got {:?}.",
+            err
+        );
+
+        assert_eq!(
+            user0,
+            user1,
+            "Both users have the same view on the state of the art, but have: user0:\n{},\nuser1:\n{}",
+            user0.root(),
+            user1.root(),
+        );
+        assert_eq!(
+            user0, user3,
+            "Both users have the same view on the state of the art"
+        );
+        assert_eq!(
+            user1
+                .public_art()
+                .node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key(),
+            CortadoAffine::generator()
+                .mul(blanking_secret_key_1)
+                .into_affine(),
+            "The node was removed correctly."
+        );
+
+        // User1 removes second user node from the art.
+        let (tk, remove_member_change2) = user1
+            .remove_member(&user2.node_index(), blanking_secret_key_2)
+            .unwrap();
+        user1.apply(&remove_member_change2).unwrap();
+        user1.commit().unwrap();
+
+        let tk_r2 = user1.root_secret_key();
+        assert_eq!(
+            user1
+                .public_art()
+                .node(&remove_member_change2.node_index)
+                .unwrap()
+                .public_key(),
+            CortadoAffine::generator()
+                .mul(blanking_secret_key_1 + blanking_secret_key_2)
+                .into_affine(),
+            "The node was removed correctly."
+        );
+        assert_eq!(
+            user1.root().public_key(),
+            CortadoAffine::generator().mul(tk_r2).into_affine(),
+            "The node was removed correctly."
+        );
+        assert_ne!(
+            tk_r1, tk_r2,
+            "Sanity check: old tk is different from the new one."
+        );
+        assert_eq!(
+            tk_r2,
+            user1.root_secret_key(),
+            "Sanity check: new tk is the same as the stored one."
+        );
+        assert_ne!(
+            user0, user1,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+        assert_ne!(
+            user1, user2,
+            "Both users have different view on the state of the art, as they are not synced yet."
+        );
+
+        // Sync other users art
+        remove_member_change2.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+        remove_member_change2.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        assert_eq!(
+            user0.root_secret_key(),
+            user1.root_secret_key(),
+            "Both users have the same view on the state of the art"
+        );
+
+        assert_eq!(
+            user0, user1,
+            "Both users have the same view on the state of the art"
+        );
+        assert_eq!(
+            user0, user3,
+            "Both users have the same view on the state of the art"
+        );
+        assert_eq!(
+            user1
+                .public_art()
+                .node(&remove_member_change1.node_index)
+                .unwrap()
+                .public_key(),
+            CortadoAffine::generator()
+                .mul(blanking_secret_key_1 + blanking_secret_key_2)
+                .into_affine(),
+            "The node was removed correctly."
+        );
+    }
+
+    #[test]
+    fn test_art_key_update() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let main_user_id = 0;
+        let test_user_id = 12;
+        let secrets = (0..TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+        let public_art = private_art.public_art.clone();
+
+        let mut users_arts = Vec::new();
+        for i in 0..TEST_GROUP_SIZE {
+            users_arts.push(PrivateArt::new(public_art.clone(), secrets[i]).unwrap());
+        }
+
+        let root_key = private_art.root_secret_key();
+        for i in 0..TEST_GROUP_SIZE {
+            // Assert creator and users computed the same tree key.
+            assert_eq!(users_arts[i].root_secret_key(), root_key);
+        }
+
+        // Save old secret key to roll back
+        let main_old_key = secrets[main_user_id];
+        let main_new_key = Fr::rand(&mut rng);
+        let (tk, change) = users_arts[main_user_id].update_key(main_new_key).unwrap();
+        let changes = PrivateBranchChange(main_new_key, change);
+
+        for i in 0..TEST_GROUP_SIZE {
+            assert_eq!(users_arts[i].root(), public_art.root());
+            changes.apply(&mut users_arts[i]).unwrap();
+            users_arts[i].commit().unwrap();
+            assert_eq!(
+                users_arts[i].root(),
+                users_arts[0].root(),
+                "Art trees of user {i} and user 0 are different. users_arts[i]:\n{},\nwhen user0:\n{}",
+                users_arts[i].root(),
+                users_arts[0].root()
+            );
+            assert_eq!(
+                users_arts[i].root_secret_key(),
+                users_arts[0].root_secret_key()
+            );
+            assert_eq!(
+                users_arts[i].root_secret_key(),
+                tk,
+                "users_arts[i]:\n{},\nwhen user0:\n{}",
+                users_arts[i].root(),
+                users_arts[0].root()
+            );
+        }
+
+        assert_ne!(users_arts[main_user_id].leaf_secret_key(), main_old_key);
+
+        let mut pub_keys = Vec::new();
+        let mut parent = users_arts[main_user_id].root();
+        for direction in &users_arts[main_user_id].node_index().get_path().unwrap() {
+            pub_keys.push(parent.child(*direction).unwrap().public_key());
+            parent = parent.child(*direction).unwrap();
+        }
+        pub_keys.reverse();
+
+        for (secret_key, corr_pk) in users_arts[main_user_id]
+            .secrets
+            .commited_secrets()
+            .iter()
+            .zip(pub_keys.iter())
+        {
+            assert_eq!(
+                CortadoAffine::generator().mul(secret_key).into_affine(),
+                *corr_pk,
+                "Multiplication done correctly."
+            );
+        }
+
+        changes.apply(&mut users_arts[test_user_id]).unwrap();
+        users_arts[test_user_id].commit().unwrap();
+
+        let new_key = users_arts[main_user_id].root_secret_key();
+        assert_eq!(
+            users_arts[test_user_id].root(),
+            users_arts[main_user_id].root()
+        );
+        assert_eq!(
+            users_arts[test_user_id].root_secret_key(),
+            users_arts[main_user_id].root_secret_key()
+        );
+        assert_eq!(users_arts[test_user_id].root_secret_key(), new_key);
+
+        let (tk, change) = users_arts[main_user_id].update_key(main_old_key).unwrap();
+        let changes = PrivateBranchChange(main_old_key, change);
+
+        for i in 0..TEST_GROUP_SIZE {
+            changes.apply(&mut users_arts[i]).unwrap();
+            users_arts[i].commit().unwrap();
+            assert_eq!(users_arts[i].root_secret_key(), tk);
+        }
+
+        let recomputed_old_key = users_arts[main_user_id].root_secret_key();
+        assert_eq!(tk, recomputed_old_key);
+        assert_eq!(root_key, recomputed_old_key);
+
+        for i in 0..TEST_GROUP_SIZE as usize {
+            changes.apply(&mut users_arts[i]).unwrap();
+            users_arts[i].commit().unwrap();
+            assert_eq!(users_arts[i].root_secret_key(), recomputed_old_key);
+        }
+    }
+
+    /// Main user creates art with four users, then first, second, and third users updates their
+    /// arts. The forth user, applies changes, but swaps first two.
+    #[test]
+    fn test_wrong_changes_commit_ordering() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+        assert_ne!(secret_key_0, secret_key_1);
+        assert_ne!(secret_key_1, secret_key_2);
+        assert_ne!(secret_key_2, secret_key_3);
+
+        let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let mut user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
+
+        let mut user2: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_2).unwrap();
+
+        let mut user3: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_3).unwrap();
+
+        // User0 updates his key.
+        let new_sk0 = Fr::rand(&mut rng);
+        let (tk0, key_update_change0) = user0.update_key(new_sk0).unwrap();
+        user0.apply(&new_sk0).unwrap();
+        user0.commit().unwrap();
+        let tk_r0 = user0.root_secret_key();
+
+        // User1 updates his art.
+        key_update_change0.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+        let new_sk1 = Fr::rand(&mut rng);
+        let (tk1, key_update_change1) = user1.update_key(new_sk1).unwrap();
+        new_sk1.apply(&mut user1).unwrap();
+        user1.commit().unwrap();
+        let tk_r1 = user1.root_secret_key();
+        assert_eq!(
+            tk_r1,
+            user1.root_secret_key(),
+            "Sanity check: new tk is the same as the stored one."
+        );
+
+        // User2 updates his art.
+        key_update_change0.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+        key_update_change1.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+        let new_sk2 = Fr::rand(&mut rng);
+        let (tk2, key_update_change2) = user2.update_key(new_sk2).unwrap();
+        new_sk2.apply(&mut user2).unwrap();
+        user2.commit().unwrap();
+        let tk_r2 = user2.root_secret_key();
+        assert_eq!(
+            tk_r2,
+            user2.root_secret_key(),
+            "Sanity check: new tk is the same as the stored one."
+        );
+
+        // Update art for other users.
+        key_update_change1.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+        key_update_change0.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+        key_update_change2.apply(&mut user3).unwrap();
+        user3.commit().unwrap();
+
+        assert_ne!(
+            user3.root(),
+            user2.root(),
+            "Wrong order of updates will bring to different public arts."
+        );
+    }
+
+    /// The same key update, shouldn't affect the art, as it will be overwritten by itself.
+    #[test]
+    fn test_apply_key_update_changes_twice() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+        assert_ne!(secret_key_0, secret_key_1);
+
+        let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+        let def_tk = user0.root_secret_key();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let mut user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_1).unwrap();
+
+        // User0 updates his key.
+        let new_sk0 = Fr::rand(&mut rng);
+        let (tk0, key_update_change0) = user0.update_key(new_sk0).unwrap();
+        let tk_r0 = user0.root_secret_key();
+
+        // Update art for other users.
+        key_update_change0.apply(&mut user1).unwrap();
+        key_update_change0.apply(&mut user1).unwrap();
+
+        assert_eq!(
+            user0, user1,
+            "Applying of the same key update twice, will give no affect."
+        );
+    }
+
+    #[test]
+    fn test_correctness_for_method_from() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
+
+        let user1_2 =
+            PrivateArt::restore(public_art.clone(), user1.secrets.commited_secrets()).unwrap();
+
+        assert_eq!(user1, user1_2);
+
+        assert_eq!(user1.secrets, user1_2.secrets);
+    }
+
+    #[test]
+    fn test_get_node() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let leaf_secrets = (0..TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut user0: PrivateArt<CortadoAffine> = PrivateArt::setup(&leaf_secrets).unwrap();
+
+        let random_public_key = CortadoAffine::rand(&mut rng);
+        assert!(user0.root().node_with(random_public_key).is_err());
+        assert!(
+            user0
+                .public_art()
+                .root()
+                .leaf_with(random_public_key)
+                .is_err()
+        );
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf = user0.public_art().root().leaf_with(pk).unwrap();
+            assert_eq!(leaf.public_key(), pk);
+            assert!(leaf.is_leaf());
+        }
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf = user0.public_art().root().node_with(pk).unwrap();
+            assert_eq!(leaf.public_key(), pk);
+        }
+
+        for sk in &leaf_secrets {
+            let pk = CortadoAffine::generator().mul(sk).into_affine();
+            let leaf_path = user0.public_art().root().path_to_leaf_with(pk).unwrap();
+            let leaf = user0
+                .public_art()
+                .node(&NodeIndex::Direction(leaf_path))
+                .unwrap();
+            assert_eq!(leaf.public_key(), pk);
+
+            assert!(leaf.is_leaf());
+        }
+    }
+
+    #[test]
+    fn test_apply_key_update_to_itself() {
+        init_tracing();
+
+        // Init test context.
+        let mut rng = StdRng::seed_from_u64(0);
+        let secret_key_0 = Fr::rand(&mut rng);
+        let secret_key_1 = Fr::rand(&mut rng);
+        let secret_key_2 = Fr::rand(&mut rng);
+        let secret_key_3 = Fr::rand(&mut rng);
+
+        let mut user0 = PrivateArt::<CortadoAffine>::setup(&vec![
+            secret_key_0,
+            secret_key_1,
+            secret_key_2,
+            secret_key_3,
+        ])
+        .unwrap();
+
+        // Serialise and deserialize art for the other users.
+        let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
+        let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
+
+        let mut user1: PrivateArt<CortadoAffine> =
+            PrivateArt::new(public_art.clone(), secret_key_0).unwrap();
+
+        // User0 updates his key.
+        let new_sk0 = Fr::rand(&mut rng);
+        let (tk, key_update_change0) = user0.update_key(new_sk0).unwrap();
+
+        // User1 fails to update his art.
+        assert!(matches!(
+            key_update_change0.apply(&mut user1),
+            Err(ArtError::InapplicableKeyUpdate)
+        ));
+    }
+
+    #[test]
+    fn test_art_weights_after_one_add_member() {
+        init_tracing();
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let secrets = (0..TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+
+        let mut tree: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+        let mut rng = &mut StdRng::seed_from_u64(rand::random());
+
+        for _ in 1..TEST_GROUP_SIZE {
+            let _ = tree.add_member(Fr::rand(&mut rng)).unwrap();
+        }
+
+        for node in tree.root() {
+            if node.is_leaf() {
+                if !matches!(node.status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.weight(), 0);
+                } else {
+                    assert_eq!(node.weight(), 1);
+                }
+            } else {
+                assert_eq!(
+                    node.weight(),
+                    node.child(Direction::Left).unwrap().weight()
+                        + node.child(Direction::Right).unwrap().weight()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_weights_correctness_for_make_blank() {
+        init_tracing();
+        let mut rng = StdRng::seed_from_u64(0);
+        let secrets = (0..9).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+        let mut user0 = PrivateArt::setup(&secrets).unwrap();
+
+        let target_user_path = user0
+            .root()
+            .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+            .unwrap();
+        let target_user_index = NodeIndex::from(target_user_path);
+
+        let (tk, change) = user0
+            .remove_member(&target_user_index, Fr::rand(&mut rng))
+            .unwrap();
+        change.apply(&mut user0).unwrap();
+        user0.commit().unwrap();
+
+        assert_eq!(user0.root().weight() + 1, secrets.len());
+
+        for node in user0.root() {
+            if node.is_leaf() {
+                if !matches!(node.status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.weight(), 0);
+                } else {
+                    assert_eq!(node.weight(), 1);
+                }
+            } else {
+                assert_eq!(
+                    node.weight(),
+                    node.child(Direction::Left).unwrap().weight()
+                        + node.child(Direction::Right).unwrap().weight()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_leaf_status_affect_on_make_blank() {
+        init_tracing();
+
+        if TEST_GROUP_SIZE < 2 {
+            warn!("Cant run the test test_merge_for_key_updates, as the group size is to small");
+            return;
+        }
+
+        let seed = rand::random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let secrets = (0..TEST_GROUP_SIZE)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+        let art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+
+        let sk_1 = Fr::rand(&mut rng);
+        let sk_2 = Fr::rand(&mut rng);
+        let user_2_path = art
+            .public_art()
+            .root()
+            .path_to_leaf_with(CortadoAffine::generator().mul(&secrets[1]).into_affine())
+            .unwrap();
+        let user_2_index = NodeIndex::from(user_2_path.clone());
+
+        let mut art1 = art.clone();
+        let (_, remove11) = art1.remove_member(&user_2_index, sk_1).unwrap();
+        remove11.apply(&mut art1).unwrap();
+        art1.commit().unwrap();
+        let (_, remove12) = art1.remove_member(&user_2_index, sk_2).unwrap();
+        remove12.apply(&mut art1).unwrap();
+        art1.commit().unwrap();
+        assert_eq!(
+            art1.public_art().node(&user_2_index).unwrap().public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art2 = art.clone();
+        art2.public_art
+            .mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::PendingRemoval)
+            .unwrap();
+        let (_, remove21) = art2.remove_member(&user_2_index, sk_1).unwrap();
+        remove21.apply(&mut art2).unwrap();
+        art2.commit().unwrap();
+        let (_, remove22) = art2.remove_member(&user_2_index, sk_2).unwrap();
+        remove22.apply(&mut art2).unwrap();
+        art2.commit().unwrap();
+
+        assert_eq!(
+            art2.public_art().node(&user_2_index).unwrap().public_key(),
+            CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
+        );
+
+        let mut art3 = art.clone();
+        art3.public_art
+            .mut_node(&user_2_index)
+            .unwrap()
+            .set_status(LeafStatus::Blank)
+            .unwrap();
+        let (_, remove31) = art3.remove_member(&user_2_index, sk_1).unwrap();
+        remove31.apply(&mut art3).unwrap();
+        art3.commit().unwrap();
+        let (_, remove32) = art3.remove_member(&user_2_index, sk_2).unwrap();
+        remove32.apply(&mut art3).unwrap();
+        art3.commit().unwrap();
+        assert_eq!(
+            art3.public_art().node(&user_2_index).unwrap().public_key(),
+            CortadoAffine::generator()
+                .mul(&(secrets[1] + sk_1 + sk_2))
+                .into_affine()
+        );
+    }
 }
