@@ -82,6 +82,17 @@ where
             self.status = Some(status);
         }
     }
+
+    pub fn update_public_key(&mut self, public_key: G, weak_only: bool) {
+        if weak_only || self.strong_key.is_some() {
+            match self.weak_key {
+                None => self.weak_key = Some(public_key),
+                Some(current_weak_key) => self.weak_key = Some((current_weak_key + public_key).into_affine()),
+            }
+        } else {
+            self.strong_key = Some(public_key)
+        }
+    }
 }
 
 /// Standard ART tree with public keys.

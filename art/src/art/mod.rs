@@ -13,6 +13,7 @@ mod zero_art;
 // pub use aggregations::AggregationContext;
 // pub use art_advanced_operations::ArtAdvancedOps;
 // pub use art_basic_operations::ArtBasicOps;
+pub use art_advanced_operations::ArtAdvancedOps;
 pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use private_art::PrivateArt;
 pub(crate) use public_art::PublicMergeData;

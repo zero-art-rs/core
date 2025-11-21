@@ -94,12 +94,14 @@ where
     }
 
     pub(crate) fn update_public_key(&mut self, public_key: G, weak_only: bool) {
-        if !weak_only && self.data.strong_key().is_none() {
-            *self.data.mut_strong_key() = Some(public_key);
-        } else {
-            let weak_key = self.data.mut_weak_key().get_or_insert_with(G::zero);
-            *self.data.mut_weak_key() = Some(weak_key.add(public_key).into_affine());
-        }
+        self.data.update_public_key(public_key, weak_only);
+        
+        // if !weak_only && self.data.strong_key().is_none() {
+        //     *self.data.mut_strong_key() = Some(public_key);
+        // } else {
+        //     let weak_key = self.data.mut_weak_key().get_or_insert_with(G::zero);
+        //     *self.data.mut_weak_key() = Some(weak_key.add(public_key).into_affine());
+        // }
     }
 }
 
