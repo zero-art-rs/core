@@ -45,41 +45,19 @@ where
 
 /// Helper data type, which along with the `branch_change` contain additional
 /// artefacts, which can be used to create a proof.
-#[derive(Clone)]
-pub struct PrivateBranchChange<G>
-where
-    G: AffineRepr,
-{
-    pub(crate) branch_change: BranchChange<G>,
-    pub(crate) prover_branch: Vec<ProverNodeData<G>>,
-    pub(crate) eligibility: EligibilityArtefact,
-    pub(crate) leaf_secret: G::ScalarField,
-    pub(crate) root_secret: G::ScalarField,
-    pub(crate) prover_engine: Rc<ZeroArtProverEngine>,
-}
+#[derive(Debug, Clone)]
+pub struct PrivateBranchChange<G: AffineRepr>(pub G::ScalarField, pub BranchChange<G>);
 
 impl<G> PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
-    pub fn get_root_secret(&self) -> G::ScalarField {
-        self.root_secret
+    pub fn branch_change(&self) -> &BranchChange<G> {
+        &self.1
     }
 
-    pub fn get_branch_change(&self) -> &BranchChange<G> {
-        &self.branch_change
-    }
-
-    pub fn get_eligibility(&self) -> &EligibilityArtefact {
-        &self.eligibility
-    }
-
-    pub fn get_secret(&self) -> G::ScalarField {
-        self.leaf_secret
-    }
-
-    pub fn get_prover_branch(&self) -> &Vec<ProverNodeData<G>> {
-        &self.prover_branch
+    pub fn secret_key(&self) -> &G::ScalarField {
+        &self.0
     }
 }
 
@@ -88,7 +66,7 @@ where
     G: AffineRepr,
 {
     fn from(output: PrivateBranchChange<G>) -> Self {
-        output.branch_change
+        output.1
     }
 }
 

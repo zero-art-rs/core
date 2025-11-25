@@ -7,7 +7,7 @@ use crate::changes::aggregations::{
     AggregationNode, AggregationNodeIterWithPath, AggregationTree, TreeIterHelper,
     TreeNodeIterWithPath,
 };
-use crate::changes::branch_change::{BranchChange, BranchChangeType};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::helper_tools;
 use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
@@ -24,7 +24,7 @@ use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 use zrt_zk::EligibilityArtefact;
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Default)]
-pub(crate) struct ArtSecret<G>
+pub struct ArtSecret<G>
 where
     G: AffineRepr,
 {
@@ -66,7 +66,7 @@ where
         new_sk
     }
 
-    pub fn commit(&mut self) {
+    pub(crate) fn commit(&mut self) {
         let mut new_sk = self.key;
 
         if let Some(strong_key) = self.strong_key {
@@ -122,7 +122,7 @@ where
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
-pub(crate) struct ArtSecrets<G>(Vec<ArtSecret<G>>)
+pub struct ArtSecrets<G>(Vec<ArtSecret<G>>)
 where
     G: AffineRepr;
 
@@ -130,19 +130,23 @@ impl<G> ArtSecrets<G>
 where
     G: AffineRepr,
 {
-    pub fn leaf_key(&self) -> G::ScalarField {
-        self.0[self.0.len() - 1].key()
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
-    pub fn i_th_key_from_root(&self, i: usize) -> Option<G::ScalarField> {
-        self.0.get(i).map(|record| record.key())
+    pub fn leaf(&self) -> &ArtSecret<G> {
+        &self.0[self.0.len() - 1]
     }
 
-    pub fn root_key(&self) -> G::ScalarField {
-        self.0[0].key()
+    pub fn secret(&self, i: usize) -> Option<&ArtSecret<G>> {
+        self.0.get(i).map(|record| record)
     }
 
-    pub fn extend_with(&mut self, sk: G::ScalarField) {
+    pub fn root(&self) -> &ArtSecret<G> {
+        &self.0[0]
+    }
+
+    pub(crate) fn extend_with(&mut self, sk: G::ScalarField) {
         self.0.push(ArtSecret::from(sk))
     }
 
@@ -155,7 +159,7 @@ where
         secrets
     }
 
-    pub fn commit(&mut self) {
+    pub(crate) fn commit(&mut self) {
         for secret in self.0.iter_mut() {
             secret.commit();
         }
@@ -306,6 +310,10 @@ where
         &self.node_index
     }
 
+    pub fn secrets(&self) -> &ArtSecrets<G> {
+        &self.secrets
+    }
+
     pub fn public_art(&self) -> &PublicArt<G> {
         &self.public_art
     }
@@ -315,7 +323,7 @@ where
     }
 
     pub fn root_secret_key(&self) -> G::ScalarField {
-        self.secrets.root_key()
+        self.secrets.root().key()
     }
 
     pub fn root_public_key(&self) -> G {
@@ -323,7 +331,7 @@ where
     }
 
     pub fn leaf_secret_key(&self) -> G::ScalarField {
-        self.secrets.leaf_key()
+        self.secrets.leaf().key()
     }
 
     pub fn leaf_public_key(&self) -> G {
@@ -565,7 +573,7 @@ where
                     None => return Err(ArtError::ArtLogic),
                     Some(LeafStatus::Blank) => false,
                     _ => {
-                        art.secrets.extend_with(art.secrets.leaf_key());
+                        art.secrets.extend_with(art.secrets.leaf().key());
                         art.node_index.push(Direction::Left);
 
                         true
@@ -589,8 +597,9 @@ where
 
         let level_sk = art
             .secrets
-            .i_th_key_from_root(intersection.len() + 1)
-            .ok_or(ArtError::InvalidBranchChange)?;
+            .secret(intersection.len() + 1)
+            .ok_or(ArtError::InvalidBranchChange)?
+            .key();
         let artefacts = recompute_artefacts(level_sk, &co_path)?;
         art.secrets
             .update_from_root(&artefacts.secrets[1..], weak_only)?;
@@ -650,22 +659,6 @@ where
 {
     fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
         helper_tools::inner_apply_own_key_update(art, *self)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct PrivateBranchChange<G: AffineRepr>(G::ScalarField, BranchChange<G>);
-
-impl<G> PrivateBranchChange<G>
-where
-    G: AffineRepr,
-{
-    pub fn branch_change(&self) -> &BranchChange<G> {
-        &self.1
-    }
-
-    pub fn secret_key(&self) -> &G::ScalarField {
-        &self.0
     }
 }
 
