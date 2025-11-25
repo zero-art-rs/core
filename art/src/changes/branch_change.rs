@@ -12,7 +12,11 @@ use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, rc::Rc};
+use ark_ff::PrimeField;
 use zrt_zk::{EligibilityArtefact, art::ProverNodeData, engine::ZeroArtProverEngine};
+use crate::art::PrivateArt;
+use crate::changes::ApplicableChange;
+use crate::helper_tools;
 
 /// Marker for a `BranchChange` type.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -46,18 +50,38 @@ where
 /// Helper data type, which along with the `branch_change` contain additional
 /// artefacts, which can be used to create a proof.
 #[derive(Debug, Clone)]
-pub struct PrivateBranchChange<G: AffineRepr>(pub G::ScalarField, pub BranchChange<G>);
+pub struct PrivateBranchChange<G: AffineRepr>(G::ScalarField, BranchChange<G>);
 
 impl<G> PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
+    pub fn new(sk: G::ScalarField, change: BranchChange<G>) -> Self {
+        Self(sk, change)
+    }
+
     pub fn branch_change(&self) -> &BranchChange<G> {
         &self.1
     }
 
     pub fn secret_key(&self) -> &G::ScalarField {
         &self.0
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for PrivateBranchChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        if matches!(self.1.change_type, BranchChangeType::UpdateKey)
+            && self.1.node_index.eq(art.node_index())
+        {
+            helper_tools::inner_apply_own_key_update(art, self.0)
+        } else {
+            self.1.apply(art)
+        }
     }
 }
 
