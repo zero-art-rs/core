@@ -4,10 +4,7 @@ use serde::de;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
-use crate::art::{
-    ArtProof, CompressedRistretto, ProverNodeData, R1CSProof, UpdateProof, VerifierNodeData,
-    estimate_bp_gens,
-};
+use crate::art::{ArtProof, CompressedRistretto, ProverNodeData, R1CSProof, UpdateProof, VerifierNodeData, estimate_bp_gens, ProverNodeDataWithBlinding};
 use crate::dh::art_level_gadget;
 use crate::eligibility::EligibilityRequirement;
 use crate::engine::{
@@ -21,8 +18,11 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
+use curve25519_dalek::Scalar;
 use cortado::{self, CortadoAffine, ToScalar};
 use merlin::Transcript;
+use rand::thread_rng;
+use rand_core::CryptoRngCore;
 use tracing::debug;
 
 use tree_ds::{prelude::Node, prelude::TraversalStrategy, prelude::Tree};
@@ -34,6 +34,7 @@ use zkp::toolbox::{
 
 /// aggregation tree for the prover
 pub type ProverAggregationTree<G> = Tree<u64, ProverNodeData<G>>;
+pub(crate) type ProverAggregationTreeWithBlinding<G> = Tree<u64, ProverNodeDataWithBlinding<G>>;
 
 /// aggregation tree for the verifier
 pub type VerifierAggregationTree<G> = Tree<u64, VerifierNodeData<G>>;
@@ -42,8 +43,8 @@ pub type VerifierAggregationTree<G> = Tree<u64, VerifierNodeData<G>>;
 pub struct AggregatedTreeProof(Tree<u64, (Option<R1CSProof>, CompressedRistretto)>);
 
 /// Initialize an empty aggregated proof tree
-impl From<&ProverAggregationTree<CortadoAffine>> for AggregatedTreeProof {
-    fn from(tree: &ProverAggregationTree<CortadoAffine>) -> Self {
+impl From<&ProverAggregationTreeWithBlinding<CortadoAffine>> for AggregatedTreeProof {
+    fn from(tree: &ProverAggregationTreeWithBlinding<CortadoAffine>) -> Self {
         let mut new_tree = Tree::new(Some("aggregated_proof"));
         for node in tree.get_nodes().iter() {
             let node_id = node.get_node_id().unwrap();
@@ -116,7 +117,7 @@ impl CanonicalDeserialize for AggregatedTreeProof {
 impl<'a> ZeroArtProverContext<'a> {
     pub(crate) fn prove_tree_single_threaded(
         &self,
-        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+        aggregated_tree: &ProverAggregationTreeWithBlinding<CortadoAffine>,
     ) -> Result<AggregatedTreeProof, ZKError> {
         let start = Instant::now();
         let bp_gens = BulletproofGens::new(
@@ -135,7 +136,7 @@ impl<'a> ZeroArtProverContext<'a> {
             .map_err(|_| ZKError::InvalidAggregation)?;
 
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
         for node_id in aggregated_tree
             .traverse(&root_id, TraversalStrategy::PreOrder)
@@ -158,9 +159,9 @@ impl<'a> ZeroArtProverContext<'a> {
                     .unwrap();
 
                 let λ_a_i = node_data.secret_key.into_scalar();
-                let b_i = node_data.blinding_factor.into_scalar();
+                let b_i = node_data.blinding_factor;
                 let λ_a_next = parent_data.secret_key.into_scalar();
-                let b_next = parent_data.blinding_factor.into_scalar();
+                let b_next = parent_data.blinding_factor;
                 let Q_a_i = node_data.public_key.clone();
                 let Q_ab_i = parent_data.public_key.clone();
                 let Q_b_i = node_data.co_public_key.unwrap().clone();
@@ -221,7 +222,7 @@ impl<'a> ZeroArtProverContext<'a> {
 
     pub(crate) fn prove_tree_multi_threaded(
         &self,
-        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+        aggregated_tree: &ProverAggregationTreeWithBlinding<CortadoAffine>,
     ) -> Result<AggregatedTreeProof, ZKError> {
         let start = Instant::now();
         let bp_gens = Arc::new(BulletproofGens::new(
@@ -308,7 +309,7 @@ impl<'a> ZeroArtProverContext<'a> {
 
     pub(crate) fn prove_tree(
         &self,
-        aggregated_tree: &ProverAggregationTree<CortadoAffine>,
+        aggregated_tree: &ProverAggregationTreeWithBlinding<CortadoAffine>,
     ) -> Result<AggregatedTreeProof, ZKError> {
         match self.engine.options.multi_threaded {
             true => self.prove_tree_multi_threaded(aggregated_tree),
@@ -317,17 +318,45 @@ impl<'a> ZeroArtProverContext<'a> {
     }
 
     /// Prove the aggregated operations
-    pub fn prove_aggregated(
+    pub(crate) fn prove_aggregated<R>(
         &self,
         aggregated_tree: &ProverAggregationTree<CortadoAffine>,
-    ) -> Result<ArtProof, ZKError> {
+        rng: &mut R,
+    ) -> Result<ArtProof, ZKError>
+    where
+        R: CryptoRngCore,
+    {
+        let root_id = aggregated_tree
+            .get_root_node()
+            .ok_or(ZKError::InvalidAggregation)?
+            .get_node_id()
+            .map_err(|_| ZKError::InvalidAggregation)?;
+        let mut aggregated_tree_with_blinding = Tree::new(Some("aggregated_proof"));
+        for node_id in aggregated_tree
+            .traverse(&root_id, TraversalStrategy::PreOrder)
+            .map_err(|_| ZKError::InvalidAggregation)?
+        {
+            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
+            let parent_id = node
+                .get_parent_id()
+                .map_err(|_| ZKError::InvalidAggregation)?;
+            let node_value = node
+                .get_value()
+                .map_err(|_| ZKError::InvalidAggregation)?
+                .ok_or(ZKError::InvalidAggregation)?;
+            let new_node = Node::new(node_id, Some(node_value.with_blinding(Scalar::random(rng))));
+            aggregated_tree_with_blinding
+                .add_node(new_node, parent_id.as_ref())
+                .map_err(|_| ZKError::InvalidAggregation)?;
+        }
+
         match self.engine.options.multi_threaded {
             false => Ok(ArtProof {
-                update_proof: UpdateProof::AggregatedProof(self.prove_tree(aggregated_tree)?),
+                update_proof: UpdateProof::AggregatedProof(self.prove_tree(&aggregated_tree_with_blinding)?),
                 eligibility_proof: self.prove_eligibility()?,
             }),
             true => std::thread::scope(|s| {
-                let branch_handle = s.spawn(|| self.prove_tree(aggregated_tree));
+                let branch_handle = s.spawn(|| self.prove_tree(&aggregated_tree_with_blinding));
                 let eligibility_handle = s.spawn(|| self.prove_eligibility());
 
                 let update_proof = branch_handle.join().unwrap()?;
@@ -358,7 +387,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
             1,
         );
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut verifier = Verifier::new(&mut transcript);
         let root_id = aggregated_tree
             .get_root_node()
@@ -523,7 +552,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
     }
 
     /// Verify the proof of an operation
-    pub fn verify_aggregated(
+    pub(crate) fn verify_aggregated(
         &self,
         aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
         proof: &ArtProof,
@@ -564,11 +593,10 @@ pub fn art_aggregated_prove(
 ) -> Result<ArtProof, ZKError> {
     let start = Instant::now();
     let engine = ZeroArtProverEngine::new(basis, ZeroArtEngineOptions::default());
-    let context = engine.new_context(
-        ad,
-        crate::eligibility::EligibilityArtefact::Member((s[0], R[0])),
-    );
-    let proof = context.prove_aggregated(aggregated_tree);
+    let context = engine
+        .new_context(crate::eligibility::EligibilityArtefact::Member((s[0], R[0])))
+        .with_ad(ad);
+    let proof = context.prove_aggregated(aggregated_tree, &mut thread_rng());
     debug!("art_aggregated_prove time: {:?}", start.elapsed());
     proof
 }
@@ -584,7 +612,7 @@ pub fn art_aggregated_verify(
 ) -> Result<(), ZKError> {
     let start = Instant::now();
     let engine = ZeroArtVerifierEngine::new(basis, ZeroArtEngineOptions::default());
-    let context = engine.new_context(ad, EligibilityRequirement::Member(R[0]));
+    let context = engine.new_context(EligibilityRequirement::Member(R[0])).with_associated_data(ad);
     let res = context.verify_aggregated(aggregated_tree, proof);
     debug!("art_aggregated_verify time: {:?}", start.elapsed());
     res
@@ -690,7 +718,6 @@ mod tests {
                 public_key: root_pk,
                 co_public_key: None,
                 secret_key: root_sk,
-                blinding_factor: cortado::Fr::rand(&mut rng),
             }),
         );
         tree.add_node(root_node, None).unwrap();
@@ -722,7 +749,6 @@ mod tests {
                                     secret_key: node_value.secret_key,
                                     public_key: node_value.public_key,
                                     co_public_key: Some(right_child_pk),
-                                    blinding_factor: node_value.blinding_factor,
                                 }),
                             );
                             tree.add_node(left_child_node, Some(&node_id)).unwrap();
@@ -734,7 +760,6 @@ mod tests {
                                     public_key: right_child_pk,
                                     co_public_key: Some(node_value.public_key),
                                     secret_key: right_child_sk,
-                                    blinding_factor: cortado::Fr::rand(&mut rng),
                                 }),
                             );
                             tree.add_node(right_child_node, Some(&node_id)).unwrap();

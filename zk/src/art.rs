@@ -16,10 +16,11 @@ use ark_std::log2;
 use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, R1CSProof as BPR1CSProof, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use cortado::{self, CortadoAffine, ToScalar};
+use curve25519_dalek::Scalar;
 use curve25519_dalek::ristretto::CompressedRistretto as DalekCompressedRistretto;
 use merlin::Transcript;
 use rand::{Rng, thread_rng};
-use rand_core::{OsRng, le};
+use rand_core::{CryptoRngCore, OsRng, le};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, mpsc};
@@ -36,7 +37,31 @@ where
     pub public_key: G,
     pub co_public_key: Option<G>,
     pub secret_key: G::ScalarField,
-    pub blinding_factor: G::ScalarField,
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
+pub(crate) struct ProverNodeDataWithBlinding<G>
+where
+    G: AffineRepr,
+{
+    pub public_key: G,
+    pub co_public_key: Option<G>,
+    pub secret_key: G::ScalarField,
+    pub blinding_factor: Scalar,
+}
+
+impl<G> ProverNodeData<G>
+where
+    G: AffineRepr,
+{
+    pub(crate) fn with_blinding(&self, blinding: Scalar) -> ProverNodeDataWithBlinding<G> {
+        ProverNodeDataWithBlinding {
+            public_key: self.public_key,
+            co_public_key: self.co_public_key.clone(),
+            secret_key: self.secret_key,
+            blinding_factor: blinding,
+        }
+    }
 }
 
 impl<G> Display for ProverNodeData<G>
@@ -319,19 +344,19 @@ impl<'a> ZeroArtProverContext<'a> {
         &self,
         bp_gens: &BulletproofGens,
         level: usize,
-        node: &ProverNodeData<CortadoAffine>,
-        next_node: &ProverNodeData<CortadoAffine>,
+        node: &ProverNodeDataWithBlinding<CortadoAffine>,
+        next_node: &ProverNodeDataWithBlinding<CortadoAffine>,
     ) -> Result<(R1CSProof, (CompressedRistretto, CompressedRistretto)), R1CSError> {
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
         let (a_commitment, var_a) = prover.commit(
             node.secret_key.into_scalar(),
-            node.blinding_factor.into_scalar(),
+            node.blinding_factor,
         );
         let (ab_commitment, var_ab) = prover.commit(
             next_node.secret_key.into_scalar(),
-            next_node.blinding_factor.into_scalar(),
+            next_node.blinding_factor,
         );
         let λ_a_i = AllocatedScalar::new(var_a, Some(node.secret_key.into_scalar()));
         let λ_a_next = AllocatedScalar::new(var_ab, Some(next_node.secret_key.into_scalar()));
@@ -358,7 +383,7 @@ impl<'a> ZeroArtProverContext<'a> {
 
     pub(crate) fn prove_branch_single_threaded(
         &self,
-        branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
+        branch_nodes: &Vec<ProverNodeDataWithBlinding<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
@@ -373,14 +398,14 @@ impl<'a> ZeroArtProverContext<'a> {
         let mut commitments = Vec::new();
         let mut vars = Vec::new();
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
 
         for i in 0..k + 1 {
             let node = &branch_nodes[i];
             let (a_commitment, var_a) = prover.commit(
                 node.secret_key.into_scalar(),
-                node.blinding_factor.into_scalar(),
+                node.blinding_factor,
             );
             commitments.push(a_commitment);
             vars.push(AllocatedScalar::new(
@@ -424,7 +449,7 @@ impl<'a> ZeroArtProverContext<'a> {
 
     pub(crate) fn prove_branch_multi_threaded(
         &self,
-        branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
+        branch_nodes: &Vec<ProverNodeDataWithBlinding<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
@@ -470,7 +495,7 @@ impl<'a> ZeroArtProverContext<'a> {
 
     pub(crate) fn prove_branch(
         &self,
-        branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
+        branch_nodes: &Vec<ProverNodeDataWithBlinding<CortadoAffine>>,
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         match self.engine.options.multi_threaded {
             true => self.prove_branch_multi_threaded(branch_nodes),
@@ -479,17 +504,26 @@ impl<'a> ZeroArtProverContext<'a> {
     }
 
     /// Prove the operation
-    pub fn prove(
+    pub(crate) fn prove_singular<R>(
         &self,
         branch_nodes: &Vec<ProverNodeData<CortadoAffine>>,
-    ) -> Result<ArtProof, ZKError> {
+        rng: &mut R,
+    ) -> Result<ArtProof, ZKError>
+    where
+        R: CryptoRngCore,
+    {
+        let branch_nodes = branch_nodes
+            .iter()
+            .map(|node| node.with_blinding(Scalar::random(rng)))
+            .collect::<Vec<_>>();
+
         match self.engine.options.multi_threaded {
             false => Ok(ArtProof {
-                update_proof: UpdateProof::BranchProof(self.prove_branch(branch_nodes)?),
+                update_proof: UpdateProof::BranchProof(self.prove_branch(&branch_nodes)?),
                 eligibility_proof: self.prove_eligibility()?,
             }),
             true => std::thread::scope(|s| {
-                let branch_handle = s.spawn(|| self.prove_branch(branch_nodes));
+                let branch_handle = s.spawn(|| self.prove_branch(&branch_nodes));
                 let eligibility_handle = s.spawn(|| self.prove_eligibility());
 
                 let branch_proof = branch_handle.join().unwrap()?;
@@ -517,7 +551,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
         ),
     ) -> Result<(), R1CSError> {
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut verifier = Verifier::new(&mut transcript);
         let var_a = verifier.commit(commitment_i.0);
         let var_ab = verifier.commit(commitment_next.0);
@@ -555,7 +589,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
 
         assert!(k == 0 || (k == commitments.len() - 1), "length mismatch");
         let mut transcript = Transcript::new(b"ARTGadget");
-        transcript.append_message(b"ad", self.ad);
+        transcript.append_message(b"ad", self.ad());
         let mut verifier = Verifier::new(&mut transcript);
         let mut vars = Vec::new();
         for i in 0..k + 1 {
@@ -652,7 +686,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
     }
 
     /// Verify the proof of an operation
-    pub fn verify(
+    pub(crate) fn verify_singular(
         &self,
         proof: &ArtProof,
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
@@ -701,17 +735,17 @@ pub fn art_prove(
     let eligibility = EligibilityArtefact::Member((s[0], R[0]));
 
     // Create prover context
-    let prover_context = prover_engine.new_context(ad, eligibility);
+    let prover_context = prover_engine.new_context(eligibility);
 
     // Generate proof
-    let proof = prover_context.prove(&branch_nodes)?;
+    let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
 
     debug!("art_prove time: {:?}", start.elapsed());
 
     Ok(proof)
 }
 
-/// verify an ART proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself),
+/// verify an ART proof provided basis, auxiliary data ad(typically a hash of the ART or the ART itself),
 /// additional public keys R, and branch node data
 pub fn art_verify(
     basis: PedersenBasis<CortadoAffine, Ed25519Affine>,
@@ -729,10 +763,10 @@ pub fn art_verify(
     let eligibility_req = EligibilityRequirement::Member(R[0]);
 
     // Create verifier context
-    let verifier_context = verifier_engine.new_context(ad, eligibility_req);
+    let verifier_context = verifier_engine.new_context(eligibility_req).with_associated_data(ad);
 
     // Verify proof
-    verifier_context.verify(&proof, &branch_nodes)?;
+    verifier_context.verify_singular(&proof, &branch_nodes)?;
 
     debug!("art_verify time: {:?}", start.elapsed());
 
@@ -759,7 +793,6 @@ mod tests {
         // First node
         nodes.push(ProverNodeData {
             secret_key: λ_a,
-            blinding_factor: blinding_rng.r#gen(),
             public_key: (CortadoAffine::generator() * λ_a).into_affine(),
             co_public_key: Some(q_b),
         });
@@ -773,7 +806,6 @@ mod tests {
             // Create next node
             nodes.push(ProverNodeData {
                 secret_key: λ_a,
-                blinding_factor: blinding_rng.r#gen(),
                 public_key: (CortadoAffine::generator() * λ_a).into_affine(),
                 co_public_key: if i != k - 1 { Some(q_b) } else { None },
             });
@@ -826,19 +858,19 @@ mod tests {
         let eligibility = EligibilityArtefact::Owner((s, R));
 
         // Create prover context
-        let prover_context = prover_engine.new_context(ad, eligibility);
+        let prover_context = prover_engine.new_context(eligibility).with_ad(ad);
 
         // Generate proof
-        let proof = prover_context.prove(&branch_nodes)?;
+        let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
 
         // Set up eligibility requirement for verifier
         let eligibility_req = EligibilityRequirement::Previleged((R, vec![]));
 
         // Create verifier context
-        let verifier_context = verifier_engine.new_context(ad, eligibility_req);
+        let verifier_context = verifier_engine.new_context(eligibility_req).with_associated_data(ad);
 
         // Verify proof
-        verifier_context.verify(&proof, &verifier_nodes)
+        verifier_context.verify_singular(&proof, &verifier_nodes)
     }
 
     #[test]

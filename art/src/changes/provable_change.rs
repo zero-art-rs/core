@@ -3,10 +3,13 @@
 // use crate::changes::branch_change::PrivateBranchChange;
 use crate::errors::ArtError;
 // use ark_std::rand::Rng;
-// use cortado::CortadoAffine;
+use cortado::CortadoAffine;
 use zrt_zk::EligibilityArtefact;
 // use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::ArtProof;
+use zrt_zk::engine::ZeroArtProverEngine;
+use crate::art::ProverArtefacts;
+use crate::changes::branch_change::BranchChange;
 
 /// A trait for structures that can be proved.
 ///
@@ -21,28 +24,40 @@ pub trait ProvableChange {
     fn prove(
         &self,
         ad: &[u8],
-        eligibility: Option<EligibilityArtefact>,
+        eligibility: EligibilityArtefact,
+        prover_engine: &ZeroArtProverEngine,
     ) -> Result<ArtProof, ArtError>;
 }
 
-// impl ProvableChange for PrivateBranchChange<CortadoAffine> {
+// impl ProvableChange for BranchChange<CortadoAffine> {
 //     fn prove(
 //         &self,
 //         ad: &[u8],
-//         eligibility: Option<EligibilityArtefact>,
+//         eligibility: EligibilityArtefact,
+//         prover_engine: &ZeroArtProverEngine,
 //     ) -> Result<ArtProof, ArtError> {
-//         let eligibility = match eligibility {
-//             Some(eligibility) => eligibility,
-//             None => self.eligibility.clone(),
-//         };
-//
-//         let context = self.prover_engine.new_context(ad, eligibility);
+//         let context = prover_engine.new_context(ad, eligibility);
 //         let proof = context.prove(&self.prover_branch)?;
 //
 //         Ok(proof)
 //     }
 // }
 //
+// impl ProvableChange for ProverArtefacts<CortadoAffine> {
+//     fn prove(
+//         &self,
+//         ad: &[u8],
+//         eligibility: EligibilityArtefact,
+//         prover_engine: &ZeroArtProverEngine,
+//         // rng: &'mut R,
+//     ) -> Result<ArtProof, ArtError> {
+//         let context = prover_engine.new_context(ad, eligibility);
+//         let proof = context.prove(&self.to_prover_branch())?;
+//
+//         Ok(proof)
+//     }
+// }
+
 // impl<R> ProvableChange for AggregationContext<PrivateArt<CortadoAffine>, CortadoAffine, R>
 // where
 //     R: Rng + ?Sized,

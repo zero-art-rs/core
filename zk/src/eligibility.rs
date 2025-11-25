@@ -115,7 +115,7 @@ impl<'a> ZeroArtProverContext<'a> {
         Ok(match &self.eligibility {
             EligibilityArtefact::Owner((s, R)) => {
                 let mut transcript = Transcript::new(b"eligibility");
-                transcript.append_message(b"ad", self.ad);
+                transcript.append_message(b"ad", self.ad());
                 let mut prover: SigmaProver<CortadoAffine, Transcript, &mut Transcript> =
                     SigmaProver::new(b"ProofOfOwnership", &mut transcript);
 
@@ -129,7 +129,7 @@ impl<'a> ZeroArtProverContext<'a> {
             }
             EligibilityArtefact::Member((s, R)) => {
                 let mut transcript = Transcript::new(b"eligibility");
-                transcript.append_message(b"ad", self.ad);
+                transcript.append_message(b"ad", self.ad());
                 let mut prover: SigmaProver<CortadoAffine, Transcript, &mut Transcript> =
                     SigmaProver::new(b"ProofOfMembership", &mut transcript);
 
@@ -142,7 +142,7 @@ impl<'a> ZeroArtProverContext<'a> {
                 EligibilityProof::Member(sigma_proof)
             }
             EligibilityArtefact::CredentialHolder((s, cred)) => {
-                EligibilityProof::CredentialHolder(cred.present(self.ad, s.clone(), vec![])?)
+                EligibilityProof::CredentialHolder(cred.present(self.ad(), s.clone(), vec![])?)
             }
         })
     }
@@ -157,7 +157,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
             EligibilityRequirement::Member(pk) => match eligibility_proof {
                 EligibilityProof::Member(proof) => {
                     let mut transcript = Transcript::new(b"eligibility");
-                    transcript.append_message(b"ad", self.ad);
+                    transcript.append_message(b"ad", self.ad());
                     let mut verifier: SigmaVerifier<CortadoAffine, Transcript, &mut Transcript> =
                         SigmaVerifier::new(b"ProofOfMembership", &mut transcript);
 
@@ -173,7 +173,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 match eligibility_proof {
                     EligibilityProof::Owner(proof) => {
                         let mut transcript = Transcript::new(b"eligibility");
-                        transcript.append_message(b"ad", self.ad);
+                        transcript.append_message(b"ad", self.ad());
                         let mut verifier: SigmaVerifier<
                             CortadoAffine,
                             Transcript,
@@ -187,7 +187,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
                         verifier.verify_compact(proof).map_err(|e| e.into())
                     }
                     EligibilityProof::CredentialHolder(proof) => Credential::verify_presentation(
-                        self.ad,
+                        self.ad(),
                         proof,
                         *owner_pk,
                         revocation_list.clone(),

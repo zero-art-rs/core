@@ -7,5 +7,5 @@ mod provable_change;
 mod verifiable_change;
 
 pub use applicable_change::ApplicableChange;
-// pub use provable_change::ProvableChange;
-// pub use verifiable_change::VerifiableChange;
+pub use provable_change::ProvableChange;
+pub use verifiable_change::VerifiableChange;

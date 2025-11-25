@@ -55,4 +55,6 @@ pub enum ArtError {
     InvalidMarkerTree,
     #[error("There are some issues with the provided atr update data.")]
     InvalidUpdateData,
+    #[error("No associated data provided.")]
+    NoAssociatedData,
 }

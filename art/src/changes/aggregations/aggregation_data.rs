@@ -177,7 +177,6 @@ where
             public_key: value.public_key,
             co_public_key: value.co_public_key,
             secret_key: value.secret_key,
-            blinding_factor: value.blinding_factor,
         }
     }
 }

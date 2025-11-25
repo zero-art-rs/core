@@ -173,5 +173,5 @@ where
 
     art.secrets.update_from_root(&artefacts.secrets, false)?;
 
-    Ok(art.root_secret_key())
+    Ok(*artefacts.secrets.last().ok_or(ArtError::InvalidBranchChange)?)
 }

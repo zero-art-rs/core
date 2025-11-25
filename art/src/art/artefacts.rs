@@ -58,9 +58,8 @@ where
         }
     }
 
-    pub fn to_prover_branch<R: Rng + ?Sized>(
+    pub fn to_prover_branch(
         &self,
-        rng: &mut R,
     ) -> Result<Vec<ProverNodeData<G>>, ArtError> {
         if self.path.len() != self.secrets.len() || self.path.len() != self.co_path.len() + 1 {
             return Err(ArtError::InvalidInput);
@@ -70,7 +69,6 @@ where
         for i in 0..self.path.len() {
             prover_nodes.push(ProverNodeData::<G> {
                 secret_key: *self.secrets.get(i).ok_or(ArtError::InvalidInput)?,
-                blinding_factor: G::ScalarField::rand(rng),
                 public_key: *self.path.get(i).ok_or(ArtError::InvalidInput)?,
                 co_public_key: self.co_path.get(i).copied(),
             })

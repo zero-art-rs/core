@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::fmt::{Debug, Display, write};
 use std::mem;
+use tracing::debug;
+use zrt_zk::art::VerifierNodeData;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 pub struct PublicMergeData<G>
@@ -115,6 +117,23 @@ where
 
 #[derive(Clone, Copy, Debug)]
 pub enum ArtNodePreview<'a, G>
+where
+    G: AffineRepr,
+{
+    ArtNodeOnly {
+        art_node: &'a ArtNode<G>,
+    },
+    MergeNodeOnly {
+        merge_node: &'a AggregationNode<PublicMergeData<G>>,
+    },
+    Full {
+        art_node: &'a ArtNode<G>,
+        merge_node: &'a AggregationNode<PublicMergeData<G>>,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ArtNodeRef<'a, G>
 where
     G: AffineRepr,
 {
@@ -293,7 +312,7 @@ where
             )));
         } else {
             let merge_leaf = self.merge_tree.add_branch_keys(
-                &public_keys[..public_keys.len() - 1],
+                &public_keys,
                 path,
                 false,
                 Some(true),
@@ -490,21 +509,21 @@ where
         merge_node: Option<&'a AggregationNode<PublicMergeData<G>>>,
     ) -> Result<Self, ArtError> {
         match (art_node, merge_node) {
-            (Some(art_node), Some(merge_node)) => Ok(ArtNodePreview::Full {
+            (Some(art_node), Some(merge_node)) => Ok(Self::Full {
                 art_node,
                 merge_node,
             }),
-            (Some(art_node), None) => Ok(ArtNodePreview::ArtNodeOnly { art_node }),
-            (None, Some(merge_node)) => Ok(ArtNodePreview::MergeNodeOnly { merge_node }),
+            (Some(art_node), None) => Ok(Self::ArtNodeOnly { art_node }),
+            (None, Some(merge_node)) => Ok(Self::MergeNodeOnly { merge_node }),
             (None, None) => Err(ArtError::InvalidInput),
         }
     }
 
     pub fn art_node(&self) -> Option<&'a ArtNode<G>> {
         match self {
-            ArtNodePreview::ArtNodeOnly { art_node, .. } => Some(art_node),
-            ArtNodePreview::MergeNodeOnly { .. } => None,
-            ArtNodePreview::Full { art_node, .. } => Some(art_node),
+            Self::ArtNodeOnly { art_node, .. } => Some(art_node),
+            Self::MergeNodeOnly { .. } => None,
+            Self::Full { art_node, .. } => Some(art_node),
         }
     }
 
@@ -528,19 +547,19 @@ where
         Ok(node)
     }
 
-    pub fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
+    fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
         match self {
-            ArtNodePreview::ArtNodeOnly { .. } => None,
-            ArtNodePreview::MergeNodeOnly { merge_node, .. } => Some(merge_node),
-            ArtNodePreview::Full { merge_node, .. } => Some(merge_node),
+            Self::ArtNodeOnly { .. } => None,
+            Self::MergeNodeOnly { merge_node, .. } => Some(merge_node),
+            Self::Full { merge_node, .. } => Some(merge_node),
         }
     }
 
     pub fn public_key(&self) -> G {
         match self {
-            ArtNodePreview::ArtNodeOnly { art_node } => art_node.public_key(),
-            ArtNodePreview::MergeNodeOnly { merge_node } => merge_node.preview_public_key(),
-            ArtNodePreview::Full {
+            Self::ArtNodeOnly { art_node } => art_node.public_key(),
+            Self::MergeNodeOnly { merge_node } => merge_node.preview_public_key(),
+            Self::Full {
                 art_node,
                 merge_node,
             } => art_node.preview_public_key(&merge_node.data),
@@ -549,13 +568,13 @@ where
 
     pub fn status(&self) -> Option<LeafStatus> {
         match self {
-            ArtNodePreview::ArtNodeOnly { art_node } => art_node.status(),
-            ArtNodePreview::MergeNodeOnly { merge_node } => merge_node.status(),
-            ArtNodePreview::Full { merge_node, .. } => merge_node.status(),
+            Self::ArtNodeOnly { art_node } => art_node.status(),
+            Self::MergeNodeOnly { merge_node } => merge_node.status(),
+            Self::Full { merge_node, .. } => merge_node.status(),
         }
     }
 
-    pub(crate) fn child(&self, dir: Direction) -> Option<Self> {
+    pub fn child(&self, dir: Direction) -> Option<Self> {
         let art_node: Option<&'a ArtNode<G>> = match self.art_node() {
             Some(node) => node.child(dir),
             None => None,
@@ -566,6 +585,100 @@ where
             None => None,
         };
 
-        ArtNodePreview::new(art_node, merge_node).ok()
+        Self::new(art_node, merge_node).ok()
+    }
+
+    pub fn is_leaf(&self) -> bool {
+        let left = self.child(Direction::Left);
+        let right = self.child(Direction::Right);
+
+        left.is_none() && right.is_none()
+    }
+}
+
+impl<G> PublicArt<G>
+where
+    G: AffineRepr,
+{
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn verification_branch(
+        &self,
+        change: &BranchChange<G>,
+    ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
+        let mut path = change.node_index.get_path()?;
+        if matches!(change.change_type, BranchChangeType::AddMember)
+            && matches!(self.node_at(&path)?.status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
+        {
+            path.push(Direction::Right);
+        }
+
+        let mut co_path = Vec::new();
+        let mut parent = self.root();
+        for direction in &path {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = change.change_type
+                    && matches!(parent.status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
+                parent = parent
+                    .child(*direction)
+                    .ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        let verifier_artefacts = VerifierArtefacts {
+            path: change.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        };
+
+        verifier_artefacts.to_verifier_branch()
+    }
+
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn preview_artefacts_for_verification(
+        &self,
+        changes: &BranchChange<G>,
+    ) -> Result<VerifierArtefacts<G>, ArtError> {
+        let mut co_path = Vec::new();
+
+        let mut parent = self.root();
+        for direction in &changes.node_index.get_path()? {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = changes.change_type
+                    && matches!(parent.status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
+                parent = parent
+                    .child(*direction)
+                    .ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        Ok(VerifierArtefacts {
+            path: changes.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        })
     }
 }
