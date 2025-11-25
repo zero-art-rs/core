@@ -595,7 +595,7 @@ pub fn art_aggregated_prove(
     let engine = ZeroArtProverEngine::new(basis, ZeroArtEngineOptions::default());
     let context = engine
         .new_context(crate::eligibility::EligibilityArtefact::Member((s[0], R[0])))
-        .with_ad(ad);
+        .with_associated_data(ad);
     let proof = context.prove_aggregated(aggregated_tree, &mut thread_rng());
     debug!("art_aggregated_prove time: {:?}", start.elapsed());
     proof

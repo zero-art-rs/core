@@ -2332,7 +2332,7 @@ mod tests {
         let proof = prover_engine
             .new_context(member_el)
             .for_branch(&prover_branch)
-            .with_ad(associated_data)
+            .with_associated_data(associated_data)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2402,14 +2402,14 @@ mod tests {
         let proof0_0 = prover_engine
             .new_context(member_leaf_eligibility_artefact(&user0))
             .for_branch(&prover_branch0_0)
-            .with_ad(associated_data0_0)
+            .with_associated_data(associated_data0_0)
             .prove(&mut thread_rng())
             .unwrap();
 
         let proof0_1 = prover_engine
             .new_context(member_leaf_eligibility_artefact(&user1))
             .for_branch(&prover_branch0_1)
-            .with_ad(associated_data0_1)
+            .with_associated_data(associated_data0_1)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2489,7 +2489,7 @@ mod tests {
         let proof = prover_engine
             .new_context(removal_eligibility(&art, &target_node_index))
             .for_branch(&prover_branch)
-            .with_ad(associated_data)
+            .with_associated_data(associated_data)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2539,7 +2539,7 @@ mod tests {
         let proof = prover_engine
             .new_context(member_leaf_eligibility_artefact(&art))
             .for_branch(&prover_branch)
-            .with_ad(associated_data)
+            .with_associated_data(associated_data)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2584,7 +2584,7 @@ mod tests {
         let proof = prover_engine
             .new_context(removal_eligibility(&test_art, art.node_index()))
             .for_branch(&prover_branch)
-            .with_ad(associated_data)
+            .with_associated_data(associated_data)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2637,7 +2637,7 @@ mod tests {
         let proof = prover_engine
             .new_context(owner_leaf_eligibility_artefact(&art))
             .for_branch(&prover_branch)
-            .with_ad(associated_data)
+            .with_associated_data(associated_data)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2705,7 +2705,7 @@ mod tests {
         let proof1 = prover_engine
             .new_context(owner_leaf_eligibility_artefact(&art))
             .for_branch(&prover_branch)
-            .with_ad(associated_data1)
+            .with_associated_data(associated_data1)
             .prove(&mut thread_rng())
             .unwrap();
 
@@ -2775,7 +2775,7 @@ mod tests {
         let proof2 = prover_engine
             .new_context(owner_leaf_eligibility_artefact(&art))
             .for_branch(&prover_branch2)
-            .with_ad(associated_data2)
+            .with_associated_data(associated_data2)
             .prove(&mut thread_rng())
             .unwrap();
 

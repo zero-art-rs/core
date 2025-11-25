@@ -63,7 +63,7 @@ pub struct ZeroArtProverContext<'a> {
 
 
 impl<'a> ZeroArtProverContext<'a> {
-    pub fn with_ad(mut self, ad: &'a [u8]) -> Self {
+    pub fn with_associated_data(mut self, ad: &'a [u8]) -> Self {
         self.ad = Some(ad);
         self
     }

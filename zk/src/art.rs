@@ -858,7 +858,7 @@ mod tests {
         let eligibility = EligibilityArtefact::Owner((s, R));
 
         // Create prover context
-        let prover_context = prover_engine.new_context(eligibility).with_ad(ad);
+        let prover_context = prover_engine.new_context(eligibility).with_associated_data(ad);
 
         // Generate proof
         let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
