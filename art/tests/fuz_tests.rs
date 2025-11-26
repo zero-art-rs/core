@@ -73,9 +73,8 @@ mod tests {
         let mut group_arts = Vec::with_capacity(GROUP_SIZE);
 
         for sk in &group_secrets {
-            group_arts.push(
-                PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), *sk).unwrap(),
-            )
+            group_arts
+                .push(PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), *sk).unwrap())
         }
 
         // Assert all the arts are correctly computed

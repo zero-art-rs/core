@@ -1,5 +1,3 @@
-use std::cmp::max;
-use std::mem;
 use crate::art::{ArtNodePreview, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::aggregations::{
@@ -14,6 +12,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::cmp::max;
+use std::mem;
 use tree_ds::prelude::Node;
 use zrt_zk::{
     aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
@@ -43,7 +43,7 @@ impl<'a, D> TreeIterHelper for AggregatedNodeWrapper<'a, D> {
 
     fn child(&self, dir: Direction) -> Option<Self::Child> {
         if let Some(node) = self.node.child(dir) {
-            return Some(Self {node});
+            return Some(Self { node });
         }
 
         None
@@ -161,7 +161,6 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
 {
-
     /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
     /// `change_type_hint` to perform extension correctly
     pub fn extend(
@@ -176,7 +175,13 @@ where
             return Err(ArtError::NoChanges);
         }
 
-        if matches!(change_type_hint, BranchChangeTypeHint::AddMember {ext_pk: Some(_), ..}) {
+        if matches!(
+            change_type_hint,
+            BranchChangeTypeHint::AddMember {
+                ext_pk: Some(_),
+                ..
+            }
+        ) {
             leaf_path.pop();
         }
 
@@ -254,23 +259,23 @@ where
     //     change_type_hint: BranchChangeTypeHint<G>,
     // ) -> Result<(), ArtError> {
     //     let mut leaf_path = change.node_index.get_path()?;
-    // 
+    //
     //     if leaf_path.is_empty() {
     //         return Err(ArtError::EmptyArt);
     //     }
-    // 
+    //
     //     if let BranchChangeTypeHint::AddMember {
     //         ext_pk: Some(_), ..
     //     } = change_type_hint
     //     {
     //         leaf_path.pop();
     //     }
-    // 
+    //
     //     self.extend_tree_with(change, prover_artefacts)?;
-    // 
+    //
     //     let target_leaf = self.mut_node(&leaf_path)?;
     //     target_leaf.data.change_type.push(change_type_hint);
-    // 
+    //
     //     Ok(())
     // }
 
@@ -578,8 +583,6 @@ where
 // pub(crate) struct Child<'a, N> {
 //     child: Option<N>,
 // }
-
-
 
 pub(crate) trait TreeIterHelper {
     type Child;

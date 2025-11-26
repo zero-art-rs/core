@@ -6,4 +6,4 @@ mod utils;
 
 pub use art_node::{ArtNode, LeafIter, LeafIterWithPath, LeafStatus, NodeIter, NodeIterWithPath};
 pub use tree_methods::TreeMethods;
-pub use utils::{AggregationNodeWrapper, PriorityNodePair, TreeNodeWrapper, NodePair};
+pub use utils::{AggregationNodeWrapper, NodePair, PriorityNodePair, TreeNodeWrapper};

@@ -4,7 +4,10 @@ use serde::de;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
-use crate::art::{ArtProof, CompressedRistretto, ProverNodeData, R1CSProof, UpdateProof, VerifierNodeData, estimate_bp_gens, ProverNodeDataWithBlinding};
+use crate::art::{
+    ArtProof, CompressedRistretto, ProverNodeData, ProverNodeDataWithBlinding, R1CSProof,
+    UpdateProof, VerifierNodeData, estimate_bp_gens,
+};
 use crate::dh::art_level_gadget;
 use crate::eligibility::EligibilityRequirement;
 use crate::engine::{
@@ -18,8 +21,8 @@ use ark_ed25519::EdwardsAffine as Ed25519Affine;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 use bulletproofs::r1cs::{ConstraintSystem, Prover, R1CSError, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use curve25519_dalek::Scalar;
 use cortado::{self, CortadoAffine, ToScalar};
+use curve25519_dalek::Scalar;
 use merlin::Transcript;
 use rand::thread_rng;
 use rand_core::CryptoRngCore;
@@ -352,7 +355,9 @@ impl<'a> ZeroArtProverContext<'a> {
 
         match self.engine.options.multi_threaded {
             false => Ok(ArtProof {
-                update_proof: UpdateProof::AggregatedProof(self.prove_tree(&aggregated_tree_with_blinding)?),
+                update_proof: UpdateProof::AggregatedProof(
+                    self.prove_tree(&aggregated_tree_with_blinding)?,
+                ),
                 eligibility_proof: self.prove_eligibility()?,
             }),
             true => std::thread::scope(|s| {
@@ -594,7 +599,9 @@ pub fn art_aggregated_prove(
     let start = Instant::now();
     let engine = ZeroArtProverEngine::new(basis, ZeroArtEngineOptions::default());
     let context = engine
-        .new_context(crate::eligibility::EligibilityArtefact::Member((s[0], R[0])))
+        .new_context(crate::eligibility::EligibilityArtefact::Member((
+            s[0], R[0],
+        )))
         .with_associated_data(ad);
     let proof = context.prove_aggregated(aggregated_tree, &mut thread_rng());
     debug!("art_aggregated_prove time: {:?}", start.elapsed());
@@ -612,7 +619,9 @@ pub fn art_aggregated_verify(
 ) -> Result<(), ZKError> {
     let start = Instant::now();
     let engine = ZeroArtVerifierEngine::new(basis, ZeroArtEngineOptions::default());
-    let context = engine.new_context(EligibilityRequirement::Member(R[0])).with_associated_data(ad);
+    let context = engine
+        .new_context(EligibilityRequirement::Member(R[0]))
+        .with_associated_data(ad);
     let res = context.verify_aggregated(aggregated_tree, proof);
     debug!("art_aggregated_verify time: {:?}", start.elapsed());
     res

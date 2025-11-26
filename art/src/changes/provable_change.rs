@@ -6,10 +6,10 @@ use crate::errors::ArtError;
 use cortado::CortadoAffine;
 use zrt_zk::EligibilityArtefact;
 // use zrt_zk::aggregated_art::ProverAggregationTree;
-use zrt_zk::art::ArtProof;
-use zrt_zk::engine::ZeroArtProverEngine;
 use crate::art::ProverArtefacts;
 use crate::changes::branch_change::BranchChange;
+use zrt_zk::art::ArtProof;
+use zrt_zk::engine::ZeroArtProverEngine;
 
 /// A trait for structures that can be proved.
 ///

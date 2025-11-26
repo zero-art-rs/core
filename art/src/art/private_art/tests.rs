@@ -1,30 +1,29 @@
-
-use std::cell::{Cell, Ref, RefCell};
-use crate::art::private_art::{ArtSecrets};
+use crate::art::private_art::ArtSecrets;
 use crate::art::{ArtAdvancedOps, PrivateArt, PublicArt};
 use crate::art_node::{LeafIterWithPath, LeafStatus, NodeIter, TreeMethods};
 use crate::changes::ApplicableChange;
+use crate::changes::ProvableChange;
+use crate::changes::VerifiableChange;
+use crate::changes::branch_change::{BranchChange, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use crate::test_helper_tools::init_tracing;
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::prelude::StdRng;
-use ark_std::rand::{SeedableRng, thread_rng, Rng};
+use ark_std::rand::{Rng, SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
-use postcard::{from_bytes, to_allocvec};
-use std::cmp::{max, min};
-use tracing::{error, info, trace, warn};
-use crate::changes::branch_change::{BranchChange, PrivateBranchChange};
 use itertools::Itertools;
+use postcard::{from_bytes, to_allocvec};
 use rand::random;
+use std::cell::{Cell, Ref, RefCell};
+use std::cmp::{max, min};
 use std::ops::{Add, DerefMut, Mul};
-use crate::changes::ProvableChange;
-use crate::changes::{VerifiableChange};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use tracing::{error, info, trace, warn};
 use zrt_zk::art::ArtProof;
-use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
+use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 
 // use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
 // use crate::changes::aggregations::{
@@ -188,9 +187,9 @@ fn test_flow_append_join_update() {
     assert_eq!(user0.root(), user1.root());
     assert_eq!(user0.root_secret_key(), user1.root_secret_key());
     assert_eq!(
-            user0.root().right().unwrap().public_key(),
-            user1.leaf_public_key(),
-        );
+        user0.root().right().unwrap().public_key(),
+        user1.leaf_public_key(),
+    );
 
     assert_eq!(
         user0, user1,
@@ -222,7 +221,7 @@ fn test_removal_of_the_same_user() {
         secret_key_2,
         secret_key_3,
     ])
-        .unwrap();
+    .unwrap();
 
     // Serialise and deserialize art for the other users.
     let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
@@ -529,7 +528,10 @@ fn test_add_member_weight_correctness() {
 
         assert_eq!(user_secret, private_art.leaf_secret_key());
         assert_eq!(
-            private_art.node(private_art.node_index()).unwrap().public_key(),
+            private_art
+                .node(private_art.node_index())
+                .unwrap()
+                .public_key(),
             user_public_key
         );
 
@@ -537,7 +539,10 @@ fn test_add_member_weight_correctness() {
 
         assert_eq!(user_secret, private_art.leaf_secret_key());
         assert_eq!(
-            private_art.node(private_art.node_index()).unwrap().public_key(),
+            private_art
+                .node(private_art.node_index())
+                .unwrap()
+                .public_key(),
             user_public_key
         );
 
@@ -558,7 +563,6 @@ fn test_add_member_weight_correctness() {
                 );
             }
         }
-
     }
 }
 
@@ -584,7 +588,7 @@ fn test_wrong_changes_commit_ordering() {
         secret_key_2,
         secret_key_3,
     ])
-        .unwrap();
+    .unwrap();
 
     // Serialise and deserialize art for the other users.
     let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
@@ -671,7 +675,7 @@ fn test_apply_key_update_changes_twice() {
         secret_key_2,
         secret_key_3,
     ])
-        .unwrap();
+    .unwrap();
     let def_tk = user0.root_secret_key();
 
     // Serialise and deserialize art for the other users.
@@ -713,7 +717,7 @@ fn test_correctness_for_method_from() {
         secret_key_2,
         secret_key_3,
     ])
-        .unwrap();
+    .unwrap();
 
     // Serialise and deserialize art for the other users.
     let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
@@ -724,8 +728,9 @@ fn test_correctness_for_method_from() {
 
     let user1_2 = PrivateArt::restore(
         public_art.clone(),
-        ArtSecrets::try_from(user1.secrets.secret_keys()).unwrap()
-    ).unwrap();
+        ArtSecrets::try_from(user1.secrets.secret_keys()).unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(user1, user1_2);
 
@@ -797,7 +802,7 @@ fn test_apply_key_update_to_itself() {
         secret_key_2,
         secret_key_3,
     ])
-        .unwrap();
+    .unwrap();
 
     // Serialise and deserialize art for the other users.
     let public_art_bytes = to_allocvec(&user0.public_art()).unwrap();
@@ -812,9 +817,9 @@ fn test_apply_key_update_to_itself() {
 
     // User1 fails to update his art.
     assert!(matches!(
-            key_update_change0.apply(&mut user1),
-            Err(ArtError::InapplicableKeyUpdate)
-        ));
+        key_update_change0.apply(&mut user1),
+        Err(ArtError::InapplicableKeyUpdate)
+    ));
 }
 
 #[test]
@@ -1263,7 +1268,11 @@ fn test_merge_flow_with_removal() {
     user3.commit().unwrap();
 
     let root = *epoch2_removal.public_keys.first().unwrap()
-        + *epoch2_key_update.branch_change().public_keys.first().unwrap();
+        + *epoch2_key_update
+            .branch_change()
+            .public_keys
+            .first()
+            .unwrap();
     let root = root.into_affine();
 
     assert_eq!(user0, user1);
@@ -1511,7 +1520,9 @@ fn test_continuous_merge_update() {
     }
 }
 
-pub(crate) fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>) -> Result<(), ()> {
+pub(crate) fn verify_secrets_are_correct(
+    private_art: &PrivateArt<CortadoAffine>,
+) -> Result<(), ()> {
     let path = private_art.node_index().get_path().unwrap();
 
     let mut secrets = private_art.secrets.secret_keys().clone();
@@ -1527,12 +1538,15 @@ pub(crate) fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>
         .ne(&CortadoAffine::generator().mul(root_secret).into_affine())
     {
         error!(
-                "error in root computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
-                root_secret,
-                parent.public_key().x(),
-                CortadoAffine::generator().mul(root_secret).into_affine().x(),
-                private_art.root()
-            );
+            "error in root computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
+            root_secret,
+            parent.public_key().x(),
+            CortadoAffine::generator()
+                .mul(root_secret)
+                .into_affine()
+                .x(),
+            private_art.root()
+        );
         return Err(());
     } else {
         // trace!(
@@ -1745,10 +1759,7 @@ fn test_make_blank_proof() {
     let test_art = PrivateArt::new(public_art, secrets[1]).unwrap();
 
     let target_public_key = CortadoAffine::generator().mul(secrets[1]).into_affine();
-    let target_node_path = art
-        .root()
-        .path_to_leaf_with(target_public_key)
-        .unwrap();
+    let target_node_path = art.root().path_to_leaf_with(target_public_key).unwrap();
     let target_node_index = NodeIndex::from(target_node_path);
     let new_secret_key = Fr::rand(&mut rng);
 
@@ -1805,7 +1816,7 @@ fn test_leave_proof() {
     let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
     let public_art = private_art.public_art().clone();
 
-    let mut art =private_art;
+    let mut art = private_art;
     let mut test_art = PrivateArt::new(public_art, secrets[1]).unwrap();
 
     let new_secret_key = Fr::rand(&mut rng);
@@ -1865,8 +1876,7 @@ fn test_leave_proof() {
         .prove(&mut thread_rng())
         .unwrap();
 
-    let eligibility_requirement =
-        EligibilityRequirement::Member(test_art.root_public_key());
+    let eligibility_requirement = EligibilityRequirement::Member(test_art.root_public_key());
 
     verifier_engine
         .new_context(eligibility_requirement)
@@ -1963,10 +1973,7 @@ fn test_append_node_after_make_blank_proof() {
 
     // Make blank the node with index 1
     let target_public_key = CortadoAffine::generator().mul(secrets[4]).into_affine();
-    let target_node_path = art
-        .root()
-        .path_to_leaf_with(target_public_key)
-        .unwrap();
+    let target_node_path = art.root().path_to_leaf_with(target_public_key).unwrap();
     let target_node_index = NodeIndex::from(target_node_path);
 
     let (_, make_blank_changes, prover_branch) = art
@@ -2009,16 +2016,13 @@ fn test_append_node_after_make_blank_proof() {
     test_art.commit().unwrap();
 
     assert_eq!(
-            public_key,
-            CortadoAffine::generator()
-                .mul(art.leaf_secret_key())
-                .into_affine(),
-        );
+        public_key,
+        CortadoAffine::generator()
+            .mul(art.leaf_secret_key())
+            .into_affine(),
+    );
     assert_eq!(
-        art.root()
-            .node(art.node_index())
-            .unwrap()
-            .public_key(),
+        art.root().node(art.node_index()).unwrap().public_key(),
         CortadoAffine::generator()
             .mul(art.leaf_secret_key())
             .into_affine()
@@ -2033,17 +2037,11 @@ fn test_append_node_after_make_blank_proof() {
     art.commit().unwrap();
 
     assert_eq!(
-            public_key,
-            art.root()
-                .node(art.node_index())
-                .unwrap()
-                .public_key(),
-        );
+        public_key,
+        art.root().node(art.node_index()).unwrap().public_key(),
+    );
     assert_eq!(
-        art.root()
-            .node(art.node_index())
-            .unwrap()
-            .public_key(),
+        art.root().node(art.node_index()).unwrap().public_key(),
         CortadoAffine::generator()
             .mul(art.leaf_secret_key())
             .into_affine()
@@ -2220,29 +2218,22 @@ fn test_append_node_after_make_blank_proof() {
 //         assert_eq!(agg.operation_tree, user1);
 //     }
 
-
 pub fn member_leaf_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
-    EligibilityArtefact::Member((
-        art.leaf_secret_key(),
-        art.leaf_public_key(),
-    ))
+    EligibilityArtefact::Member((art.leaf_secret_key(), art.leaf_public_key()))
 }
 
 pub fn owner_leaf_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
-    EligibilityArtefact::Owner((
-        art.leaf_secret_key(),
-        art.leaf_public_key(),
-    ))
+    EligibilityArtefact::Owner((art.leaf_secret_key(), art.leaf_public_key()))
 }
 
 pub fn root_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
-    EligibilityArtefact::Member((
-        art.root_secret_key(),
-        art.root_public_key(),
-    ))
+    EligibilityArtefact::Member((art.root_secret_key(), art.root_public_key()))
 }
 
-pub fn removal_eligibility(art: &PrivateArt<CortadoAffine>, index: &NodeIndex) -> EligibilityArtefact {
+pub fn removal_eligibility(
+    art: &PrivateArt<CortadoAffine>,
+    index: &NodeIndex,
+) -> EligibilityArtefact {
     let leaf_status = art.root().node(index).unwrap().status();
     if leaf_status.is_none() {
         warn!("Trying to remove internal node, as it have leaf_status: None");

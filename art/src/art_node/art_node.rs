@@ -1,4 +1,5 @@
 use crate::art::PublicMergeData;
+use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::Direction;
@@ -10,7 +11,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
 use tracing::debug;
-use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 
 /// Status of the `ArtNode` leaf.
 #[derive(Debug, Deserialize, Serialize, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]

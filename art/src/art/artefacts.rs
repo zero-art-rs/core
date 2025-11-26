@@ -58,9 +58,7 @@ where
         }
     }
 
-    pub fn to_prover_branch(
-        &self,
-    ) -> Result<Vec<ProverNodeData<G>>, ArtError> {
+    pub fn to_prover_branch(&self) -> Result<Vec<ProverNodeData<G>>, ArtError> {
         if self.path.len() != self.secrets.len() || self.path.len() != self.co_path.len() + 1 {
             return Err(ArtError::InvalidInput);
         }

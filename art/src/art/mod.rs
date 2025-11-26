@@ -7,10 +7,10 @@ mod artefacts;
 mod private_art;
 mod public_art;
 
+pub use aggregations::AggregationContext;
 pub use art_advanced_operations::ArtAdvancedOps;
-pub use private_art::{PrivateArt, ArtSecrets, ArtSecret};
+pub use private_art::{ArtSecret, ArtSecrets, PrivateArt};
 pub use public_art::{ArtNodePreview, PublicArt, PublicArtPreview, PublicMergeData};
-pub use aggregations::{AggregationContext};
 
 pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
 
@@ -24,4 +24,3 @@ pub(crate) type ArtUpdateOutput<G> = (
     crate::changes::branch_change::BranchChange<G>,
     ProverArtefacts<G>,
 );
- 

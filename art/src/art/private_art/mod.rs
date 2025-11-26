@@ -14,25 +14,25 @@ use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
+use cortado::{CortadoAffine, Parameters};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::ops::{Add, MulAssign};
 use tracing::debug;
-use cortado::{CortadoAffine, Parameters};
-use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 use zrt_zk::EligibilityArtefact;
+use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
-pub(crate) use tests::{verify_secrets_are_correct};
+pub(crate) use tests::verify_secrets_are_correct;
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct ArtSecret<G>
 where
-    G: AffineRepr
+    G: AffineRepr,
 {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     key: G::ScalarField,
@@ -112,22 +112,44 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let weak_marker = if let Some(weak_key) = self.weak_key {
-            format!("sk:{}, pk: {:?}", &weak_key, G::generator().mul(weak_key).into_affine().x())
+            format!(
+                "sk:{}, pk: {:?}",
+                &weak_key,
+                G::generator().mul(weak_key).into_affine().x()
+            )
         } else {
             "None".to_string()
         };
 
         let strong_marker = if let Some(strong_key) = self.strong_key {
-            format!("sk:{}, pk: {:?}", &strong_key, G::generator().mul(strong_key).into_affine().x())
+            format!(
+                "sk:{}, pk: {:?}",
+                &strong_key,
+                G::generator().mul(strong_key).into_affine().x()
+            )
         } else {
             "None".to_string()
         };
 
         f.debug_struct("ArtSecret")
-            .field("key         ",  &format!("sk:{}, pk: {:?}", &self.key, G::generator().mul(self.key).into_affine().x()))
-            .field("preview key ",  &format!("sk:{}, pk: {:?}", &self.preview(), G::generator().mul(self.preview()).into_affine().x()))
-            .field("weak_key    ",  &weak_marker)
-            .field("strong_key  ",  &strong_marker)
+            .field(
+                "key         ",
+                &format!(
+                    "sk:{}, pk: {:?}",
+                    &self.key,
+                    G::generator().mul(self.key).into_affine().x()
+                ),
+            )
+            .field(
+                "preview key ",
+                &format!(
+                    "sk:{}, pk: {:?}",
+                    &self.preview(),
+                    G::generator().mul(self.preview()).into_affine().x()
+                ),
+            )
+            .field("weak_key    ", &weak_marker)
+            .field("strong_key  ", &strong_marker)
             .finish()
     }
 }
@@ -218,7 +240,6 @@ where
     }
 }
 
-
 /// ART structure, which stores and operates with some user secrets. Wrapped around `PublicArt`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(bound = "")]
@@ -304,13 +325,8 @@ where
 
     /// Create new `PrivateArt` from `public_art` and all the `secrets` on path from the
     /// user leaf to root.
-    pub fn restore(
-        public_art: PublicArt<G>,
-        secrets: ArtSecrets<G>,
-    ) -> Result<Self, ArtError> {
-        let pk = G::generator()
-            .mul(secrets.leaf().key())
-            .into_affine();
+    pub fn restore(public_art: PublicArt<G>, secrets: ArtSecrets<G>) -> Result<Self, ArtError> {
+        let pk = G::generator().mul(secrets.leaf().key()).into_affine();
         let path = public_art.root().path_to_leaf_with(pk)?;
         Ok(Self {
             public_art,
@@ -519,7 +535,6 @@ where
             NodeIndex::from(NodeIndex::get_index_from_path(target_leaf_path)?),
         )?;
 
-
         Ok((artefacts, change))
     }
 
@@ -641,8 +656,7 @@ where
             .ok_or(ArtError::InvalidBranchChange)?
             .key();
         let artefacts = recompute_artefacts(level_sk, &co_path)?;
-        art.secrets
-            .update(&artefacts.secrets[1..], weak_only)?;
+        art.secrets.update(&artefacts.secrets[1..], weak_only)?;
 
         Ok(*artefacts
             .secrets
@@ -717,11 +731,13 @@ where
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
     ) -> Result<(S, BranchChange<G>), ArtError> {
-        self.remove_member(target_leaf, new_key).map(|(tk, change, _)| (tk, change))
+        self.remove_member(target_leaf, new_key)
+            .map(|(tk, change, _)| (tk, change))
     }
 
     fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(S, BranchChange<G>), ArtError> {
-        self.leave_group(new_key).map(|(tk, change, _)| (tk, change))
+        self.leave_group(new_key)
+            .map(|(tk, change, _)| (tk, change))
     }
 
     fn update_key(&mut self, new_key: G::ScalarField) -> Result<(S, BranchChange<G>), ArtError> {
@@ -735,10 +751,17 @@ where
     G: AffineRepr<ScalarField = S>,
     G::BaseField: PrimeField,
 {
-    fn add_member(&mut self, new_key: G::ScalarField) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
+    fn add_member(
+        &mut self,
+        new_key: G::ScalarField,
+    ) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
         let path = self.find_place_for_new_node()?;
         let (artefacts, change) = self.insert_or_extend_node_change(new_key, &path)?;
-        let tk = artefacts.secrets.last().cloned().ok_or(ArtError::EmptyArt)?;
+        let tk = artefacts
+            .secrets
+            .last()
+            .cloned()
+            .ok_or(ArtError::EmptyArt)?;
 
         Ok((tk, change, artefacts.to_prover_branch()?))
     }
@@ -751,26 +774,44 @@ where
         let path = target_leaf.get_path()?;
 
         let (artefacts, mut change) = self.update_node_key_change(new_key, &path)?;
-        let tk = artefacts.secrets.last().cloned().ok_or(ArtError::EmptyArt)?;
+        let tk = artefacts
+            .secrets
+            .last()
+            .cloned()
+            .ok_or(ArtError::EmptyArt)?;
         change.change_type = BranchChangeType::RemoveMember;
 
         Ok((tk, change, artefacts.to_prover_branch()?))
     }
 
-    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
+    fn leave_group(
+        &mut self,
+        new_key: G::ScalarField,
+    ) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
         let path = self.node_index().get_path()?;
 
         let (artefacts, mut change) = self.update_node_key_change(new_key, &path)?;
-        let tk = artefacts.secrets.last().cloned().ok_or(ArtError::EmptyArt)?;
+        let tk = artefacts
+            .secrets
+            .last()
+            .cloned()
+            .ok_or(ArtError::EmptyArt)?;
         change.change_type = BranchChangeType::Leave;
 
         Ok((tk, change, artefacts.to_prover_branch()?))
     }
 
-    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
+    fn update_key(
+        &mut self,
+        new_key: G::ScalarField,
+    ) -> Result<(S, BranchChange<G>, Vec<ProverNodeData<G>>), ArtError> {
         let path = self.node_index().get_path()?;
         let (artefacts, mut change) = self.update_node_key_change(new_key, &path)?;
-        let tk = artefacts.secrets.last().cloned().ok_or(ArtError::EmptyArt)?;
+        let tk = artefacts
+            .secrets
+            .last()
+            .cloned()
+            .ok_or(ArtError::EmptyArt)?;
         change.change_type = BranchChangeType::UpdateKey;
 
         Ok((tk, change, artefacts.to_prover_branch()?))

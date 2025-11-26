@@ -7,11 +7,11 @@ use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
 use zrt_art::art::{ArtAdvancedOps, PrivateArt, PublicArt};
 use zrt_art::art_node::TreeMethods;
+use zrt_art::changes::ApplicableChange;
 use zrt_art::changes::branch_change::BranchChange;
-use zrt_art::changes::{ApplicableChange};
 use zrt_art::node_index::NodeIndex;
-use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
+use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 
 /// PrivateArt usage example. PrivateArt contain handle key management, while ART isn't.
 fn example_of_simple_flow() {
@@ -104,7 +104,10 @@ fn example_of_simple_flow() {
     let prover_engine = ZeroArtProverEngine::default();
     // Create context, and provide it with required data.
     let proof = prover_engine
-        .new_context(EligibilityArtefact::Member((art_1.leaf_secret_key(), art_1.leaf_public_key())))
+        .new_context(EligibilityArtefact::Member((
+            art_1.leaf_secret_key(),
+            art_1.leaf_public_key(),
+        )))
         .for_branch(&prover_branch_4)
         .with_associated_data(associated_data)
         .prove(&mut thread_rng())

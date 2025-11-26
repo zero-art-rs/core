@@ -1,14 +1,14 @@
-use ark_ec::AffineRepr;
+use crate::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 use crate::art::{ArtProof, ProverNodeData, VerifierNodeData};
 use crate::eligibility::*;
+use crate::errors::ZKError;
+use ark_ec::AffineRepr;
 use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsAffine};
 use bulletproofs::PedersenGens;
 use cortado::{CortadoAffine, Fr};
 use rand_core::CryptoRngCore;
 use zkp::toolbox::cross_dleq::PedersenBasis;
 use zkp::toolbox::dalek_ark::{ark_to_ristretto255, ristretto255_to_ark};
-use crate::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
-use crate::errors::ZKError;
 
 /// Engine options for ZeroArt proof system, currently supports setting of multi-threaded mode and scalar multiplication gadget version (1 or 2)
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl Default for ZeroArtProverEngine {
 #[derive(Clone)]
 pub(crate) enum ProofType<'a> {
     Branch(&'a Vec<ProverNodeData<CortadoAffine>>),
-    Aggregated(&'a ProverAggregationTree<CortadoAffine>)
+    Aggregated(&'a ProverAggregationTree<CortadoAffine>),
 }
 
 #[derive(Clone)]
@@ -60,7 +60,6 @@ pub struct ZeroArtProverContext<'a> {
     pub(crate) eligibility: EligibilityArtefact,
     pub(crate) proof_type: Option<ProofType<'a>>,
 }
-
 
 impl<'a> ZeroArtProverContext<'a> {
     pub fn with_associated_data(mut self, ad: &'a [u8]) -> Self {
@@ -73,7 +72,10 @@ impl<'a> ZeroArtProverContext<'a> {
         self
     }
 
-    pub fn for_aggregation(mut self, aggregated_tree: &'a ProverAggregationTree<CortadoAffine>) -> Self {
+    pub fn for_aggregation(
+        mut self,
+        aggregated_tree: &'a ProverAggregationTree<CortadoAffine>,
+    ) -> Self {
         self.proof_type = Some(ProofType::Aggregated(aggregated_tree));
         self
     }
@@ -91,8 +93,10 @@ impl<'a> ZeroArtProverContext<'a> {
     {
         match self.proof_type {
             Some(ProofType::Branch(branch_nodes)) => self.prove_singular(branch_nodes, rng),
-            Some(ProofType::Aggregated(aggregated_tree)) => self.prove_aggregated(aggregated_tree, rng),
-            None => self.prove_singular(&Vec::new(), rng)
+            Some(ProofType::Aggregated(aggregated_tree)) => {
+                self.prove_aggregated(aggregated_tree, rng)
+            }
+            None => self.prove_singular(&Vec::new(), rng),
         }
     }
 }
@@ -115,10 +119,7 @@ impl ZeroArtProverEngine {
     }
 
     /// Starts a new proof context, takes associated data `ad` and eligibility options `eligibility`
-    pub fn new_context(
-        &self,
-        eligibility: EligibilityArtefact,
-    ) -> ZeroArtProverContext {
+    pub fn new_context(&self, eligibility: EligibilityArtefact) -> ZeroArtProverContext {
         ZeroArtProverContext {
             engine: &self,
             eligibility,
@@ -167,10 +168,7 @@ impl ZeroArtVerifierEngine {
     }
 
     /// Creates a new verification context
-    pub fn new_context(
-        &self,
-        eligibility: EligibilityRequirement,
-    ) -> ZeroArtVerifierContext {
+    pub fn new_context(&self, eligibility: EligibilityRequirement) -> ZeroArtVerifierContext {
         ZeroArtVerifierContext {
             engine: self,
             ad: None,
@@ -183,7 +181,7 @@ impl ZeroArtVerifierEngine {
 #[derive(Clone)]
 pub(crate) enum VerificationType<'a> {
     Branch(&'a Vec<VerifierNodeData<CortadoAffine>>),
-    Aggregated(&'a VerifierAggregationTree<CortadoAffine>)
+    Aggregated(&'a VerifierAggregationTree<CortadoAffine>),
 }
 
 pub struct ZeroArtVerifierContext<'a> {
@@ -204,7 +202,10 @@ impl<'a> ZeroArtVerifierContext<'a> {
         self
     }
 
-    pub fn for_aggregation(mut self, aggregated_tree: &'a VerifierAggregationTree<CortadoAffine>) -> Self {
+    pub fn for_aggregation(
+        mut self,
+        aggregated_tree: &'a VerifierAggregationTree<CortadoAffine>,
+    ) -> Self {
         self.verification_type = Some(VerificationType::Aggregated(aggregated_tree));
         self
     }
@@ -218,9 +219,13 @@ impl<'a> ZeroArtVerifierContext<'a> {
 
     pub fn verify(&self, proof: &ArtProof) -> Result<(), ZKError> {
         match self.verification_type {
-            Some(VerificationType::Branch(branch_nodes)) => self.verify_singular(proof, branch_nodes),
-            Some(VerificationType::Aggregated(aggregated_tree)) => self.verify_aggregated(aggregated_tree, proof),
-            None => self.verify_singular(proof, &Vec::new())
+            Some(VerificationType::Branch(branch_nodes)) => {
+                self.verify_singular(proof, branch_nodes)
+            }
+            Some(VerificationType::Aggregated(aggregated_tree)) => {
+                self.verify_aggregated(aggregated_tree, proof)
+            }
+            None => self.verify_singular(proof, &Vec::new()),
         }
     }
 }

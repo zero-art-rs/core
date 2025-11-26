@@ -8,6 +8,7 @@ use crate::changes::aggregations::{
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
+use crate::errors::ArtError::InapplicableAggregation;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
@@ -19,7 +20,6 @@ use std::fmt::{Display, Formatter};
 use std::mem;
 use tracing::error;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
-use crate::errors::ArtError::InapplicableAggregation;
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
@@ -95,7 +95,10 @@ where
         let mut current_node = self;
         current_node.data.update_weight_change(increment);
         for dir in path {
-            current_node = current_node.mut_child(*dir).as_mut().ok_or(ArtError::PathNotExists)?;
+            current_node = current_node
+                .mut_child(*dir)
+                .as_mut()
+                .ok_or(ArtError::PathNotExists)?;
             current_node.data.update_weight_change(increment);
         }
 
@@ -116,11 +119,10 @@ where
                     // self.data.update_status(LeafStatus::Active);
                     // self.data.update_public_key(*pk, false);
                 }
-
             }
             BranchChangeTypeHint::RemoveMember { pk, merge } => {
                 if *merge {
-                    return Err(InapplicableAggregation)
+                    return Err(InapplicableAggregation);
                 }
 
                 // self.data.update_public_key(*pk, false);
@@ -147,7 +149,11 @@ where
 
     /// Move self to the left. Update current node with `new_data`, and create new node on
     /// the right with `right_data`.
-    pub fn extend(&mut self, new_data: PublicMergeData<G>, right_data: PublicMergeData<G>) -> Result<(), ArtError> {
+    pub fn extend(
+        &mut self,
+        new_data: PublicMergeData<G>,
+        right_data: PublicMergeData<G>,
+    ) -> Result<(), ArtError> {
         if !self.is_leaf() {
             return Err(ArtError::LeafOnly);
         }

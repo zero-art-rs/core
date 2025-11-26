@@ -1,4 +1,5 @@
 use crate::art::PrivateArt;
+use crate::art::private_art::verify_secrets_are_correct;
 use crate::art::{AggregationContext, ArtAdvancedOps};
 use crate::art_node::{LeafIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
@@ -18,7 +19,6 @@ use cortado::{CortadoAffine, Fr};
 use std::ops::Mul;
 use tracing::{debug, info};
 use zrt_zk::aggregated_art::ProverAggregationTree;
-use crate::art::private_art::verify_secrets_are_correct;
 
 /// Test if non-mergable changes (without blank for the second time) can be aggregated and
 /// applied correctly.
@@ -105,7 +105,6 @@ fn test_branch_aggregation_flow() {
         let mut user2_clone = user2.clone();
         aggregation.apply(&mut user2_clone).unwrap();
         user2_clone.commit().unwrap();
-
 
         assert_eq!(
             agg.operation_tree.root(),

@@ -5,18 +5,18 @@
 //     handle_potential_marker_tree_node_extension_on_add_member, update_secrets_if_need,
 // };
 // use crate::changes::aggregations::AggregationNode;
+use crate::art::PrivateArt;
+use crate::changes::ApplicableChange;
 use crate::errors::ArtError;
+use crate::helper_tools;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, rc::Rc};
-use ark_ff::PrimeField;
 use zrt_zk::{EligibilityArtefact, art::ProverNodeData, engine::ZeroArtProverEngine};
-use crate::art::PrivateArt;
-use crate::changes::ApplicableChange;
-use crate::helper_tools;
 
 /// Marker for a `BranchChange` type.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]

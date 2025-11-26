@@ -2,7 +2,10 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath, AggregationTree, TreeIterHelper, TreeNodeIterWithPath};
+use crate::changes::aggregations::{
+    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
+    AggregationTree, TreeIterHelper, TreeNodeIterWithPath,
+};
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
@@ -86,7 +89,9 @@ where
             let tmp = self.weak_key.clone();
             match self.weak_key {
                 None => self.weak_key = Some(public_key),
-                Some(current_weak_key) => self.weak_key = Some((current_weak_key + public_key).into_affine()),
+                Some(current_weak_key) => {
+                    self.weak_key = Some((current_weak_key + public_key).into_affine())
+                }
             }
         } else {
             self.strong_key = Some(public_key)
@@ -308,12 +313,9 @@ where
                 PublicMergeData::new(Some(public_key), None, Some(status), 0),
             )));
         } else {
-            let merge_leaf = self.merge_tree.add_branch_keys(
-                &public_keys,
-                path,
-                false,
-                Some(true),
-            )?;
+            let merge_leaf =
+                self.merge_tree
+                    .add_branch_keys(&public_keys, path, false, Some(true))?;
             merge_leaf.data.update_status(LeafStatus::Active);
         }
 
@@ -365,7 +367,10 @@ where
     ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
         let mut path = change.node_index.get_path()?;
         if matches!(change.change_type, BranchChangeType::AddMember)
-            && matches!(self.node_at(&path)?.status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
+            && matches!(
+                self.node_at(&path)?.status(),
+                Some(LeafStatus::Active | LeafStatus::PendingRemoval)
+            )
         {
             path.push(Direction::Right);
         }
@@ -387,9 +392,7 @@ where
                         .ok_or(ArtError::PathNotExists)?
                         .public_key(),
                 );
-                parent = parent
-                    .child(*direction)
-                    .ok_or(ArtError::PathNotExists)?;
+                parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
             }
         }
 
@@ -426,9 +429,7 @@ where
                         .ok_or(ArtError::PathNotExists)?
                         .public_key(),
                 );
-                parent = parent
-                    .child(*direction)
-                    .ok_or(ArtError::PathNotExists)?;
+                parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
             }
         }
 

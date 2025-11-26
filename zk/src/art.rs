@@ -350,10 +350,8 @@ impl<'a> ZeroArtProverContext<'a> {
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad());
         let mut prover = Prover::new(&self.engine.pc_gens, &mut transcript);
-        let (a_commitment, var_a) = prover.commit(
-            node.secret_key.into_scalar(),
-            node.blinding_factor,
-        );
+        let (a_commitment, var_a) =
+            prover.commit(node.secret_key.into_scalar(), node.blinding_factor);
         let (ab_commitment, var_ab) = prover.commit(
             next_node.secret_key.into_scalar(),
             next_node.blinding_factor,
@@ -403,10 +401,8 @@ impl<'a> ZeroArtProverContext<'a> {
 
         for i in 0..k + 1 {
             let node = &branch_nodes[i];
-            let (a_commitment, var_a) = prover.commit(
-                node.secret_key.into_scalar(),
-                node.blinding_factor,
-            );
+            let (a_commitment, var_a) =
+                prover.commit(node.secret_key.into_scalar(), node.blinding_factor);
             commitments.push(a_commitment);
             vars.push(AllocatedScalar::new(
                 var_a,
@@ -763,7 +759,9 @@ pub fn art_verify(
     let eligibility_req = EligibilityRequirement::Member(R[0]);
 
     // Create verifier context
-    let verifier_context = verifier_engine.new_context(eligibility_req).with_associated_data(ad);
+    let verifier_context = verifier_engine
+        .new_context(eligibility_req)
+        .with_associated_data(ad);
 
     // Verify proof
     verifier_context.verify_singular(&proof, &branch_nodes)?;
@@ -858,7 +856,9 @@ mod tests {
         let eligibility = EligibilityArtefact::Owner((s, R));
 
         // Create prover context
-        let prover_context = prover_engine.new_context(eligibility).with_associated_data(ad);
+        let prover_context = prover_engine
+            .new_context(eligibility)
+            .with_associated_data(ad);
 
         // Generate proof
         let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
@@ -867,7 +867,9 @@ mod tests {
         let eligibility_req = EligibilityRequirement::Previleged((R, vec![]));
 
         // Create verifier context
-        let verifier_context = verifier_engine.new_context(eligibility_req).with_associated_data(ad);
+        let verifier_context = verifier_engine
+            .new_context(eligibility_req)
+            .with_associated_data(ad);
 
         // Verify proof
         verifier_context.verify_singular(&proof, &verifier_nodes)

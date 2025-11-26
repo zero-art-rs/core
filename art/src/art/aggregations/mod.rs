@@ -1,18 +1,24 @@
-
-use crate::art::{ArtAdvancedOps, ArtUpdateOutput, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData};
+use crate::art::{
+    ArtAdvancedOps, ArtUpdateOutput, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData,
+};
+use crate::art_node::{
+    AggregationNodeWrapper, LeafStatus, NodePair, PriorityNodePair, TreeMethods, TreeNodeWrapper,
+};
+use crate::changes::ApplicableChange;
+use crate::changes::aggregations::{
+    AggregatedChange, AggregatedNodeWrapper, AggregationData, AggregationNode,
+    AggregationNodeIterWithPath, AggregationTree, ProverAggregationData,
+};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
+use crate::helper_tools::recompute_artefacts;
+use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::iterable::Iterable;
-use tracing::{debug, error, trace};
 use cortado::CortadoAffine;
+use tracing::{debug, error, trace};
 use zrt_zk::aggregated_art::ProverAggregationTree;
-use crate::art_node::{AggregationNodeWrapper, LeafStatus, NodePair, PriorityNodePair, TreeMethods, TreeNodeWrapper};
-use crate::changes::aggregations::{AggregatedChange, AggregatedNodeWrapper, AggregationData, AggregationNode, AggregationNodeIterWithPath, AggregationTree, ProverAggregationData};
-use crate::changes::ApplicableChange;
-use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
-use crate::helper_tools::recompute_artefacts;
-use crate::node_index::{Direction, NodeIndex};
 
 #[cfg(test)]
 mod tests;
@@ -48,7 +54,7 @@ where
 }
 
 impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>>
-for ProverAggregationTree<CortadoAffine>
+    for ProverAggregationTree<CortadoAffine>
 {
     type Error = ArtError;
 
@@ -57,9 +63,7 @@ for ProverAggregationTree<CortadoAffine>
     }
 }
 
-impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>>
-for AggregatedChange<CortadoAffine>
-{
+impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>> for AggregatedChange<CortadoAffine> {
     type Error = ArtError;
 
     fn try_from(value: &'a AggregationContext<T, CortadoAffine>) -> Result<Self, Self::Error> {
@@ -76,7 +80,7 @@ where
         &mut self,
         prover_artefacts: &ProverArtefacts<G>,
         update_path: &[Direction],
-        type_hint: Option<BranchChangeTypeHint<G>>
+        type_hint: Option<BranchChangeTypeHint<G>>,
     ) -> Result<&mut AggregationNode<ProverAggregationData<G>>, ArtError> {
         if update_path.len() + 1 != prover_artefacts.path.len()
             || update_path.len() + 1 != prover_artefacts.secrets.len()
@@ -85,11 +89,13 @@ where
             error!(
                 "Fail to update branch with provided dimensions {{ update path ({}), \
                 public path ({}), public co-path ({}) and secrets path ({}) }}",
-                update_path.len(), prover_artefacts.path.len(),
-                prover_artefacts.secrets.len(), prover_artefacts.co_path.len()
+                update_path.len(),
+                prover_artefacts.path.len(),
+                prover_artefacts.secrets.len(),
+                prover_artefacts.co_path.len()
             );
 
-            return Err(ArtError::InvalidBranchChange)
+            return Err(ArtError::InvalidBranchChange);
         }
 
         let mut current_node = self.root.get_or_insert_default();
@@ -244,7 +250,9 @@ where
             ext_pk = Some(target_node.public_key())
         };
 
-        let (artefacts, change) = self.operation_tree.insert_or_extend_node_change(new_key, &path)?;
+        let (artefacts, change) = self
+            .operation_tree
+            .insert_or_extend_node_change(new_key, &path)?;
 
         let hint = BranchChangeTypeHint::AddMember {
             pk: G::generator().mul(new_key).into_affine(),
@@ -253,12 +261,17 @@ where
         if ext_pk.is_some() {
             let mut update_path = path.to_vec();
             update_path.push(Direction::Right);
-            self.prover_aggregation.update_branch(&artefacts, &update_path, None)?;
+            self.prover_aggregation
+                .update_branch(&artefacts, &update_path, None)?;
 
-            let parent_node = self.prover_aggregation.mut_node_at(&path).ok_or(ArtError::PathNotExists)?;
+            let parent_node = self
+                .prover_aggregation
+                .mut_node_at(&path)
+                .ok_or(ArtError::PathNotExists)?;
             parent_node.data.update_change_type(hint);
         } else {
-            self.prover_aggregation.update_branch(&artefacts, &path, Some(hint))?;
+            self.prover_aggregation
+                .update_branch(&artefacts, &path, Some(hint))?;
         }
 
         self.operation_tree.apply(&change)?;
@@ -273,7 +286,10 @@ where
         new_key: G::ScalarField,
     ) -> Result<(), ArtError> {
         let path = target_leaf.get_path()?;
-        let append_changes = matches!(self.operation_tree.node_at(&path)?.status(), Some(LeafStatus::Blank));
+        let append_changes = matches!(
+            self.operation_tree.node_at(&path)?.status(),
+            Some(LeafStatus::Blank)
+        );
 
         if append_changes {
             return Err(ArtError::InvalidMergeInput);
@@ -285,7 +301,8 @@ where
             pk: G::generator().mul(new_key).into_affine(),
             merge: append_changes,
         };
-        self.prover_aggregation.update_branch(&artefacts, &target_leaf.get_path()?, Some(hint))?;
+        self.prover_aggregation
+            .update_branch(&artefacts, &target_leaf.get_path()?, Some(hint))?;
 
         self.operation_tree.apply(&change)?;
         self.operation_tree.commit()?;
@@ -298,8 +315,11 @@ where
         let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
         change.change_type = BranchChangeType::Leave;
 
-        let hint = BranchChangeTypeHint::Leave{pk: G::generator().mul(new_key).into_affine()};
-        self.prover_aggregation.update_branch(&artefacts, &path, Some(hint))?;
+        let hint = BranchChangeTypeHint::Leave {
+            pk: G::generator().mul(new_key).into_affine(),
+        };
+        self.prover_aggregation
+            .update_branch(&artefacts, &path, Some(hint))?;
 
         self.operation_tree.apply(&change)?;
         self.operation_tree.commit()?;
@@ -312,8 +332,11 @@ where
         let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
         change.change_type = BranchChangeType::UpdateKey;
 
-        let hint = BranchChangeTypeHint::Leave{pk: G::generator().mul(new_key).into_affine()};
-        self.prover_aggregation.update_branch(&artefacts, &path, Some(hint))?;
+        let hint = BranchChangeTypeHint::Leave {
+            pk: G::generator().mul(new_key).into_affine(),
+        };
+        self.prover_aggregation
+            .update_branch(&artefacts, &path, Some(hint))?;
 
         self.operation_tree.apply(&change)?;
         self.operation_tree.commit()?;
@@ -327,9 +350,9 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub fn pub_art_unrecoverable_apply(&self, art: &mut PublicArt<G>,) -> Result<(), ArtError> {
+    pub fn pub_art_unrecoverable_apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
         let Some(agg_root) = &self.root else {
-            return Ok(())
+            return Ok(());
         };
 
         for (node, path) in AggregationNodeIterWithPath::new(agg_root) {
@@ -342,7 +365,8 @@ where
                 .ok()
                 .map(|node| node.public_key());
 
-            let merge_node = if let Some(last_dir) = path.pop() {  // update other nodes
+            let merge_node = if let Some(last_dir) = path.pop() {
+                // update other nodes
                 let merge_node = art
                     .merge_tree
                     .mut_node_at(&path)
@@ -360,11 +384,9 @@ where
                 };
 
                 merge_node
-            } else {// Update root.
-                art
-                    .merge_tree
-                    .root
-                    .get_or_insert_default()
+            } else {
+                // Update root.
+                art.merge_tree.root.get_or_insert_default()
             };
 
             if let Some(art_node_preview) = art_node_preview {
@@ -381,10 +403,9 @@ where
                 if let Some(increment) = match change {
                     BranchChangeTypeHint::AddMember { .. } => Some(true),
                     BranchChangeTypeHint::RemoveMember { merge: false, .. } => Some(false),
-                    _ => None
+                    _ => None,
                 } {
-                    art
-                        .merge_tree
+                    art.merge_tree
                         .mut_root()
                         .as_mut()
                         .ok_or(ArtError::InvalidAggregation)?
@@ -399,7 +420,7 @@ where
     pub fn aggregation_co_path(
         &self,
         art: &PrivateArt<G>,
-        path: &[Direction]
+        path: &[Direction],
     ) -> Result<Vec<G>, ArtError> {
         let mut partial_co_path = Vec::new();
 
@@ -426,7 +447,10 @@ where
         Ok(partial_co_path)
     }
 
-    pub fn private_art_secrets_unrecoverable_apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+    pub fn private_art_secrets_unrecoverable_apply(
+        &self,
+        art: &mut PrivateArt<G>,
+    ) -> Result<G::ScalarField, ArtError> {
         let Some(agg_root) = self.root() else {
             return Err(ArtError::NoChanges);
         };
@@ -468,8 +492,7 @@ where
 
         let artefacts = recompute_artefacts(level_sk, &co_path)?;
 
-        art.secrets
-            .update(&artefacts.secrets[1..], false)?;
+        art.secrets.update(&artefacts.secrets[1..], false)?;
 
         Ok(*artefacts
             .secrets
@@ -487,7 +510,6 @@ where
         Ok(tk)
     }
 }
-
 
 impl<G> ApplicableChange<PublicArt<G>, ()> for AggregatedChange<G>
 where

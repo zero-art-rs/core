@@ -173,5 +173,8 @@ where
 
     art.secrets.update(&artefacts.secrets, false)?;
 
-    Ok(*artefacts.secrets.last().ok_or(ArtError::InvalidBranchChange)?)
+    Ok(*artefacts
+        .secrets
+        .last()
+        .ok_or(ArtError::InvalidBranchChange)?)
 }
