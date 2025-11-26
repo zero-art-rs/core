@@ -1,4 +1,4 @@
-use crate::art::ProverArtefacts;
+use crate::art::{ArtAdvancedOps, ProverArtefacts};
 use crate::art::{ArtUpdateOutput, PublicMergeData};
 use crate::art::{PrivateArt, PublicArt};
 use crate::art_node::{ArtNode, LeafStatus, TreeMethods};
@@ -16,8 +16,10 @@ use ark_std::iterable::Iterable;
 use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::mem;
 use tracing::error;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use crate::errors::ArtError::InapplicableAggregation;
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
@@ -89,19 +91,81 @@ where
             .into_affine()
     }
 
+    pub fn update_weight(&mut self, path: &[Direction], increment: bool) -> Result<(), ArtError> {
+        let mut current_node = self;
+        current_node.data.update_weight_change(increment);
+        for dir in path {
+            current_node = current_node.mut_child(*dir).as_mut().ok_or(ArtError::PathNotExists)?;
+            current_node.data.update_weight_change(increment);
+        }
+
+        Ok(())
+    }
+
+    pub fn apply(&mut self, change_type: &BranchChangeTypeHint<G>) -> Result<(), ArtError> {
+        match change_type {
+            BranchChangeTypeHint::AddMember { pk, ext_pk } => {
+                if let Some(ext_pk) = ext_pk {
+                    self.extend(
+                        PublicMergeData::new(Some(*ext_pk), None, None, 0),
+                        PublicMergeData::new(Some(*pk), None, Some(LeafStatus::Active), 0),
+                    )?;
+                } else {
+                    self.data.strong_key = Some(*pk);
+                    self.data.status = Some(LeafStatus::Active);
+                    // self.data.update_status(LeafStatus::Active);
+                    // self.data.update_public_key(*pk, false);
+                }
+
+            }
+            BranchChangeTypeHint::RemoveMember { pk, merge } => {
+                if *merge {
+                    return Err(InapplicableAggregation)
+                }
+
+                // self.data.update_public_key(*pk, false);
+                // self.data.update_status(LeafStatus::Blank);
+                self.data.strong_key = Some(*pk);
+                self.data.status = Some(LeafStatus::Blank);
+            }
+            BranchChangeTypeHint::UpdateKey { pk } => {
+                // self.data.update_public_key(*pk, false);
+                // self.data.update_status(LeafStatus::Active);
+                self.data.strong_key = Some(*pk);
+                self.data.status = Some(LeafStatus::Active);
+            }
+            BranchChangeTypeHint::Leave { pk } => {
+                // self.data.update_public_key(*pk, false);
+                // self.data.update_status(LeafStatus::PendingRemoval);
+                self.data.strong_key = Some(*pk);
+                self.data.status = Some(LeafStatus::PendingRemoval);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Move self to the left. Update current node with `new_data`, and create new node on
+    /// the right with `right_data`.
+    pub fn extend(&mut self, new_data: PublicMergeData<G>, right_data: PublicMergeData<G>) -> Result<(), ArtError> {
+        if !self.is_leaf() {
+            return Err(ArtError::LeafOnly);
+        }
+
+        let old_data = mem::replace(&mut self.data, new_data);
+
+        self.l = Some(Box::new(Self::new_leaf(old_data)));
+        self.r = Some(Box::new(Self::new_leaf(right_data)));
+
+        Ok(())
+    }
+
     pub fn status(&self) -> Option<LeafStatus> {
         self.data.status()
     }
 
     pub(crate) fn update_public_key(&mut self, public_key: G, weak_only: bool) {
         self.data.update_public_key(public_key, weak_only);
-        
-        // if !weak_only && self.data.strong_key().is_none() {
-        //     *self.data.mut_strong_key() = Some(public_key);
-        // } else {
-        //     let weak_key = self.data.mut_weak_key().get_or_insert_with(G::zero);
-        //     *self.data.mut_weak_key() = Some(weak_key.add(public_key).into_affine());
-        // }
     }
 }
 
@@ -147,324 +211,329 @@ where
             }
         }
 
+        // Discard any last weight change
+        if let Some(weight_change) = weight_change {
+            current_node.data.update_weight_change(!weight_change);
+        }
+
         Ok(current_node)
     }
 }
 
-// impl<G> AggregationTree<AggregationData<G>>
-// where
-//     G: AffineRepr,
-//     G::BaseField: PrimeField,
-// {
-//     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
-//     pub fn add_co_path(
-//         &self,
-//         art: &PublicArt<G>,
-//     ) -> Result<VerifierChangeAggregation<G>, ArtError> {
-//         let agg_root = match self.root() {
-//             Some(root) => root,
-//             None => return Err(ArtError::NoChanges),
-//         };
-//
-//         let mut resulting_aggregation_root =
-//             AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
-//
-//         for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
-//             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-//             let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
-//
-//             let aggregation_parent = path
-//                 .last()
-//                 .ok_or(ArtError::NoChanges)
-//                 .map(|(node, _)| *node)?;
-//
-//             let resulting_target_node = resulting_aggregation_root
-//                 .mut_node(&parent_path)?
-//                 .mut_node(&[last_direction])?;
-//
-//             // Update co-path
-//             let pk = if let Ok(co_leaf) = aggregation_parent.node(&[last_direction.other()]) {
-//                 // Retrieve co-path from the aggregation
-//                 co_leaf.data.public_key
-//             } else if let Ok(parent) = art.node(&NodeIndex::Direction(parent_path.clone()))
-//                 && let Some(other_child) = parent.child(last_direction.other())
-//             {
-//                 // Try to retrieve Co-path from the original ART
-//                 other_child.public_key()
-//             } else {
-//                 // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
-//                 let mut path = parent_path.clone();
-//                 path.push(last_direction.other());
-//                 Self::get_last_public_key_on_path(art, agg_root, &path)?
-//             };
-//             resulting_target_node.data.co_public_key = Some(pk);
-//         }
-//
-//         Ok(AggregationTree {
-//             root: Some(resulting_aggregation_root),
-//         })
-//     }
-//
-//     /// Retrieve the last public key on given `path`, by applying required changes from the
-//     /// `aggregation`.
-//     pub(crate) fn get_last_public_key_on_path(
-//         art: &PublicArt<G>,
-//         aggregation: &AggregationNode<AggregationData<G>>,
-//         path: &[Direction],
-//     ) -> Result<G, ArtError> {
-//         let mut leaf_public_key = art.get_root().public_key();
-//
-//         let mut current_art_node = Some(art.get_root());
-//         let mut current_agg_node = Some(aggregation);
-//         for (i, dir) in path.iter().enumerate() {
-//             // Retrieve leaf public key from art
-//             if let Some(art_node) = current_art_node {
-//                 if let Some(node) = art_node.child(*dir) {
-//                     if let ArtNode::Leaf { public_key, .. } = node {
-//                         leaf_public_key = *public_key;
-//                     }
-//
-//                     current_art_node = Some(node);
-//                 } else {
-//                     current_art_node = None;
-//                 }
-//             }
-//
-//             // Retrieve leaf public key updates form aggregation
-//             if let Some(agg_node) = current_agg_node {
-//                 if let Some(node) = agg_node.child(*dir) {
-//                     for change_type in &node.data.change_type {
-//                         match change_type {
-//                             BranchChangeTypeHint::RemoveMember { pk: blank_pk, .. } => {
-//                                 leaf_public_key = *blank_pk
-//                             }
-//                             BranchChangeTypeHint::AddMember { pk, ext_pk, .. } => {
-//                                 if let Some(replacement_pk) = ext_pk {
-//                                     match path.get(i + 1) {
-//                                         Some(Direction::Right) => leaf_public_key = *pk,
-//                                         Some(Direction::Left) => {}
-//                                         None => leaf_public_key = *replacement_pk,
-//                                     }
-//                                 } else {
-//                                     leaf_public_key = *pk;
-//                                 }
-//                             }
-//                             BranchChangeTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
-//                             BranchChangeTypeHint::Leave { pk } => leaf_public_key = *pk,
-//                         }
-//                     }
-//
-//                     current_agg_node = Some(node);
-//                 } else {
-//                     current_agg_node = None;
-//                 }
-//             }
-//         }
-//
-//         Ok(leaf_public_key)
-//     }
-//
-//     pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-//         let agg_root = match self.root() {
-//             Some(root) => root,
-//             None => return Err(ArtError::NoChanges),
-//         };
-//
-//         for (item, path) in AggregationNodeIterWithPath::new(agg_root) {
-//             let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-//
-//             for change_type in &item.data.change_type {
-//                 match change_type {
-//                     BranchChangeTypeHint::RemoveMember {
-//                         pk: blank_pk,
-//                         merge,
-//                     } => {
-//                         if !*merge {
-//                             art.update_weight(&item_path, false)?;
-//                         }
-//
-//                         self.update_public_art_upper_branch(&item_path, art, false, 0)?;
-//
-//                         let corresponding_item =
-//                             art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-//                         corresponding_item.set_status(LeafStatus::Blank)?;
-//                         corresponding_item.set_public_key(*blank_pk);
-//                     }
-//                     BranchChangeTypeHint::AddMember { pk, ext_pk } => {
-//                         art.update_weight(&item_path, true)?;
-//
-//                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?
-//                             .extend_or_replace(ArtNode::new_leaf(*pk))?;
-//
-//                         let mut parent_path = item_path.clone();
-//                         parent_path.pop();
-//                         self.update_public_art_upper_branch(&parent_path, art, false, 0)?;
-//
-//                         let corresponding_item =
-//                             art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-//                         if let Some(ext_pk) = ext_pk {
-//                             corresponding_item.set_public_key(*ext_pk)
-//                         }
-//                     }
-//                     BranchChangeTypeHint::UpdateKey { pk } => {
-//                         self.update_public_art_upper_branch(&item_path, art, false, 0)?;
-//
-//                         let corresponding_item =
-//                             art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-//                         corresponding_item.set_public_key(*pk);
-//                     }
-//                     BranchChangeTypeHint::Leave { pk } => {
-//                         self.update_public_art_upper_branch(&item_path, art, false, 0)?;
-//
-//                         let corresponding_item =
-//                             art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
-//                         corresponding_item.set_status(LeafStatus::PendingRemoval)?;
-//                         corresponding_item.set_public_key(*pk);
-//                     }
-//                 }
-//             }
-//         }
-//
-//         Ok(())
-//     }
-//
-//     /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
-//     /// and `node_index`.
-//     pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
-//         self.update_public_art(&mut art.public_art)?;
-//
-//         // art.update_node_index()?;
-//         art.update_node_index_and_extend_secrets()?;
-//         self.update_path_secrets_with_aggregation_tree(art)?;
-//
-//         Ok(())
-//     }
-//
-//     /// Allows to update public keys on the given `path` with public keys provided in
-//     /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
-//     fn update_public_art_upper_branch(
-//         &self,
-//         path: &[Direction],
-//         art: &mut PublicArt<G>,
-//         append_changes: bool,
-//         skip: usize,
-//     ) -> Result<(), ArtError> {
-//         let mut current_agg_node = match self.root() {
-//             Some(root) => root,
-//             None => return Err(ArtError::NoChanges),
-//         };
-//
-//         // Update root
-//         if skip == 0 {
-//             match append_changes {
-//                 true => art
-//                     .get_mut_root()
-//                     .merge_public_key(current_agg_node.data.public_key),
-//                 false => art
-//                     .get_mut_root()
-//                     .set_public_key(current_agg_node.data.public_key),
-//             }
-//         }
-//
-//         for i in 1..skip {
-//             current_agg_node = current_agg_node
-//                 .child(path[i])
-//                 .ok_or(ArtError::InvalidAggregation)?;
-//         }
-//
-//         for i in skip..path.len() {
-//             current_agg_node = current_agg_node
-//                 .child(path[i + skip])
-//                 .ok_or(ArtError::InvalidAggregation)?;
-//             let target_node = art.mut_node_at(&path[0..i + 1])?;
-//
-//             match append_changes {
-//                 true => target_node.merge_public_key(current_agg_node.data.public_key),
-//                 false => target_node.set_public_key(current_agg_node.data.public_key),
-//             }
-//         }
-//
-//         Ok(())
-//     }
-//
-//     /// Similar to `update_path_secrets`, but instead of NodeIndex `other` provided by change,
-//     /// takes the ChangeAggregation tree.
-//     fn update_path_secrets_with_aggregation_tree(
-//         &self,
-//         art: &mut PrivateArt<G>,
-//     ) -> Result<(), ArtError> {
-//         let path_secrets = art.secrets.clone();
-//
-//         let agg_root = match self.root() {
-//             Some(root) => root,
-//             None => return Err(ArtError::NoChanges),
-//         };
-//
-//         if path_secrets.is_empty() {
-//             return Err(ArtError::EmptyArt);
-//         }
-//
-//         if agg_root.contains(&art.get_node_index().get_path()?) {
-//             return Err(ArtError::InvalidInput);
-//         }
-//
-//         // It is a partial update of the path.
-//         let node_path = art.get_node_index().get_path()?;
-//         let mut intersection = agg_root.get_intersection(&node_path);
-//
-//         let mut partial_co_path = Vec::new();
-//         let mut current_art_node = art.get_root();
-//         let mut current_agg_node = agg_root;
-//         let mut add_member_counter = current_agg_node
-//             .data
-//             .change_type
-//             .iter()
-//             .filter(|change| matches!(change, BranchChangeTypeHint::AddMember { .. }))
-//             .count();
-//         for dir in &intersection {
-//             partial_co_path.push(
-//                 current_art_node
-//                     .child(dir.other())
-//                     .ok_or(ArtError::InvalidInput)?
-//                     .public_key(),
-//             );
-//
-//             current_art_node = current_art_node.child(*dir).ok_or(ArtError::InvalidInput)?;
-//             current_agg_node = current_agg_node
-//                 .child(*dir)
-//                 .ok_or(ArtError::PathNotExists)?;
-//
-//             add_member_counter += current_agg_node
-//                 .data
-//                 .change_type
-//                 .iter()
-//                 .filter(|change| matches!(change, BranchChangeTypeHint::AddMember { .. }))
-//                 .count();
-//         }
-//
-//         intersection.push(node_path[intersection.len()].other());
-//         partial_co_path.push(agg_root.node(&intersection)?.data.public_key);
-//         partial_co_path.reverse();
-//
-//         // Compute path_secrets for aggregation.
-//         let resulting_path_secrets_len = art.secrets.len() + add_member_counter;
-//         let index = resulting_path_secrets_len - partial_co_path.len() - 1;
-//         let level_sk = art.secrets[index];
-//
-//         let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, &partial_co_path)?;
-//
-//         let mut new_path_secrets = art.secrets.clone();
-//         for (sk, i) in secrets.iter().rev().zip((0..new_path_secrets.len()).rev()) {
-//             new_path_secrets[i] = *sk;
-//         }
-//
-//         // Update node `path_secrets`
-//         art.secrets = new_path_secrets;
-//
-//         Ok(())
-//     }
-// }
-//
+impl<G> AggregationTree<AggregationData<G>>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    // /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    // pub fn add_co_path(
+    //     &self,
+    //     art: &PublicArt<G>,
+    // ) -> Result<VerifierChangeAggregation<G>, ArtError> {
+    //     let agg_root = match self.root() {
+    //         Some(root) => root,
+    //         None => return Err(ArtError::NoChanges),
+    //     };
+    //
+    //     let mut resulting_aggregation_root =
+    //         AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+    //
+    //     for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+    //         let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+    //         let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
+    //
+    //         let aggregation_parent = path
+    //             .last()
+    //             .ok_or(ArtError::NoChanges)
+    //             .map(|(node, _)| *node)?;
+    //
+    //         let resulting_target_node = resulting_aggregation_root
+    //             .mut_node(&parent_path)?
+    //             .mut_node(&[last_direction])?;
+    //
+    //         // Update co-path
+    //         let pk = if let Ok(co_leaf) = aggregation_parent.node_at(&[last_direction.other()]) {
+    //             // Retrieve co-path from the aggregation
+    //             co_leaf.data.public_key
+    //         } else if let Ok(parent) = art.node(&NodeIndex::Direction(parent_path.clone()))
+    //             && let Some(other_child) = parent.child(last_direction.other())
+    //         {
+    //             // Try to retrieve Co-path from the original ART
+    //             other_child.public_key()
+    //         } else {
+    //             // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
+    //             let mut path = parent_path.clone();
+    //             path.push(last_direction.other());
+    //             Self::get_last_public_key_on_path(art, agg_root, &path)?
+    //         };
+    //         resulting_target_node.data.co_public_key = Some(pk);
+    //     }
+    //
+    //     Ok(AggregationTree {
+    //         root: Some(resulting_aggregation_root),
+    //     })
+    // }
+
+    // /// Retrieve the last public key on given `path`, by applying required changes from the
+    // /// `aggregation`.
+    // pub(crate) fn get_last_public_key_on_path(
+    //     art: &PublicArt<G>,
+    //     aggregation: &AggregationNode<AggregationData<G>>,
+    //     path: &[Direction],
+    // ) -> Result<G, ArtError> {
+    //     let mut leaf_public_key = art.get_root().public_key();
+    //
+    //     let mut current_art_node = Some(art.get_root());
+    //     let mut current_agg_node = Some(aggregation);
+    //     for (i, dir) in path.iter().enumerate() {
+    //         // Retrieve leaf public key from art
+    //         if let Some(art_node) = current_art_node {
+    //             if let Some(node) = art_node.child(*dir) {
+    //                 if let ArtNode::Leaf { public_key, .. } = node {
+    //                     leaf_public_key = *public_key;
+    //                 }
+    //
+    //                 current_art_node = Some(node);
+    //             } else {
+    //                 current_art_node = None;
+    //             }
+    //         }
+    //
+    //         // Retrieve leaf public key updates form aggregation
+    //         if let Some(agg_node) = current_agg_node {
+    //             if let Some(node) = agg_node.child(*dir) {
+    //                 for change_type in &node.data.change_type {
+    //                     match change_type {
+    //                         BranchChangeTypeHint::RemoveMember { pk: blank_pk, .. } => {
+    //                             leaf_public_key = *blank_pk
+    //                         }
+    //                         BranchChangeTypeHint::AddMember { pk, ext_pk, .. } => {
+    //                             if let Some(replacement_pk) = ext_pk {
+    //                                 match path.get(i + 1) {
+    //                                     Some(Direction::Right) => leaf_public_key = *pk,
+    //                                     Some(Direction::Left) => {}
+    //                                     None => leaf_public_key = *replacement_pk,
+    //                                 }
+    //                             } else {
+    //                                 leaf_public_key = *pk;
+    //                             }
+    //                         }
+    //                         BranchChangeTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
+    //                         BranchChangeTypeHint::Leave { pk } => leaf_public_key = *pk,
+    //                     }
+    //                 }
+    //
+    //                 current_agg_node = Some(node);
+    //             } else {
+    //                 current_agg_node = None;
+    //             }
+    //         }
+    //     }
+    //
+    //     Ok(leaf_public_key)
+    // }
+    //
+    // pub(crate) fn update_public_art(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+    //     let agg_root = match self.root() {
+    //         Some(root) => root,
+    //         None => return Err(ArtError::NoChanges),
+    //     };
+    //
+    //     for (item, path) in AggregationNodeIterWithPath::new(agg_root) {
+    //         let item_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+    //
+    //         for change_type in &item.data.change_type {
+    //             match change_type {
+    //                 BranchChangeTypeHint::RemoveMember {
+    //                     pk: blank_pk,
+    //                     merge,
+    //                 } => {
+    //                     if !*merge {
+    //                         art.update_weight(&item_path, false)?;
+    //                     }
+    //
+    //                     self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+    //
+    //                     let corresponding_item =
+    //                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+    //                     corresponding_item.set_status(LeafStatus::Blank)?;
+    //                     corresponding_item.set_public_key(*blank_pk);
+    //                 }
+    //                 BranchChangeTypeHint::AddMember { pk, ext_pk } => {
+    //                     art.update_weight(&item_path, true)?;
+    //
+    //                     art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?
+    //                         .extend_or_replace(ArtNode::new_leaf(*pk))?;
+    //
+    //                     let mut parent_path = item_path.clone();
+    //                     parent_path.pop();
+    //                     self.update_public_art_upper_branch(&parent_path, art, false, 0)?;
+    //
+    //                     let corresponding_item =
+    //                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+    //                     if let Some(ext_pk) = ext_pk {
+    //                         corresponding_item.set_public_key(*ext_pk)
+    //                     }
+    //                 }
+    //                 BranchChangeTypeHint::UpdateKey { pk } => {
+    //                     self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+    //
+    //                     let corresponding_item =
+    //                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+    //                     corresponding_item.set_public_key(*pk);
+    //                 }
+    //                 BranchChangeTypeHint::Leave { pk } => {
+    //                     self.update_public_art_upper_branch(&item_path, art, false, 0)?;
+    //
+    //                     let corresponding_item =
+    //                         art.get_mut_node(&NodeIndex::Direction(item_path.clone()))?;
+    //                     corresponding_item.set_status(LeafStatus::PendingRemoval)?;
+    //                     corresponding_item.set_public_key(*pk);
+    //                 }
+    //             }
+    //         }
+    //     }
+    //
+    //     Ok(())
+    // }
+    //
+    // /// Update art by applying changes from the provided aggregation. Also updates `path_secrets`
+    // /// and `node_index`.
+    // pub(crate) fn update_private_art(&self, art: &mut PrivateArt<G>) -> Result<(), ArtError> {
+    //     self.update_public_art(&mut art.public_art)?;
+    //
+    //     // art.update_node_index()?;
+    //     art.update_node_index_and_extend_secrets()?;
+    //     self.update_path_secrets_with_aggregation_tree(art)?;
+    //
+    //     Ok(())
+    // }
+
+    // /// Allows to update public keys on the given `path` with public keys provided in
+    // /// `verifier_aggregation`. Also, it allows to skip and not update first `skip` nodes on path.
+    // fn update_public_art_upper_branch(
+    //     &self,
+    //     path: &[Direction],
+    //     art: &mut PublicArt<G>,
+    //     append_changes: bool,
+    //     skip: usize,
+    // ) -> Result<(), ArtError> {
+    //     let mut current_agg_node = match self.root() {
+    //         Some(root) => root,
+    //         None => return Err(ArtError::NoChanges),
+    //     };
+    //
+    //     // Update root
+    //     if skip == 0 {
+    //         match append_changes {
+    //             true => art
+    //                 .get_mut_root()
+    //                 .merge_public_key(current_agg_node.data.public_key),
+    //             false => art
+    //                 .get_mut_root()
+    //                 .set_public_key(current_agg_node.data.public_key),
+    //         }
+    //     }
+    //
+    //     for i in 1..skip {
+    //         current_agg_node = current_agg_node
+    //             .child(path[i])
+    //             .ok_or(ArtError::InvalidAggregation)?;
+    //     }
+    //
+    //     for i in skip..path.len() {
+    //         current_agg_node = current_agg_node
+    //             .child(path[i + skip])
+    //             .ok_or(ArtError::InvalidAggregation)?;
+    //         let target_node = art.mut_node_at(&path[0..i + 1])?;
+    //
+    //         match append_changes {
+    //             true => target_node.merge_public_key(current_agg_node.data.public_key),
+    //             false => target_node.set_public_key(current_agg_node.data.public_key),
+    //         }
+    //     }
+    //
+    //     Ok(())
+    // }
+
+    // /// Similar to `update_path_secrets`, but instead of NodeIndex `other` provided by change,
+    // /// takes the ChangeAggregation tree.
+    // fn update_path_secrets_with_aggregation_tree(
+    //     &self,
+    //     art: &mut PrivateArt<G>,
+    // ) -> Result<(), ArtError> {
+    //     let path_secrets = art.secrets.clone();
+    //
+    //     let agg_root = match self.root() {
+    //         Some(root) => root,
+    //         None => return Err(ArtError::NoChanges),
+    //     };
+    //
+    //     if path_secrets.is_empty() {
+    //         return Err(ArtError::EmptyArt);
+    //     }
+    //
+    //     if agg_root.contains(&art.get_node_index().get_path()?) {
+    //         return Err(ArtError::InvalidInput);
+    //     }
+    //
+    //     // It is a partial update of the path.
+    //     let node_path = art.get_node_index().get_path()?;
+    //     let mut intersection = agg_root.get_intersection(&node_path);
+    //
+    //     let mut partial_co_path = Vec::new();
+    //     let mut current_art_node = art.get_root();
+    //     let mut current_agg_node = agg_root;
+    //     let mut add_member_counter = current_agg_node
+    //         .data
+    //         .change_type
+    //         .iter()
+    //         .filter(|change| matches!(change, BranchChangeTypeHint::AddMember { .. }))
+    //         .count();
+    //     for dir in &intersection {
+    //         partial_co_path.push(
+    //             current_art_node
+    //                 .child(dir.other())
+    //                 .ok_or(ArtError::InvalidInput)?
+    //                 .public_key(),
+    //         );
+    //
+    //         current_art_node = current_art_node.child(*dir).ok_or(ArtError::InvalidInput)?;
+    //         current_agg_node = current_agg_node
+    //             .child(*dir)
+    //             .ok_or(ArtError::PathNotExists)?;
+    //
+    //         add_member_counter += current_agg_node
+    //             .data
+    //             .change_type
+    //             .iter()
+    //             .filter(|change| matches!(change, BranchChangeTypeHint::AddMember { .. }))
+    //             .count();
+    //     }
+    //
+    //     intersection.push(node_path[intersection.len()].other());
+    //     partial_co_path.push(agg_root.node(&intersection)?.data.public_key);
+    //     partial_co_path.reverse();
+    //
+    //     // Compute path_secrets for aggregation.
+    //     let resulting_path_secrets_len = art.secrets.len() + add_member_counter;
+    //     let index = resulting_path_secrets_len - partial_co_path.len() - 1;
+    //     let level_sk = art.secrets[index];
+    //
+    //     let ProverArtefacts { secrets, .. } = recompute_artefacts(level_sk, &partial_co_path)?;
+    //
+    //     let mut new_path_secrets = art.secrets.clone();
+    //     for (sk, i) in secrets.iter().rev().zip((0..new_path_secrets.len()).rev()) {
+    //         new_path_secrets[i] = *sk;
+    //     }
+    //
+    //     // Update node `path_secrets`
+    //     art.secrets = new_path_secrets;
+    //
+    //     Ok(())
+    // }
+}
+
 // impl<G> AggregationTree<ProverAggregationData<G>>
 // where
 //     G: AffineRepr,

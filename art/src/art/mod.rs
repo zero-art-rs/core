@@ -8,9 +8,11 @@ mod private_art;
 mod public_art;
 
 pub use art_advanced_operations::ArtAdvancedOps;
-pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
 pub use private_art::{PrivateArt, ArtSecrets, ArtSecret};
 pub use public_art::{ArtNodePreview, PublicArt, PublicArtPreview, PublicMergeData};
+pub use aggregations::{AggregationContext};
+
+pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
 
 /// Helper data type, returned after the most art update operations.
 pub(crate) type ArtLevel<G> = (
@@ -22,3 +24,4 @@ pub(crate) type ArtUpdateOutput<G> = (
     crate::changes::branch_change::BranchChange<G>,
     ProverArtefacts<G>,
 );
+ 

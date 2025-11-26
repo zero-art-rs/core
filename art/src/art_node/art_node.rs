@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
 use tracing::debug;
+use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 
 /// Status of the `ArtNode` leaf.
 #[derive(Debug, Deserialize, Serialize, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -19,6 +20,31 @@ pub enum LeafStatus {
     Active,
     PendingRemoval,
     Blank,
+}
+
+impl From<&BranchChangeType> for LeafStatus {
+    fn from(value: &BranchChangeType) -> Self {
+        match value {
+            BranchChangeType::RemoveMember => LeafStatus::Blank,
+            BranchChangeType::AddMember => LeafStatus::Active,
+            BranchChangeType::UpdateKey => LeafStatus::Active,
+            BranchChangeType::Leave => LeafStatus::PendingRemoval,
+        }
+    }
+}
+
+impl<G> From<&BranchChangeTypeHint<G>> for LeafStatus
+where
+    G: AffineRepr,
+{
+    fn from(value: &BranchChangeTypeHint<G>) -> Self {
+        match value {
+            BranchChangeTypeHint::RemoveMember { .. } => LeafStatus::Blank,
+            BranchChangeTypeHint::AddMember { .. } => LeafStatus::Active,
+            BranchChangeTypeHint::UpdateKey { .. } => LeafStatus::Active,
+            BranchChangeTypeHint::Leave { .. } => LeafStatus::PendingRemoval,
+        }
+    }
 }
 
 /// The node in the ART tree.

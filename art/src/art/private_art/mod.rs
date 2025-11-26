@@ -26,6 +26,9 @@ use zrt_zk::EligibilityArtefact;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use tests::{verify_secrets_are_correct};
+
 #[derive(Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct ArtSecret<G>
 where
@@ -231,6 +234,9 @@ where
 
     /// Index of a user leaf.
     pub(crate) node_index: NodeIndex,
+
+    /// Index of a user leaf in merge_tree.
+    pub(crate) merge_node_index: Option<NodeIndex>,
 }
 
 impl<G> PrivateArt<G>
@@ -275,6 +281,7 @@ where
             public_art,
             secrets: ArtSecrets::try_from(artefacts.secrets)?,
             node_index: NodeIndex::from(path),
+            merge_node_index: None,
         })
     }
 
@@ -291,6 +298,7 @@ where
             public_art,
             secrets: ArtSecrets::try_from(artefacts.secrets)?,
             node_index: NodeIndex::from(leaf_path).as_index()?,
+            merge_node_index: None,
         })
     }
 
@@ -308,6 +316,7 @@ where
             public_art,
             secrets,
             node_index: NodeIndex::from(path),
+            merge_node_index: None,
         })
     }
 
@@ -318,9 +327,24 @@ where
         change.apply(self)
     }
 
+    /// Update node index by adding provided `direction` to the end of the path.
+    pub fn update_node_index(&mut self, direction: Direction) {
+        if let Some(index) = &mut self.merge_node_index {
+            index.push(direction)
+        } else {
+            let mut index = self.node_index.clone();
+            index.push(direction);
+            self.merge_node_index = Some(index);
+        }
+    }
+
     pub fn commit(&mut self) -> Result<(), ArtError> {
         self.public_art.commit()?;
         self.secrets.commit();
+
+        if let Some(index) = mem::take(&mut self.merge_node_index) {
+            self.node_index = index;
+        }
 
         Ok(())
     }
@@ -589,7 +613,8 @@ where
                     Some(LeafStatus::Blank) => false,
                     _ => {
                         art.secrets.extend_with(art.secrets.leaf().key());
-                        art.node_index.push(Direction::Left);
+                        art.update_node_index(Direction::Left);
+                        // art.node_index.push(Direction::Left);
 
                         true
                     }

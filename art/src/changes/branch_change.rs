@@ -110,7 +110,7 @@ where
         merge: bool,
     },
     AddMember {
-        /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
+        /// If `Some<ext_pk>`, then the node was extended and the `ext_pk` is the new public key
         /// of the node, else the node was replaced.
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         ext_pk: Option<G>,

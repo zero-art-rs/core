@@ -2,11 +2,8 @@ use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{
-    AggregationNode, AggregationNodeIterWithPath, AggregationTree, TreeIterHelper,
-    TreeNodeIterWithPath,
-};
-use crate::changes::branch_change::{BranchChange, BranchChangeType};
+use crate::changes::aggregations::{AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath, AggregationTree, TreeIterHelper, TreeNodeIterWithPath};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
@@ -16,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::fmt::{Debug, Display, write};
 use std::mem;
-use tracing::debug;
 use zrt_zk::art::VerifierNodeData;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -87,6 +83,7 @@ where
 
     pub fn update_public_key(&mut self, public_key: G, weak_only: bool) {
         if weak_only || self.strong_key.is_some() {
+            let tmp = self.weak_key.clone();
             match self.weak_key {
                 None => self.weak_key = Some(public_key),
                 Some(current_weak_key) => self.weak_key = Some((current_weak_key + public_key).into_affine()),
@@ -360,6 +357,88 @@ where
 
         Ok(())
     }
+
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn verification_branch(
+        &self,
+        change: &BranchChange<G>,
+    ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
+        let mut path = change.node_index.get_path()?;
+        if matches!(change.change_type, BranchChangeType::AddMember)
+            && matches!(self.node_at(&path)?.status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
+        {
+            path.push(Direction::Right);
+        }
+
+        let mut co_path = Vec::new();
+        let mut parent = self.root();
+        for direction in &path {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = change.change_type
+                    && matches!(parent.status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
+                parent = parent
+                    .child(*direction)
+                    .ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        let verifier_artefacts = VerifierArtefacts {
+            path: change.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        };
+
+        verifier_artefacts.to_verifier_branch()
+    }
+
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn preview_artefacts_for_verification(
+        &self,
+        changes: &BranchChange<G>,
+    ) -> Result<VerifierArtefacts<G>, ArtError> {
+        let mut co_path = Vec::new();
+
+        let mut parent = self.root();
+        for direction in &changes.node_index.get_path()? {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = changes.change_type
+                    && matches!(parent.status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
+                parent = parent
+                    .child(*direction)
+                    .ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        Ok(VerifierArtefacts {
+            path: changes.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        })
+    }
 }
 
 impl<G> BranchChange<G>
@@ -454,15 +533,18 @@ where
     }
 
     pub fn node(&self, index: &NodeIndex) -> Result<ArtNodePreview<G>, ArtError> {
-        let art_node = self.public_art.root().node(index).ok();
+        self.node_at(&index.get_path()?)
+    }
 
-        let path = index.get_path()?;
+    pub fn node_at(&self, path: &[Direction]) -> Result<ArtNodePreview<G>, ArtError> {
+        let art_node = self.public_art.root().node_at(path).ok();
+
         let merge_node = self
             .public_art
             .merge_tree
             .root
             .as_ref()
-            .and_then(|root| root.node(&path).ok());
+            .and_then(|root| root.node_at(&path).ok());
 
         ArtNodePreview::new(art_node, merge_node)
     }
@@ -547,7 +629,7 @@ where
         Ok(node)
     }
 
-    fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
+    pub(crate) fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
         match self {
             Self::ArtNodeOnly { .. } => None,
             Self::MergeNodeOnly { merge_node, .. } => Some(merge_node),
@@ -593,92 +675,5 @@ where
         let right = self.child(Direction::Right);
 
         left.is_none() && right.is_none()
-    }
-}
-
-impl<G> PublicArt<G>
-where
-    G: AffineRepr,
-{
-    /// Returns helper structure for verification of art update.
-    pub(crate) fn verification_branch(
-        &self,
-        change: &BranchChange<G>,
-    ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
-        let mut path = change.node_index.get_path()?;
-        if matches!(change.change_type, BranchChangeType::AddMember)
-            && matches!(self.node_at(&path)?.status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
-        {
-            path.push(Direction::Right);
-        }
-
-        let mut co_path = Vec::new();
-        let mut parent = self.root();
-        for direction in &path {
-            if parent.is_leaf() {
-                if let BranchChangeType::AddMember = change.change_type
-                    && matches!(parent.status(), Some(LeafStatus::Active))
-                {
-                    // The current node is a part of the co-path
-                    co_path.push(parent.public_key())
-                }
-            } else {
-                co_path.push(
-                    parent
-                        .child(direction.other())
-                        .ok_or(ArtError::PathNotExists)?
-                        .public_key(),
-                );
-                parent = parent
-                    .child(*direction)
-                    .ok_or(ArtError::PathNotExists)?;
-            }
-        }
-
-        co_path.reverse();
-
-        let verifier_artefacts = VerifierArtefacts {
-            path: change.public_keys.iter().rev().cloned().collect(),
-            co_path,
-        };
-
-        verifier_artefacts.to_verifier_branch()
-    }
-
-    /// Returns helper structure for verification of art update.
-    pub(crate) fn preview_artefacts_for_verification(
-        &self,
-        changes: &BranchChange<G>,
-    ) -> Result<VerifierArtefacts<G>, ArtError> {
-        let mut co_path = Vec::new();
-
-        let mut parent = self.root();
-        for direction in &changes.node_index.get_path()? {
-            if parent.is_leaf() {
-                if let BranchChangeType::AddMember = changes.change_type
-                    && matches!(parent.status(), Some(LeafStatus::Active))
-                {
-                    // The current node is a part of the co-path
-                    co_path.push(parent.public_key())
-                }
-            } else {
-                co_path.push(
-                    parent
-                        .child(direction.other())
-                        .ok_or(ArtError::PathNotExists)?
-                        .public_key(),
-                );
-                parent = parent
-                    .child(*direction)
-                    .ok_or(ArtError::PathNotExists)?;
-            }
-        }
-
-        co_path.reverse();
-
-        Ok(VerifierArtefacts {
-            path: changes.public_keys.iter().rev().cloned().collect(),
-            co_path,
-        })
     }
 }

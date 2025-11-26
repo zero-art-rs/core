@@ -1,3 +1,5 @@
+use std::cmp::max;
+use std::mem;
 use crate::art::{ArtNodePreview, ProverArtefacts};
 use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::aggregations::{
@@ -26,6 +28,28 @@ pub struct AggregationNode<D> {
     pub data: D,
 }
 
+pub struct AggregatedNodeWrapper<'a, D> {
+    node: &'a AggregationNode<D>,
+}
+
+impl<'a, D> AggregatedNodeWrapper<'a, D> {
+    pub fn new(node: &'a AggregationNode<D>) -> Self {
+        AggregatedNodeWrapper { node }
+    }
+}
+
+impl<'a, D> TreeIterHelper for AggregatedNodeWrapper<'a, D> {
+    type Child = Self;
+
+    fn child(&self, dir: Direction) -> Option<Self::Child> {
+        if let Some(node) = self.node.child(dir) {
+            return Some(Self {node});
+        }
+
+        None
+    }
+}
+
 impl<D> AggregationNode<D> {
     pub fn new_leaf(data: D) -> Self {
         Self {
@@ -35,7 +59,7 @@ impl<D> AggregationNode<D> {
         }
     }
 
-    pub fn node(&self, path: &[Direction]) -> Result<&Self, ArtError> {
+    pub fn node_at(&self, path: &[Direction]) -> Result<&Self, ArtError> {
         let mut parent = self;
         for direction in path {
             parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
@@ -137,11 +161,11 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
 {
+
     /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
     /// `change_type_hint` to perform extension correctly
-    pub fn extend<R: Rng + ?Sized>(
+    pub fn extend(
         &mut self,
-        rng: &mut R,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
         change_type_hint: BranchChangeTypeHint<G>,
@@ -149,17 +173,14 @@ where
         let mut leaf_path = change.node_index.get_path()?;
 
         if leaf_path.is_empty() {
-            return Err(ArtError::EmptyArt);
+            return Err(ArtError::NoChanges);
         }
 
-        if let BranchChangeTypeHint::AddMember {
-            ext_pk: Some(_), ..
-        } = change_type_hint
-        {
+        if matches!(change_type_hint, BranchChangeTypeHint::AddMember {ext_pk: Some(_), ..}) {
             leaf_path.pop();
         }
 
-        self.extend_tree_with(rng, change, prover_artefacts)?;
+        self.extend_tree_with(change, prover_artefacts)?;
 
         let target_leaf = self.mut_node(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
@@ -167,9 +188,8 @@ where
         Ok(())
     }
 
-    fn extend_tree_with<R: Rng + ?Sized>(
+    fn extend_tree_with(
         &mut self,
-        rng: &mut R,
         change: &BranchChange<G>,
         prover_artefacts: &ProverArtefacts<G>,
     ) -> Result<(), ArtError> {
@@ -199,7 +219,6 @@ where
                 co_public_key: Some(prover_artefacts.co_path[i]),
                 change_type: vec![],
                 secret_key: prover_artefacts.secrets[i],
-                blinding_factor: G::ScalarField::rand(rng),
             };
 
             // update other_co_path
@@ -214,7 +233,7 @@ where
 
             // Update parent
             parent = parent.get_or_insert_default(*dir);
-            parent.data.aggregate(child_data);
+            parent.data.aggregate_with(child_data);
         }
 
         Ok(())
@@ -226,34 +245,34 @@ where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
 {
-    /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
-    /// `change_type_hint` to perform extension correctly
-    pub fn extend(
-        &mut self,
-        change: &BranchChange<G>,
-        prover_artefacts: &ProverArtefacts<G>,
-        change_type_hint: BranchChangeTypeHint<G>,
-    ) -> Result<(), ArtError> {
-        let mut leaf_path = change.node_index.get_path()?;
-
-        if leaf_path.is_empty() {
-            return Err(ArtError::EmptyArt);
-        }
-
-        if let BranchChangeTypeHint::AddMember {
-            ext_pk: Some(_), ..
-        } = change_type_hint
-        {
-            leaf_path.pop();
-        }
-
-        self.extend_tree_with(change, prover_artefacts)?;
-
-        let target_leaf = self.mut_node(&leaf_path)?;
-        target_leaf.data.change_type.push(change_type_hint);
-
-        Ok(())
-    }
+    // /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
+    // /// `change_type_hint` to perform extension correctly
+    // pub fn extend(
+    //     &mut self,
+    //     change: &BranchChange<G>,
+    //     prover_artefacts: &ProverArtefacts<G>,
+    //     change_type_hint: BranchChangeTypeHint<G>,
+    // ) -> Result<(), ArtError> {
+    //     let mut leaf_path = change.node_index.get_path()?;
+    // 
+    //     if leaf_path.is_empty() {
+    //         return Err(ArtError::EmptyArt);
+    //     }
+    // 
+    //     if let BranchChangeTypeHint::AddMember {
+    //         ext_pk: Some(_), ..
+    //     } = change_type_hint
+    //     {
+    //         leaf_path.pop();
+    //     }
+    // 
+    //     self.extend_tree_with(change, prover_artefacts)?;
+    // 
+    //     let target_leaf = self.mut_node(&leaf_path)?;
+    //     target_leaf.data.change_type.push(change_type_hint);
+    // 
+    //     Ok(())
+    // }
 
     fn extend_tree_with(
         &mut self,
@@ -559,6 +578,8 @@ where
 // pub(crate) struct Child<'a, N> {
 //     child: Option<N>,
 // }
+
+
 
 pub(crate) trait TreeIterHelper {
     type Child;

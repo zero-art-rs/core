@@ -29,10 +29,6 @@ where
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     pub secret_key: G::ScalarField,
 
-    /// Blinding value for proof creation.
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub blinding_factor: G::ScalarField,
-
     /// Change type marker
     pub change_type: Vec<BranchChangeTypeHint<G>>,
 }
@@ -41,12 +37,31 @@ impl<G> ProverAggregationData<G>
 where
     G: AffineRepr,
 {
-    pub(crate) fn aggregate(&mut self, other: Self) {
+    pub(crate) fn aggregate(
+        &mut self,
+        public_key: G,
+        co_public_key: Option<G>,
+        secret_key: G::ScalarField,
+        change_type: Option<BranchChangeTypeHint<G>>,
+    ) {
+        self.public_key = public_key;
+        self.secret_key = secret_key;
+        self.co_public_key = co_public_key;
+
+        if let Some(change_type) = change_type {
+            self.change_type.push(change_type);
+        }
+    }
+
+    pub(crate) fn aggregate_with(&mut self, other: Self) {
         self.public_key = other.public_key;
         self.secret_key = other.secret_key;
         self.co_public_key = other.co_public_key;
         self.change_type.extend(other.change_type);
-        self.blinding_factor = other.blinding_factor;
+    }
+
+    pub(crate) fn update_change_type(&mut self, change_type: BranchChangeTypeHint<G>) {
+        self.change_type.push(change_type);
     }
 }
 
@@ -107,15 +122,13 @@ where
             prepare_short_marker_for_option(&self.co_public_key.and_then(|co_pk| co_pk.x()));
 
         let sk_marker = prepare_short_marker_for_option(&Some(self.secret_key));
-        let bl_marker = prepare_short_marker_for_option(&Some(self.blinding_factor));
 
         write!(
             f,
-            "pk: {}, co_pk: {}, sk: {}, bl: {}, type: {:?}",
+            "pk: {}, co_pk: {}, sk: {}, type: {:?}",
             pk_marker,
             co_pk_marker,
             sk_marker,
-            bl_marker,
             self.change_type
                 .iter()
                 .map(BranchChangeType::from)

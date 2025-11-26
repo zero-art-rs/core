@@ -9,5 +9,5 @@ mod aggregation_data;
 
 pub use aggregated_change::{AggregatedChange, AggregationTree};
 pub(crate) use aggregated_node::TreeIterHelper;
-pub use aggregated_node::{AggregationNode, AggregationNodeIterWithPath, TreeNodeIterWithPath};
+pub use aggregated_node::{AggregationNode, AggregatedNodeWrapper, AggregationNodeIterWithPath, TreeNodeIterWithPath};
 pub use aggregation_data::{AggregationData, ProverAggregationData, VerifierAggregationData};

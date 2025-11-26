@@ -2,7 +2,7 @@
 use std::cell::{Cell, Ref, RefCell};
 use crate::art::private_art::{ArtSecrets};
 use crate::art::{ArtAdvancedOps, PrivateArt, PublicArt};
-use crate::art_node::{LeafIterWithPath, LeafStatus, TreeMethods};
+use crate::art_node::{LeafIterWithPath, LeafStatus, NodeIter, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
@@ -14,7 +14,7 @@ use ark_std::rand::{SeedableRng, thread_rng, Rng};
 use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::cmp::{max, min};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 use crate::changes::branch_change::{BranchChange, PrivateBranchChange};
 use itertools::Itertools;
 use rand::random;
@@ -502,6 +502,63 @@ fn test_art_key_update() {
         changes.apply(&mut users_arts[i]).unwrap();
         users_arts[i].commit().unwrap();
         assert_eq!(users_arts[i].root_secret_key(), recomputed_old_key);
+    }
+}
+
+#[test]
+fn test_add_member_weight_correctness() {
+    init_tracing();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let main_user_id = 0;
+    let test_user_id = 12;
+    let secrets = (0..TEST_GROUP_SIZE)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let mut private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+
+    let user_secret = private_art.leaf_secret_key();
+    let user_public_key = private_art.leaf_public_key();
+
+    assert_eq!(user_secret, private_art.leaf_secret_key());
+
+    for i in 0..100 {
+        let (_, change, _) = private_art.add_member(Fr::rand(&mut rng)).unwrap();
+        change.apply(&mut private_art).unwrap();
+
+        assert_eq!(user_secret, private_art.leaf_secret_key());
+        assert_eq!(
+            private_art.node(private_art.node_index()).unwrap().public_key(),
+            user_public_key
+        );
+
+        private_art.commit().unwrap();
+
+        assert_eq!(user_secret, private_art.leaf_secret_key());
+        assert_eq!(
+            private_art.node(private_art.node_index()).unwrap().public_key(),
+            user_public_key
+        );
+
+        for node in NodeIter::new(private_art.root()) {
+            if node.is_leaf() {
+                if !matches!(node.status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.weight(), 0);
+                } else {
+                    assert_eq!(node.weight(), 1);
+                }
+            } else {
+                assert_eq!(
+                    node.weight(),
+                    node.child(Direction::Left).unwrap().weight()
+                        + node.child(Direction::Right).unwrap().weight(),
+                    "private_art:\n{}",
+                    private_art.root()
+                );
+            }
+        }
+
     }
 }
 
@@ -1454,14 +1511,16 @@ fn test_continuous_merge_update() {
     }
 }
 
-fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>) -> Result<(), ()> {
+pub(crate) fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>) -> Result<(), ()> {
     let path = private_art.node_index().get_path().unwrap();
 
     let mut secrets = private_art.secrets.secret_keys().clone();
-    trace!("secrets verification: {:#?}", secrets);
+    // trace!("secrets verification: {:#?}\n\ton path: {:?}", secrets, path);
     let root_secret = secrets.pop().unwrap();
 
     let mut parent = private_art.root();
+
+    // trace!("parent:\n{}", parent);
 
     if parent
         .public_key()
@@ -1476,12 +1535,12 @@ fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>) -> Result
             );
         return Err(());
     } else {
-        trace!(
-                "error in root sk: {}, real pk: {}, computed pk: {}",
-                root_secret,
-                parent.public_key(),
-                CortadoAffine::generator().mul(root_secret).into_affine(),
-            );
+        // trace!(
+        //     "Correct computations for root:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
+        //     root_secret,
+        //     parent.public_key().x(),
+        //     CortadoAffine::generator().mul(root_secret).into_affine().x(),
+        // );
     }
 
     for (sk, dir) in secrets.iter().rev().zip(path.iter()) {
@@ -1492,20 +1551,20 @@ fn verify_secrets_are_correct(private_art: &PrivateArt<CortadoAffine>) -> Result
             .ne(&CortadoAffine::generator().mul(sk).into_affine())
         {
             error!(
-                    "error in computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
-                    sk,
-                    parent.public_key().x(),
-                    CortadoAffine::generator().mul(sk).into_affine().x(),
-                    private_art.root()
-                );
+                "error in computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
+                sk,
+                parent.public_key().x(),
+                CortadoAffine::generator().mul(sk).into_affine().x(),
+                private_art.root()
+            );
             return Err(());
         } else {
-            trace!(
-                    "error in computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
-                    sk,
-                    parent.public_key().x(),
-                    CortadoAffine::generator().mul(sk).into_affine().x(),
-                );
+            // trace!(
+            //     "Correct computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
+            //     sk,
+            //     parent.public_key().x(),
+            //     CortadoAffine::generator().mul(sk).into_affine().x(),
+            // );
         }
     }
 
