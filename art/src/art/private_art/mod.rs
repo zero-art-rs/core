@@ -2,7 +2,6 @@ use crate::art::art_advanced_operations::ArtAdvancedOps;
 use crate::art::{ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview};
 use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::TreeIterHelper;
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
@@ -12,8 +11,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
-use std::mem;
-use std::ops::{Add, MulAssign};
+use std::ops::{MulAssign};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
@@ -230,6 +228,59 @@ where
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ArtNodeIndex {
+    /// Index of a user leaf.
+    pub(crate) node_index: NodeIndex,
+
+    /// Index of a user leaf in merge_tree.
+    pub(crate) node_index_preview: Option<NodeIndex>,
+}
+
+impl ArtNodeIndex {
+    pub fn new(node_index: NodeIndex, merge_node_index: Option<NodeIndex>) -> Self {
+        Self { node_index, node_index_preview: merge_node_index }
+    }
+
+    pub fn commit(&mut self) {
+        if let Some(merge_node_index) = self.node_index_preview.take() {
+            self.node_index = merge_node_index
+        }
+    }
+
+    pub fn discard(&mut self) {
+        self.node_index_preview = None;
+    }
+
+    pub fn node_index(&self) -> &NodeIndex {
+        &self.node_index
+    }
+
+    pub fn node_index_preview(&self) -> &Option<NodeIndex> {
+        &self.node_index_preview
+    }
+
+    /// Update node index by adding provided `direction` to the end of the path.
+    pub fn push(&mut self, direction: Direction) {
+        if let Some(index) = &mut self.node_index_preview {
+            index.push(direction)
+        } else {
+            let mut index = self.node_index.clone();
+            index.push(direction);
+            self.node_index_preview = Some(index);
+        }
+    }
+}
+
+impl<T> From<T> for ArtNodeIndex
+where
+    NodeIndex: From<T>,
+{
+    fn from(value: T) -> Self {
+        Self::new(NodeIndex::from(value), None)
+    }
+}
+
 /// ART structure, which stores and operates with some user secrets. Wrapped around `PublicArt`.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(bound = "")]
@@ -244,10 +295,7 @@ where
     pub(crate) secrets: ArtSecrets<G>,
 
     /// Index of a user leaf.
-    pub(crate) node_index: NodeIndex,
-
-    /// Index of a user leaf in merge_tree.
-    pub(crate) merge_node_index: Option<NodeIndex>,
+    pub(crate) node_index: ArtNodeIndex,
 }
 
 impl<G> PrivateArt<G>
@@ -291,8 +339,7 @@ where
         Ok(Self {
             public_art,
             secrets: ArtSecrets::try_from(artefacts.secrets)?,
-            node_index: NodeIndex::from(path),
-            merge_node_index: None,
+            node_index: ArtNodeIndex::from(NodeIndex::from(path).as_index()?),
         })
     }
 
@@ -308,8 +355,7 @@ where
         Ok(Self {
             public_art,
             secrets: ArtSecrets::try_from(artefacts.secrets)?,
-            node_index: NodeIndex::from(leaf_path).as_index()?,
-            merge_node_index: None,
+            node_index: ArtNodeIndex::from(NodeIndex::from(leaf_path).as_index()?),
         })
     }
 
@@ -321,8 +367,7 @@ where
         Ok(Self {
             public_art,
             secrets,
-            node_index: NodeIndex::from(path),
-            merge_node_index: None,
+            node_index: ArtNodeIndex::from(NodeIndex::from(path).as_index()?),
         })
     }
 
@@ -333,30 +378,24 @@ where
         change.apply(self)
     }
 
-    /// Update node index by adding provided `direction` to the end of the path.
-    pub fn update_node_index(&mut self, direction: Direction) {
-        if let Some(index) = &mut self.merge_node_index {
-            index.push(direction)
-        } else {
-            let mut index = self.node_index.clone();
-            index.push(direction);
-            self.merge_node_index = Some(index);
-        }
-    }
-
     pub fn commit(&mut self) -> Result<(), ArtError> {
         self.public_art.commit()?;
         self.secrets.commit();
+        self.node_index.commit();
 
-        if let Some(index) = mem::take(&mut self.merge_node_index) {
-            self.node_index = index;
-        }
 
         Ok(())
     }
 
+    pub fn discard(&mut self) {
+        self.public_art.discard();
+        self.node_index.discard();
+
+        todo!()
+    }
+
     pub fn node_index(&self) -> &NodeIndex {
-        &self.node_index
+        &self.node_index.node_index
     }
 
     pub fn secrets(&self) -> &ArtSecrets<G> {
@@ -618,7 +657,7 @@ where
                     Some(LeafStatus::Blank) => false,
                     _ => {
                         art.secrets.extend_with(art.secrets.leaf().key());
-                        art.update_node_index(Direction::Left);
+                        art.node_index.push(Direction::Left);
                         // art.node_index.push(Direction::Left);
 
                         true

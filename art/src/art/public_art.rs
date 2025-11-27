@@ -164,6 +164,10 @@ where
         })
     }
 
+    pub fn discard(&mut self) {
+        self.merge_tree = Default::default();
+    }
+
     fn inner_commit(
         &mut self,
         merge_tree: &AggregationNode<PublicMergeData<G>>,

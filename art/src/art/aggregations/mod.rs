@@ -361,21 +361,21 @@ where
             return Err(ArtError::NoChanges);
         };
 
-        let path = art.node_index.get_path()?;
+        let path = art.node_index().get_path()?;
 
         let (level_sk, co_path) = if let Some(mut node) = self.node_at(&path) {
             // let mut secrets_increase = 0;
             let mut user_leaf_path = path.clone();
             while let Some(child) = node.child(Direction::Left) {
                 user_leaf_path.push(Direction::Left);
-                art.update_node_index(Direction::Left);
+                art.node_index.push(Direction::Left);
                 art.secrets.extend_with(art.leaf_secret_key());
 
                 node = child;
             }
 
             user_leaf_path.push(Direction::Left);
-            art.update_node_index(Direction::Left);
+            art.node_index.push(Direction::Left);
             art.secrets.extend_with(art.leaf_secret_key());
 
             // user_leaf_path.push(Direction::Left);
