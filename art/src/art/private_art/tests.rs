@@ -18,7 +18,7 @@ use rand::random;
 use std::cell::{Cell, Ref, RefCell};
 use std::cmp::{max, min};
 use std::ops::{Add, DerefMut, Mul};
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use zrt_zk::art::ArtProof;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
@@ -106,8 +106,12 @@ fn test_flow_append_join_update() {
     assert_ne!(secret_key_0, secret_key_1);
     let (_, change0) = user0.add_member(secret_key_1).unwrap();
 
-    let tk = user0.apply(&change0).unwrap();
+    verify_secrets_are_correct(&user0).unwrap();
+
+    let tk = change0.apply(&mut user0).unwrap();
     user0.commit().unwrap();
+
+    verify_secrets_are_correct(&user0).unwrap();
 
     assert_eq!(user0.leaf_secret_key(), secret_key_0);
     assert_eq!(
@@ -413,6 +417,7 @@ fn test_art_key_update() {
     for i in 0..TEST_GROUP_SIZE {
         // Assert creator and users computed the same tree key.
         assert_eq!(users_arts[i].root_secret_key(), root_key);
+        verify_secrets_are_correct(&users_arts[i]).unwrap();
     }
 
     // Save old secret key to roll back
@@ -425,6 +430,8 @@ fn test_art_key_update() {
         assert_eq!(users_arts[i].root(), public_art.root());
         changes.apply(&mut users_arts[i]).unwrap();
         users_arts[i].commit().unwrap();
+
+        verify_secrets_are_correct(&users_arts[i]).unwrap();
         assert_eq!(
             users_arts[i].root(),
             users_arts[0].root(),
@@ -447,13 +454,12 @@ fn test_art_key_update() {
 
     assert_ne!(users_arts[main_user_id].leaf_secret_key(), main_old_key);
 
-    let mut pub_keys = Vec::new();
     let mut parent = users_arts[main_user_id].root();
+    let mut pub_keys = vec![parent.public_key()];
     for direction in &users_arts[main_user_id].node_index().get_path().unwrap() {
         pub_keys.push(parent.child(*direction).unwrap().public_key());
         parent = parent.child(*direction).unwrap();
     }
-    pub_keys.reverse();
 
     for (secret_key, corr_pk) in users_arts[main_user_id]
         .secrets
@@ -1523,7 +1529,13 @@ pub(crate) fn verify_secrets_are_correct(
 ) -> Result<(), ()> {
     let path = private_art.node_index().get_path().unwrap();
 
-    let mut secrets = private_art.secrets.secret_keys().clone();
+    let mut secrets = private_art
+        .secrets
+        .secret_keys()
+        .iter()
+        .rev()
+        .cloned()
+        .collect::<Vec<_>>();
     // trace!("secrets verification: {:#?}\n\ton path: {:?}", secrets, path);
     let root_secret = secrets.pop().unwrap();
 

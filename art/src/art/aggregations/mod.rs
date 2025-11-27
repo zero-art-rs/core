@@ -1,13 +1,9 @@
-use crate::art::{
-    ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData,
-};
-use crate::art_node::{
-    LeafStatus, NodePair, PriorityNodePair, TreeMethods,
-};
+use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData};
+use crate::art_node::{LeafStatus, NodePair, PriorityNodePair, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNode,
-    AggregationNodeIterWithPath, AggregationTree, ProverAggregationData,
+    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
+    AggregationTree, ProverAggregationData,
 };
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -363,42 +359,43 @@ where
 
         let path = art.node_index().get_path()?;
 
-        let (level_sk, co_path) = if let Some(mut node) = self.node_at(&path) {
+        let (level_sk, co_path, use_all_secrets) = if let Some(mut node) = self.node_at(&path) {
             // let mut secrets_increase = 0;
             let mut user_leaf_path = path.clone();
             while let Some(child) = node.child(Direction::Left) {
                 user_leaf_path.push(Direction::Left);
                 art.node_index.push(Direction::Left);
-                art.secrets.extend_with(art.leaf_secret_key());
 
                 node = child;
             }
 
             user_leaf_path.push(Direction::Left);
             art.node_index.push(Direction::Left);
-            art.secrets.extend_with(art.leaf_secret_key());
 
-            // user_leaf_path.push(Direction::Left);
             let co_path = self.aggregation_co_path(&art, &user_leaf_path)?;
 
-            (art.leaf_secret_key(), co_path)
+            (art.leaf_secret_key(), co_path, true)
         } else {
             let intersection = agg_root.get_intersection(&path);
 
             let level_sk = art
                 .secrets
                 .secret(intersection.len() + 1)
-                .ok_or(ArtError::InvalidBranchChange)?
-                .key();
+                .ok_or(ArtError::InvalidBranchChange)?;
 
             let co_path = self.aggregation_co_path(&art, &path[..intersection.len() + 1])?;
 
-            (level_sk, co_path)
+            (level_sk, co_path, false)
         };
 
         let artefacts = recompute_artefacts(level_sk, &co_path)?;
 
-        art.secrets.update(&artefacts.secrets[1..], false)?;
+        if use_all_secrets {
+            art.secrets.update(artefacts.secrets.iter().rev(), false)?;
+        } else {
+            art.secrets
+                .update(artefacts.secrets[1..].iter().rev(), false)?;
+        }
 
         Ok(*artefacts
             .secrets

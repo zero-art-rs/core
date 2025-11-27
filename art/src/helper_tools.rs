@@ -101,7 +101,7 @@ where
         artefacts.derive_branch_change(BranchChangeType::UpdateKey, art.node_index().clone())?;
     key_update_change.apply(&mut art.public_art)?;
 
-    art.secrets.update(&artefacts.secrets, false)?;
+    art.secrets.update(artefacts.secrets.iter().rev(), false)?;
 
     Ok(*artefacts
         .secrets

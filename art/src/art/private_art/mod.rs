@@ -11,19 +11,16 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
-use std::ops::{MulAssign};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
 pub(crate) mod tests;
 
-#[derive(Deserialize, Serialize, Clone, PartialEq, Default)]
+#[derive(Default, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ArtSecret<G>
 where
     G: AffineRepr,
 {
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    key: G::ScalarField,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     weak_key: Option<G::ScalarField>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
@@ -34,16 +31,15 @@ impl<G> ArtSecret<G>
 where
     G: AffineRepr,
 {
-    pub fn key(&self) -> G::ScalarField {
-        self.key
+    pub fn new(weak_key: Option<G::ScalarField>, strong_key: Option<G::ScalarField>) -> Self {
+        Self {
+            weak_key,
+            strong_key,
+        }
     }
 
-    pub fn preview(&self) -> G::ScalarField {
-        let mut new_sk = self.key;
-
-        if let Some(strong_key) = self.strong_key {
-            new_sk = strong_key;
-        }
+    pub fn preview_with(&self, key: G::ScalarField) -> G::ScalarField {
+        let mut new_sk = self.strong_key.clone().unwrap_or(key);
 
         if let Some(weak_key) = self.weak_key {
             new_sk += weak_key;
@@ -52,20 +48,16 @@ where
         new_sk
     }
 
-    pub fn commit(&mut self) {
-        let mut new_sk = self.key;
-
-        if let Some(strong_key) = self.strong_key {
-            new_sk = strong_key;
-            self.strong_key = None;
-        }
+    pub fn preview(&self) -> Result<G::ScalarField, ArtError> {
+        let Some(mut new_sk) = self.strong_key.clone() else {
+            return Err(ArtError::SecretsPreview);
+        };
 
         if let Some(weak_key) = self.weak_key {
             new_sk += weak_key;
-            self.weak_key = None;
         }
 
-        self.key = new_sk;
+        Ok(new_sk)
     }
 
     pub fn update(&mut self, secret: G::ScalarField, weak_only: bool) {
@@ -76,20 +68,6 @@ where
             }
         } else {
             self.strong_key = Some(secret)
-        }
-    }
-}
-
-impl<G, S> From<S> for ArtSecret<G>
-where
-    G: AffineRepr<ScalarField = S>,
-    S: PrimeField + Into<<S as PrimeField>::BigInt>,
-{
-    fn from(value: S) -> Self {
-        Self {
-            key: value,
-            weak_key: None,
-            strong_key: None,
         }
     }
 }
@@ -120,87 +98,91 @@ where
         };
 
         f.debug_struct("ArtSecret")
-            .field(
-                "key         ",
-                &format!(
-                    "sk:{}, pk: {:?}",
-                    &self.key,
-                    G::generator().mul(self.key).into_affine().x()
-                ),
-            )
-            .field(
-                "preview key ",
-                &format!(
-                    "sk:{}, pk: {:?}",
-                    &self.preview(),
-                    G::generator().mul(self.preview()).into_affine().x()
-                ),
-            )
-            .field("weak_key    ", &weak_marker)
-            .field("strong_key  ", &strong_marker)
+            .field("weak_key", &weak_marker)
+            .field("strong_key", &strong_marker)
             .finish()
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
-pub struct ArtSecrets<G>(Vec<ArtSecret<G>>)
-where
-    G: AffineRepr;
+pub struct ArtSecrets<G: AffineRepr> {
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    secrets: Vec<G::ScalarField>,
+    secrets_preview: Vec<ArtSecret<G>>,
+}
 
 impl<G> ArtSecrets<G>
 where
     G: AffineRepr,
 {
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.secrets.len()
     }
 
-    pub fn leaf(&self) -> &ArtSecret<G> {
-        &self.0[self.0.len() - 1]
+    pub fn leaf(&self) -> G::ScalarField {
+        self.secrets[self.secrets.len() - 1]
     }
 
-    pub fn secret(&self, i: usize) -> Option<&ArtSecret<G>> {
-        self.0.get(i)
+    pub fn secret(&self, i: usize) -> Option<G::ScalarField> {
+        self.secrets.get(i).map(|s| *s)
     }
 
-    pub fn secrets(&self) -> &Vec<ArtSecret<G>> {
-        &self.0
+    pub fn secrets(&self) -> &Vec<G::ScalarField> {
+        &self.secrets
     }
 
-    pub fn root(&self) -> &ArtSecret<G> {
-        &self.0[0]
-    }
-
-    pub fn extend_with(&mut self, sk: G::ScalarField) {
-        self.0.push(ArtSecret::from(sk))
+    pub fn root(&self) -> G::ScalarField {
+        self.secrets[0]
     }
 
     /// Returns secret keys on path from leaf node to the root node.
     pub fn secret_keys(&self) -> Vec<G::ScalarField> {
         let mut secrets = Vec::new();
-        for secret in self.0.iter().rev() {
-            secrets.push(secret.key());
+        for secret in self.secrets.iter() {
+            secrets.push(*secret);
         }
 
         secrets
     }
 
-    pub fn commit(&mut self) {
-        for secret in self.0.iter_mut() {
-            secret.commit();
+    pub fn commit(&mut self) -> Result<(), ArtError> {
+        for (sk, preview) in self.secrets.iter_mut().zip(self.secrets_preview.iter()) {
+            *sk = preview.preview_with(*sk);
         }
+
+        for i in self.secrets.len()..self.secrets_preview.len() {
+            self.secrets.push(self.secrets_preview[i].preview()?)
+        }
+
+        self.secrets_preview.clear();
+
+        Ok(())
+    }
+
+    pub fn discard(&mut self) {
+        self.secrets_preview.clear();
     }
 
     /// Takes secrets of nodes on path from some node to the root, and updates it, starting
-    /// from the root node
-    pub fn update(
+    /// from the root node.
+    pub fn update<'a>(
         &mut self,
-        new_secrets: &[G::ScalarField],
+        new_secrets: impl IntoIterator<Item = &'a G::ScalarField>,
         weak_only: bool,
     ) -> Result<(), ArtError> {
-        for (i, secret) in new_secrets.iter().rev().enumerate() {
-            self.0[i].update(*secret, weak_only);
+        let mut new_secrets_iterator = new_secrets.into_iter().enumerate();
+
+        for (i, sk) in new_secrets_iterator
+            .by_ref()
+            .take(self.secrets_preview.len())
+        {
+            self.secrets_preview[i].update(*sk, weak_only);
+        }
+
+        for (i, sk) in new_secrets_iterator {
+            self.secrets_preview.push(ArtSecret::default());
+            self.secrets_preview[i].update(*sk, weak_only);
         }
 
         Ok(())
@@ -218,13 +200,10 @@ where
             return Err(ArtError::InvalidInput);
         }
 
-        Ok(Self(
-            secrets
-                .into_iter()
-                .rev()
-                .map(|sk| ArtSecret::from(sk))
-                .collect(),
-        ))
+        Ok(Self {
+            secrets: secrets.into_iter().collect::<Vec<_>>(),
+            secrets_preview: vec![],
+        })
     }
 }
 
@@ -239,7 +218,10 @@ pub struct ArtNodeIndex {
 
 impl ArtNodeIndex {
     pub fn new(node_index: NodeIndex, merge_node_index: Option<NodeIndex>) -> Self {
-        Self { node_index, node_index_preview: merge_node_index }
+        Self {
+            node_index,
+            node_index_preview: merge_node_index,
+        }
     }
 
     pub fn commit(&mut self) {
@@ -256,8 +238,11 @@ impl ArtNodeIndex {
         &self.node_index
     }
 
-    pub fn node_index_preview(&self) -> &Option<NodeIndex> {
-        &self.node_index_preview
+    pub fn node_index_preview(&self) -> &NodeIndex {
+        match &self.node_index_preview {
+            Some(index) => index,
+            None => self.node_index(),
+        }
     }
 
     /// Update node index by adding provided `direction` to the end of the path.
@@ -265,7 +250,7 @@ impl ArtNodeIndex {
         if let Some(index) = &mut self.node_index_preview {
             index.push(direction)
         } else {
-            let mut index = self.node_index.clone();
+            let mut index = self.node_index().clone();
             index.push(direction);
             self.node_index_preview = Some(index);
         }
@@ -335,10 +320,12 @@ where
         let path = public_art.root().path_to_leaf_with(pk)?;
         let co_path = public_art.co_path(&path)?;
         let artefacts = recompute_artefacts(sk, &co_path)?;
+        let secrets =
+            ArtSecrets::try_from(artefacts.secrets.iter().rev().cloned().collect::<Vec<_>>())?;
 
         Ok(Self {
             public_art,
-            secrets: ArtSecrets::try_from(artefacts.secrets)?,
+            secrets,
             node_index: ArtNodeIndex::from(NodeIndex::from(path).as_index()?),
         })
     }
@@ -349,20 +336,22 @@ where
             .root()
             .path_to_leaf_with(G::generator().mul(secret_key).into_affine())?;
         let co_path = public_art.co_path(&leaf_path)?;
-
         let artefacts = recompute_artefacts(secret_key, &co_path)?;
+        let secrets =
+            ArtSecrets::try_from(artefacts.secrets.iter().rev().cloned().collect::<Vec<_>>())?;
+        let node_index = ArtNodeIndex::from(NodeIndex::from(leaf_path).as_index()?);
 
         Ok(Self {
             public_art,
-            secrets: ArtSecrets::try_from(artefacts.secrets)?,
-            node_index: ArtNodeIndex::from(NodeIndex::from(leaf_path).as_index()?),
+            secrets,
+            node_index,
         })
     }
 
     /// Create new `PrivateArt` from `public_art` and all the `secrets` on path from the
     /// user leaf to root.
     pub fn restore(public_art: PublicArt<G>, secrets: ArtSecrets<G>) -> Result<Self, ArtError> {
-        let pk = G::generator().mul(secrets.leaf().key()).into_affine();
+        let pk = G::generator().mul(secrets.leaf()).into_affine();
         let path = public_art.root().path_to_leaf_with(pk)?;
         Ok(Self {
             public_art,
@@ -380,9 +369,8 @@ where
 
     pub fn commit(&mut self) -> Result<(), ArtError> {
         self.public_art.commit()?;
-        self.secrets.commit();
+        self.secrets.commit()?;
         self.node_index.commit();
-
 
         Ok(())
     }
@@ -390,12 +378,15 @@ where
     pub fn discard(&mut self) {
         self.public_art.discard();
         self.node_index.discard();
-
-        todo!()
+        self.secrets.discard();
     }
 
     pub fn node_index(&self) -> &NodeIndex {
-        &self.node_index.node_index
+        self.node_index.node_index()
+    }
+
+    pub fn node_index_preview(&self) -> &NodeIndex {
+        self.node_index.node_index_preview()
     }
 
     pub fn secrets(&self) -> &ArtSecrets<G> {
@@ -407,7 +398,7 @@ where
     }
 
     pub fn root_secret_key(&self) -> G::ScalarField {
-        self.secrets.root().key()
+        self.secrets.root()
     }
 
     pub fn root_public_key(&self) -> G {
@@ -415,7 +406,7 @@ where
     }
 
     pub fn leaf_secret_key(&self) -> G::ScalarField {
-        self.secrets.leaf().key()
+        self.secrets.leaf()
     }
 
     pub fn leaf_public_key(&self) -> G {
@@ -648,17 +639,16 @@ where
         weak_only: bool,
     ) -> Result<G::ScalarField, ArtError> {
         let intersection = self.node_index.intersect_with(art.node_index())?;
-        // debug!("intersection: {intersection:#?}");
         let target_node = art.node_at(&intersection)?;
+        let mut use_all_secrets = false;
         let add_co_path_from_change =
             if matches!(self.change_type, BranchChangeType::AddMember) && target_node.is_leaf() {
                 match target_node.status() {
                     None => return Err(ArtError::ArtLogic),
                     Some(LeafStatus::Blank) => false,
                     _ => {
-                        art.secrets.extend_with(art.secrets.leaf().key());
                         art.node_index.push(Direction::Left);
-                        // art.node_index.push(Direction::Left);
+                        use_all_secrets = true;
 
                         true
                     }
@@ -677,15 +667,22 @@ where
                     .ok_or(ArtError::InvalidInput)?,
             );
         }
-        co_path.append(&mut art.public_art().co_path(&intersection).unwrap());
+        co_path.append(&mut art.public_art().co_path(&intersection)?);
 
         let level_sk = art
             .secrets
             .secret(intersection.len() + 1)
-            .ok_or(ArtError::InvalidBranchChange)?
-            .key();
+            .unwrap_or(art.leaf_secret_key());
+        // .ok_or(ArtError::InvalidBranchChange)?;
         let artefacts = recompute_artefacts(level_sk, &co_path)?;
-        art.secrets.update(&artefacts.secrets[1..], weak_only)?;
+
+        if use_all_secrets {
+            art.secrets
+                .update(artefacts.secrets.iter().rev(), weak_only)?;
+        } else {
+            art.secrets
+                .update(artefacts.secrets[1..].iter().rev(), weak_only)?;
+        }
 
         Ok(*artefacts
             .secrets

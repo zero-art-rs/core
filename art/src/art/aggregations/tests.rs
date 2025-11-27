@@ -17,6 +17,7 @@ use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use std::ops::Mul;
+use tracing::debug;
 use zrt_zk::EligibilityRequirement;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 use zrt_zk::art::ArtProof;
@@ -442,9 +443,18 @@ fn test_branch_aggregation_for_one_update() {
     let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
 
     plain_agg.apply(&mut user0).unwrap();
-    plain_agg.apply(&mut pub_art).unwrap();
     user0.commit().unwrap();
+
+    plain_agg.apply(&mut pub_art).unwrap();
     pub_art.commit().unwrap();
+
+    assert_eq!(
+        user0,
+        agg.operation_tree,
+        "They are:\n{}\nand\n{}",
+        user0.root(),
+        agg.operation_tree.root()
+    );
 
     assert_eq!(
         &pub_art,

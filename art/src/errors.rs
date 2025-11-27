@@ -57,4 +57,6 @@ pub enum ArtError {
     InvalidUpdateData,
     #[error("No associated data provided.")]
     NoAssociatedData,
+    #[error("Failed to update secrets, as preview is invalid.")]
+    SecretsPreview,
 }
