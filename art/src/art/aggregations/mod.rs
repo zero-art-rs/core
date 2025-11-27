@@ -1,21 +1,20 @@
 use crate::art::{
-    ArtAdvancedOps, ArtUpdateOutput, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData,
+    ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData,
 };
 use crate::art_node::{
-    AggregationNodeWrapper, LeafStatus, NodePair, PriorityNodePair, TreeMethods, TreeNodeWrapper,
+    LeafStatus, NodePair, PriorityNodePair, TreeMethods,
 };
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregatedNodeWrapper, AggregationData, AggregationNode,
+    AggregatedChange, AggregationData, AggregationNode,
     AggregationNodeIterWithPath, AggregationTree, ProverAggregationData,
 };
-use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
+use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::recompute_artefacts;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
-use ark_std::iterable::Iterable;
 use cortado::CortadoAffine;
 use tracing::{debug, error, trace};
 use zrt_zk::aggregated_art::ProverAggregationTree;
@@ -36,7 +35,7 @@ impl<T, G> AggregationContext<T, G>
 where
     G: AffineRepr,
 {
-    pub fn get_operation_tree(&self) -> &T {
+    pub fn operation_tree(&self) -> &T {
         &self.operation_tree
     }
 }
@@ -50,6 +49,15 @@ where
             prover_aggregation: Default::default(),
             operation_tree,
         }
+    }
+}
+
+impl<G> From<AggregationContext<PrivateArt<G>, G>> for PrivateArt<G>
+where
+    G: AffineRepr,
+{
+    fn from(agg: AggregationContext<PrivateArt<G>, G>) -> Self {
+        agg.operation_tree
     }
 }
 
@@ -127,118 +135,6 @@ where
 
         Ok(current_node)
     }
-
-    // /// Updates art by applying changes. Also updates path_secrets and node_index.
-    // pub(crate) fn inner_update_key(
-    //     &mut self,
-    //     new_secret_key: G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ArtError> {
-    //     let index = art.node_index().clone();
-    //     let (tk, change, artefacts) = art.add_member(&index, new_secret_key, false)?;
-    //
-    //     self.extend(
-    //         &change,
-    //         &artefacts,
-    //         BranchChangeTypeHint::UpdateKey {
-    //             pk: G::generator().mul(new_secret_key).into_affine(),
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, change, artefacts))
-    // }
-    //
-    // pub(crate) fn inner_remove_member(
-    //     &mut self,
-    //     path: &[Direction],
-    //     temporary_secret_key: G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ArtError> {
-    //     let append_changes = matches!(art.node_at(path)?.status(), Some(LeafStatus::Blank));
-    //
-    //     if append_changes {
-    //         return Err(ArtError::InvalidMergeInput);
-    //     }
-    //
-    //     let index = NodeIndex::from(path.to_vec());
-    //     let (tk, mut change, artefacts) =
-    //         art.private_update_node_key(&index, temporary_secret_key, append_changes)?;
-    //     change.change_type = BranchChangeType::RemoveMember;
-    //
-    //     self.extend(
-    //         &change,
-    //         &artefacts,
-    //         BranchChangeTypeHint::RemoveMember {
-    //             pk: G::generator().mul(temporary_secret_key).into_affine(),
-    //             merge: append_changes,
-    //         },
-    //     )?;
-    //
-    //     art.mut_node_at(path)?.set_status(LeafStatus::Blank)?;
-    //
-    //     if !append_changes {
-    //         art.public_art.update_weight(path, false)?;
-    //     }
-    //
-    //     Ok((tk, change, artefacts))
-    // }
-    //
-    // pub(crate) fn inner_add_member(
-    //     &mut self,
-    //     secret_key: G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ArtError> {
-    //     let path = art.get_public_art().find_place_for_new_node()?;
-    //
-    //     let hint = matches!(
-    //         art.get_public_art()
-    //             .get_node(&NodeIndex::Direction(path.to_vec()))?
-    //             .get_status(),
-    //         Some(LeafStatus::Active)
-    //     );
-    //
-    //     let (tk, mut changes, artefacts) = art.private_add_node(secret_key)?;
-    //     changes.change_type = BranchChangeType::AddMember;
-    //
-    //     let ext_pk = match hint {
-    //         true => Some(
-    //             art.get_public_art()
-    //                 .get_node(&NodeIndex::Direction(path.to_vec()))?
-    //                 .get_public_key(),
-    //         ),
-    //         false => None,
-    //     };
-    //
-    //     self.extend(
-    //         &changes,
-    //         &artefacts,
-    //         BranchChangeTypeHint::AddMember {
-    //             pk: G::generator().mul(secret_key).into_affine(),
-    //             ext_pk,
-    //         },
-    //     )?;
-    //
-    //     Ok((tk, changes, artefacts))
-    // }
-    //
-    // pub(crate) fn inner_leave_group(
-    //     &mut self,
-    //     new_secret_key: G::ScalarField,
-    //     art: &mut PrivateArt<G>,
-    // ) -> Result<ArtUpdateOutput<G>, ArtError> {
-    //     let index = art.get_node_index().clone();
-    //     let (tk, mut change, artefacts) =
-    //         art.private_update_node_key(&index, new_secret_key, false)?;
-    //     change.change_type = BranchChangeType::Leave;
-    //
-    //     let hint = BranchChangeTypeHint::Leave{pk: G::generator().mul(new_secret_key).into_affine()};
-    //     self.extend(&change, &artefacts, hint)?;
-    //
-    //     art.mut_node(&index)?
-    //         .set_status(LeafStatus::PendingRemoval)?;
-    //
-    //     Ok((tk, change, artefacts))
-    // }
 }
 
 impl<G> ArtAdvancedOps<G, ()> for AggregationContext<PrivateArt<G>, G>
@@ -329,7 +225,10 @@ where
 
         self.operation_tree.apply(&new_key)?;
         self.operation_tree.commit()?;
-        self.operation_tree.mut_node_at(&path)?.set_status(LeafStatus::PendingRemoval).unwrap();
+        self.operation_tree
+            .mut_node_at(&path)?
+            .set_status(LeafStatus::PendingRemoval)
+            .unwrap();
 
         Ok(())
     }

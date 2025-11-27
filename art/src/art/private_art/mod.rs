@@ -1,33 +1,23 @@
 use crate::art::art_advanced_operations::ArtAdvancedOps;
-use crate::art::artefacts::VerifierArtefacts;
-use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts, PublicArt, PublicArtPreview};
-use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::art::{ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview};
+use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{
-    AggregationNode, AggregationNodeIterWithPath, AggregationTree, TreeIterHelper,
-    TreeNodeIterWithPath,
-};
-use crate::changes::branch_change::{BranchChange, BranchChangeType, PrivateBranchChange};
+use crate::changes::aggregations::TreeIterHelper;
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
 use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
-use cortado::{CortadoAffine, Parameters};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::ops::{Add, MulAssign};
-use tracing::debug;
-use zrt_zk::EligibilityArtefact;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-pub(crate) use tests::verify_secrets_are_correct;
+pub(crate) mod tests;
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct ArtSecret<G>

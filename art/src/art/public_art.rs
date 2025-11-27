@@ -1,20 +1,15 @@
 use crate::art::artefacts::VerifierArtefacts;
-use crate::art::{ArtLevel, ArtUpdateOutput, ProverArtefacts};
-use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
-    AggregationTree, TreeIterHelper, TreeNodeIterWithPath,
-};
-use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
+use crate::changes::aggregations::{AggregationNode, AggregationTree, TreeNodeIterWithPath};
+use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
-use crate::helper_tools::{ark_de, ark_se, iota_function, recompute_artefacts};
+use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
-use std::fmt::{Debug, Display, write};
+use std::fmt::Debug;
 use std::mem;
 use zrt_zk::art::VerifierNodeData;
 
@@ -86,7 +81,6 @@ where
 
     pub fn update_public_key(&mut self, public_key: G, weak_only: bool) {
         if weak_only || self.strong_key.is_some() {
-            let tmp = self.weak_key.clone();
             match self.weak_key {
                 None => self.weak_key = Some(public_key),
                 Some(current_weak_key) => {
@@ -119,23 +113,6 @@ where
 
 #[derive(Clone, Copy, Debug)]
 pub enum ArtNodePreview<'a, G>
-where
-    G: AffineRepr,
-{
-    ArtNodeOnly {
-        art_node: &'a ArtNode<G>,
-    },
-    MergeNodeOnly {
-        merge_node: &'a AggregationNode<PublicMergeData<G>>,
-    },
-    Full {
-        art_node: &'a ArtNode<G>,
-        merge_node: &'a AggregationNode<PublicMergeData<G>>,
-    },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum ArtNodeRef<'a, G>
 where
     G: AffineRepr,
 {
@@ -405,41 +382,6 @@ where
 
         verifier_artefacts.to_verifier_branch()
     }
-
-    /// Returns helper structure for verification of art update.
-    pub(crate) fn preview_artefacts_for_verification(
-        &self,
-        changes: &BranchChange<G>,
-    ) -> Result<VerifierArtefacts<G>, ArtError> {
-        let mut co_path = Vec::new();
-
-        let mut parent = self.root();
-        for direction in &changes.node_index.get_path()? {
-            if parent.is_leaf() {
-                if let BranchChangeType::AddMember = changes.change_type
-                    && matches!(parent.status(), Some(LeafStatus::Active))
-                {
-                    // The current node is a part of the co-path
-                    co_path.push(parent.public_key())
-                }
-            } else {
-                co_path.push(
-                    parent
-                        .child(direction.other())
-                        .ok_or(ArtError::PathNotExists)?
-                        .public_key(),
-                );
-                parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
-            }
-        }
-
-        co_path.reverse();
-
-        Ok(VerifierArtefacts {
-            path: changes.public_keys.iter().rev().cloned().collect(),
-            co_path,
-        })
-    }
 }
 
 impl<G> BranchChange<G>
@@ -580,6 +522,41 @@ where
 
         co_path_values.reverse();
         Ok(co_path_values)
+    }
+
+    /// Returns helper structure for verification of art update.
+    pub(crate) fn verification_branch(
+        &self,
+        changes: &BranchChange<G>,
+    ) -> Result<VerifierArtefacts<G>, ArtError> {
+        let mut co_path = Vec::new();
+
+        let mut parent = self.root();
+        for direction in &changes.node_index.get_path()? {
+            if parent.is_leaf() {
+                if let BranchChangeType::AddMember = changes.change_type
+                    && matches!(parent.status(), Some(LeafStatus::Active))
+                {
+                    // The current node is a part of the co-path
+                    co_path.push(parent.public_key())
+                }
+            } else {
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
+                parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
+            }
+        }
+
+        co_path.reverse();
+
+        Ok(VerifierArtefacts {
+            path: changes.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        })
     }
 }
 

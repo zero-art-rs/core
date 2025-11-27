@@ -2,8 +2,6 @@ use crate::art::private_art::ArtSecrets;
 use crate::art::{ArtAdvancedOps, PrivateArt, PublicArt};
 use crate::art_node::{LeafIterWithPath, LeafStatus, NodeIter, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::ProvableChange;
-use crate::changes::VerifiableChange;
 use crate::changes::branch_change::{BranchChange, PrivateBranchChange};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
@@ -2070,167 +2068,23 @@ fn test_append_node_after_make_blank_proof() {
     );
 }
 
-// #[test]
-// fn test_branch_aggregation_proof_verify() {
-//     init_tracing();
-//
-//     // Init test context.
-//     let mut rng = StdRng::seed_from_u64(0);
-//     let group_length = 7;
-//     let secrets = (0..group_length)
-//         .map(|_| Fr::rand(&mut rng))
-//         .collect::<Vec<_>>();
-//
-//     let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-//     let mut user0_rng = Box::new(thread_rng());
-//     let mut user1 = PrivateArt::<CortadoAffine>::new(
-//         user0.public_art().clone(),
-//         secrets[1],
-//     )
-//     .unwrap();
-//
-//     let target_3 = user0
-//         .root()
-//         .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-//         .unwrap();
-//     // Create aggregation
-//     let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
-//
-//     for i in 0..4 {
-//         agg.add_member(Fr::rand(&mut rng)).unwrap();
-//     }
-//
-//     let associated_data = b"data";
-//
-//     let mut proof_bytes = Vec::new();
-//     agg.prove(associated_data, None)
-//         .unwrap()
-//         .serialize_compressed(&mut proof_bytes)
-//         .unwrap();
-//
-//     let plain_agg = AggregatedChange::try_from(&agg).unwrap();
-//
-//     let aux_pk = user0.get_base_art().get_leaf_public_key();
-//     let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
-//     let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
-//     plain_agg
-//         .verify(
-//             &user0,
-//             associated_data,
-//             eligibility_requirement,
-//             &decoded_proof,
-//         )
-//         .unwrap();
-//
-//     let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-//
-//     let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
-//         &agg.prover_aggregation,
-//     )
-//     .unwrap();
-//
-//     let extracted_agg = plain_agg
-//         .add_co_path(&agg.operation_tree.get_public_art())
-//         .unwrap();
-//     assert_eq!(
-//         fromed_agg, extracted_agg,
-//         "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
-//         fromed_agg, extracted_agg,
-//     );
-//
-//     plain_agg.apply(&mut user1).unwrap();
-//
-//     assert_eq!(agg.operation_tree, user1);
-// }
-
-//     #[test]
-//     fn test_branch_aggregation_with_public_art() {
-//         init_tracing();
-//
-//         // Init test context.
-//         let mut rng = StdRng::seed_from_u64(0);
-//         let group_length = 7;
-//         let secrets = (0..group_length)
-//             .map(|_| Fr::rand(&mut rng))
-//             .collect::<Vec<_>>();
-//
-//         let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-//         let mut user0_rng = Box::new(thread_rng());
-//         let mut user0 = PrivateZeroArt::new(user0, user0_rng).unwrap();
-//         let mut user1 = PrivateArt::<CortadoAffine>::new(
-//             user0.get_base_art().get_public_art().clone(),
-//             secrets[1],
-//         )
-//         .unwrap();
-//
-//         let target_3 = user0
-//             .get_base_art()
-//             .get_public_art()
-//             .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-//             .unwrap();
-//         // Create aggregation
-//         let mut agg = AggregationContext::new(user0.get_base_art().clone(), Box::new(thread_rng()));
-//
-//         for i in 0..4 {
-//             agg.add_member(Fr::rand(&mut rng)).unwrap();
-//         }
-//
-//         let associated_data = b"data";
-//
-//         let mut proof_bytes = Vec::new();
-//         agg.prove(associated_data, None)
-//             .unwrap()
-//             .serialize_compressed(&mut proof_bytes)
-//             .unwrap();
-//
-//         let plain_agg = AggregatedChange::try_from(&agg).unwrap();
-//
-//         let aux_pk = user0.get_base_art().get_leaf_public_key();
-//         let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
-//         let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
-//         plain_agg
-//             .verify(
-//                 &user0,
-//                 associated_data,
-//                 eligibility_requirement,
-//                 &decoded_proof,
-//             )
-//             .unwrap();
-//
-//         let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
-//
-//         let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
-//             &agg.prover_aggregation,
-//         )
-//         .unwrap();
-//
-//         let extracted_agg = plain_agg
-//             .add_co_path(&agg.operation_tree.get_public_art())
-//             .unwrap();
-//         assert_eq!(
-//             fromed_agg, extracted_agg,
-//             "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
-//             fromed_agg, extracted_agg,
-//         );
-//
-//         plain_agg.apply(&mut user1).unwrap();
-//
-//         assert_eq!(agg.operation_tree, user1);
-//     }
-
-pub fn member_leaf_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
+pub(crate) fn member_leaf_eligibility_artefact(
+    art: &PrivateArt<CortadoAffine>,
+) -> EligibilityArtefact {
     EligibilityArtefact::Member((art.leaf_secret_key(), art.leaf_public_key()))
 }
 
-pub fn owner_leaf_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
+pub(crate) fn owner_leaf_eligibility_artefact(
+    art: &PrivateArt<CortadoAffine>,
+) -> EligibilityArtefact {
     EligibilityArtefact::Owner((art.leaf_secret_key(), art.leaf_public_key()))
 }
 
-pub fn root_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
+pub(crate) fn root_eligibility_artefact(art: &PrivateArt<CortadoAffine>) -> EligibilityArtefact {
     EligibilityArtefact::Member((art.root_secret_key(), art.root_public_key()))
 }
 
-pub fn removal_eligibility(
+pub(crate) fn removal_eligibility(
     art: &PrivateArt<CortadoAffine>,
     index: &NodeIndex,
 ) -> EligibilityArtefact {

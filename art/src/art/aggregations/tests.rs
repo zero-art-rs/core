@@ -1,6 +1,5 @@
-use crate::art::PrivateArt;
-use crate::art::private_art::verify_secrets_are_correct;
-use crate::art::{AggregationContext, ArtAdvancedOps};
+use crate::art::private_art::tests::{owner_leaf_eligibility_artefact, verify_secrets_are_correct};
+use crate::art::{AggregationContext, ArtAdvancedOps, PrivateArt};
 use crate::art_node::{LeafIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
@@ -12,13 +11,37 @@ use crate::helper_tools::iota_function;
 use crate::node_index::NodeIndex;
 use crate::test_helper_tools::init_tracing;
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::UniformRand;
 use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use std::ops::Mul;
-use tracing::{debug, info};
-use zrt_zk::aggregated_art::ProverAggregationTree;
+use zrt_zk::EligibilityRequirement;
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use zrt_zk::art::ArtProof;
+use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
+
+#[test]
+fn test_aggregation_serialization() {
+    init_tracing();
+
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let user0 = PrivateArt::<CortadoAffine>::setup(&vec![Fr::rand(&mut rng)]).unwrap();
+
+    let mut agg = AggregationContext::from(user0.clone());
+    for _ in 0..8 {
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
+    }
+
+    let plain_agg = AggregatedChange::<CortadoAffine>::try_from(&agg).unwrap();
+
+    let bytes = postcard::to_allocvec(&plain_agg).unwrap();
+    let retrieved_agg: AggregatedChange<CortadoAffine> = postcard::from_bytes(&bytes).unwrap();
+
+    assert_eq!(retrieved_agg, plain_agg);
+}
 
 /// Test if non-mergable changes (without blank for the second time) can be aggregated and
 /// applied correctly.
@@ -107,10 +130,7 @@ fn test_branch_aggregation_flow() {
             && let Some(co_public_key) = node.data.co_public_key
         {
             let pk = CortadoAffine::generator()
-                .mul(
-                    iota_function(&co_public_key.mul(node.data.secret_key).into_affine())
-                        .unwrap(),
-                )
+                .mul(iota_function(&co_public_key.mul(node.data.secret_key).into_affine()).unwrap())
                 .into_affine();
             assert_eq!(parent.data.public_key, pk);
         }
@@ -165,9 +185,7 @@ fn test_branch_aggregation_flow() {
             .unwrap();
 
         let aggregation = AggregatedChange::try_from(&agg).unwrap();
-        let verifier_aggregation = aggregation
-            .add_co_path(user2.public_art())
-            .unwrap();
+        let verifier_aggregation = aggregation.add_co_path(user2.public_art()).unwrap();
 
         let user2_clone_rng = Box::new(thread_rng());
         let mut user2_clone = user2.clone();
@@ -215,27 +233,22 @@ fn test_branch_aggregation_flow() {
             && let Some(co_public_key) = node.data.co_public_key
         {
             let pk = CortadoAffine::generator()
-                .mul(
-                    iota_function(&co_public_key.mul(node.data.secret_key).into_affine())
-                        .unwrap(),
-                )
+                .mul(iota_function(&co_public_key.mul(node.data.secret_key).into_affine()).unwrap())
                 .into_affine();
             assert_eq!(parent.data.public_key, pk);
         }
     }
 
-    let verifier_aggregation =
-        AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
-            &agg.prover_aggregation,
-        )
-        .unwrap();
+    let verifier_aggregation = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
+        &agg.prover_aggregation,
+    )
+    .unwrap();
 
     let aggregation_from_prover =
         AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
     let aggregation_from_verifier =
-        AggregationTree::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation)
-            .unwrap();
+        AggregationTree::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation).unwrap();
 
     assert_eq!(
         aggregation_from_prover, aggregation_from_verifier,
@@ -252,7 +265,8 @@ fn test_branch_aggregation_flow() {
         verifier_aggregation, extracted_verifier_aggregation,
     );
 
-    let mut user1_clone: PrivateArt<ark_ec::short_weierstrass::Affine<cortado::Parameters>> = user1_2.clone();
+    let mut user1_clone: PrivateArt<ark_ec::short_weierstrass::Affine<cortado::Parameters>> =
+        user1_2.clone();
     agg.apply(&mut user1_clone).unwrap();
     user1_clone.commit().unwrap();
     agg.apply(&mut user2).unwrap();
@@ -329,11 +343,8 @@ fn test_branch_aggregation_with_leave() {
 
     let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
     let user0 = user0;
-    let mut user1 = PrivateArt::<CortadoAffine>::new(
-        user0.public_art().clone(),
-        secrets[1],
-    )
-    .unwrap();
+    let mut user1 =
+        PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
 
     let target_3 = user0
         .root()
@@ -453,4 +464,182 @@ fn test_branch_aggregation_for_one_update() {
 
     user0.commit().unwrap();
     pub_art.commit().unwrap();
+}
+
+#[test]
+fn test_branch_aggregation_proof_verify() {
+    init_tracing();
+
+    let prover_engine = ZeroArtProverEngine::default();
+    let verifier_engine = ZeroArtVerifierEngine::default();
+
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+    let group_length = 7;
+    let secrets = (0..group_length)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+    let mut user0_rng = Box::new(thread_rng());
+    let mut user1 =
+        PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
+
+    let target_3 = user0
+        .root()
+        .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+        .unwrap();
+    // Create aggregation
+    let mut agg = AggregationContext::from(user0.clone());
+
+    for i in 0..4 {
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
+    }
+
+    let associated_data = b"data";
+
+    let mut proof_bytes = Vec::new();
+    prover_engine
+        .new_context(owner_leaf_eligibility_artefact(&user0))
+        .for_aggregation(&ProverAggregationTree::try_from(&agg).unwrap())
+        .with_associated_data(associated_data)
+        .prove(&mut thread_rng())
+        .unwrap()
+        .serialize_compressed(&mut proof_bytes)
+        .unwrap();
+
+    // agg.prove(associated_data, None)
+    //     .unwrap()
+    //     .serialize_compressed(&mut proof_bytes)
+    //     .unwrap();
+
+    let plain_agg = AggregatedChange::try_from(&agg).unwrap();
+
+    let aux_pk = user0.leaf_public_key();
+    let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
+    let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
+
+    let extracted_agg = plain_agg.add_co_path(user0.public_art()).unwrap();
+    let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
+    verifier_engine
+        .new_context(eligibility_requirement)
+        .for_aggregation(&verifier_tree)
+        .with_associated_data(associated_data)
+        .verify(&decoded_proof)
+        .unwrap();
+
+    // plain_agg
+    //     .verify(
+    //         &user0,
+    //         associated_data,
+    //         eligibility_requirement,
+    //         &decoded_proof,
+    //     )
+    //     .unwrap();
+
+    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+    let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
+        &agg.prover_aggregation,
+    )
+    .unwrap();
+
+    let extracted_agg = plain_agg
+        .add_co_path(&agg.operation_tree.public_art())
+        .unwrap();
+    assert_eq!(
+        fromed_agg, extracted_agg,
+        "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
+        fromed_agg, extracted_agg,
+    );
+
+    plain_agg.apply(&mut user1).unwrap();
+    user1.commit();
+
+    assert_eq!(agg.operation_tree, user1);
+}
+
+#[test]
+fn test_branch_aggregation_with_public_art() {
+    init_tracing();
+
+    let prover_engine = ZeroArtProverEngine::default();
+    let verifier_engine = ZeroArtVerifierEngine::default();
+
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+    let group_length = 7;
+    let secrets = (0..group_length)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+    let mut user0_rng = Box::new(thread_rng());
+    let mut user0 = user0;
+    let mut user1 =
+        PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
+
+    let target_3 = user0
+        .root()
+        .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+        .unwrap();
+    // Create aggregation
+    let mut agg = AggregationContext::from(user0.clone());
+
+    for i in 0..4 {
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
+    }
+
+    let associated_data = b"data";
+
+    let mut proof_bytes = Vec::new();
+    // agg.prove(associated_data, None)
+    //     .unwrap()
+    //     .serialize_compressed(&mut proof_bytes)
+    //     .unwrap();
+
+    prover_engine
+        .new_context(owner_leaf_eligibility_artefact(&user0))
+        .for_aggregation(&ProverAggregationTree::try_from(&agg).unwrap())
+        .with_associated_data(associated_data)
+        .prove(&mut thread_rng())
+        .unwrap()
+        .serialize_compressed(&mut proof_bytes)
+        .unwrap();
+
+    let plain_agg = AggregatedChange::try_from(&agg).unwrap();
+
+    let aux_pk = user0.leaf_public_key();
+    let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
+    let decoded_proof = ArtProof::deserialize_compressed(&*proof_bytes).unwrap();
+
+    let extracted_agg = plain_agg.add_co_path(user0.public_art()).unwrap();
+    let verifier_tree = VerifierAggregationTree::try_from(&extracted_agg).unwrap();
+    verifier_engine
+        .new_context(eligibility_requirement)
+        .for_aggregation(&verifier_tree)
+        .with_associated_data(associated_data)
+        .verify(&decoded_proof)
+        .unwrap();
+
+    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+
+    let fromed_agg = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
+        &agg.prover_aggregation,
+    )
+    .unwrap();
+
+    let extracted_agg = plain_agg
+        .add_co_path(&agg.operation_tree.public_art())
+        .unwrap();
+    assert_eq!(
+        fromed_agg, extracted_agg,
+        "Verifier aggregations are equal from both sources.\nfirst:\n{}\nsecond:\n{}",
+        fromed_agg, extracted_agg,
+    );
+
+    plain_agg.apply(&mut user1).unwrap();
+    user1.commit().unwrap();
+
+    assert_eq!(agg.operation_tree, user1);
 }

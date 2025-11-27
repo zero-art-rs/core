@@ -13,13 +13,6 @@ pub(crate) trait TreeNode {
     fn mut_child_node(&mut self, dir: Direction) -> Option<&mut Self>;
 }
 
-pub trait TreeNodeRef
-where
-    Self: Sized,
-{
-    fn child_node(&self, dir: Direction) -> Option<Self>;
-}
-
 /// A collection of helper methods to interact with tree.
 ///
 /// This trait provides access to the root, internal nodes and leaves. There are several
@@ -74,33 +67,6 @@ pub trait TreeMethods {
             node = node
                 .mut_child_node(*direction)
                 .ok_or(ArtError::PathNotExists)?;
-        }
-
-        Ok(node)
-    }
-}
-
-pub trait TreeMethodsRef {
-    type Node: TreeNodeRef;
-
-    /// Return the reference on the root node of the tree.
-    fn root(&self) -> Self::Node;
-
-    /// If exists, returns a reference on the node with the given index, in correspondence to the
-    /// root node. Else return `ArtError`.
-    fn node(&self, index: &NodeIndex) -> Result<Self::Node, ArtError> {
-        self.node_at(&index.get_path()?)
-    }
-
-    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
-    fn node_at(&self, path: &[Direction]) -> Result<Self::Node, ArtError> {
-        let mut node = self.root();
-        for direction in path {
-            if let Some(child_node) = node.child_node(*direction) {
-                node = child_node;
-            } else {
-                return Err(ArtError::PathNotExists);
-            }
         }
 
         Ok(node)

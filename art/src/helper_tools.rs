@@ -1,23 +1,12 @@
 use crate::art::{PrivateArt, ProverArtefacts};
-use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::AggregationNode;
 use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
-use crate::node_index::Direction;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ed25519::EdwardsAffine;
 use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
-use ark_std::rand::Rng;
-use bulletproofs::PedersenGens;
-use cortado::CortadoAffine;
 use curve25519_dalek::Scalar;
 use serde_bytes::ByteBuf;
-use tracing::debug;
-use zkp::toolbox::cross_dleq::PedersenBasis;
-use zkp::toolbox::dalek_ark::ristretto255_to_ark;
-use zrt_zk::engine::{ZeroArtEngineOptions, ZeroArtProverEngine, ZeroArtVerifierEngine};
 
 /// Adapter for serialization of arkworks-compatible types using CanonicalSerialize
 pub fn ark_se<S, A: CanonicalSerialize>(a: &A, s: S) -> Result<S::Ok, S::Error>
@@ -93,65 +82,6 @@ where
     } else {
         "None...".to_string()
     }
-}
-
-pub(crate) fn default_proof_basis() -> PedersenBasis<CortadoAffine, EdwardsAffine> {
-    let gens = PedersenGens::default();
-    PedersenBasis::<CortadoAffine, EdwardsAffine>::new(
-        CortadoAffine::generator(),
-        CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y),
-        ristretto255_to_ark(gens.B).unwrap(),
-        ristretto255_to_ark(gens.B_blinding).unwrap(),
-    )
-}
-
-pub(crate) fn default_verifier_engine() -> ZeroArtVerifierEngine {
-    ZeroArtVerifierEngine::new(default_proof_basis(), ZeroArtEngineOptions::default())
-}
-
-pub(crate) fn default_prover_engine() -> ZeroArtProverEngine {
-    ZeroArtProverEngine::new(default_proof_basis(), ZeroArtEngineOptions::default())
-}
-
-pub(crate) fn change_leaf_status_by_change_type<G>(
-    target_node: &mut ArtNode<G>,
-    change_type: &BranchChangeType,
-) -> Result<(), ArtError>
-where
-    G: AffineRepr,
-{
-    let target_leaf_status = match change_type {
-        BranchChangeType::UpdateKey => Some(LeafStatus::Active),
-        BranchChangeType::AddMember => None,
-        BranchChangeType::RemoveMember => Some(LeafStatus::Blank),
-        BranchChangeType::Leave => Some(LeafStatus::PendingRemoval),
-    };
-    if let Some(target_leaf_status) = target_leaf_status {
-        target_node.set_status(target_leaf_status)?;
-    }
-
-    Ok(())
-}
-
-/// Computes how many nodes in `marker_tree` on the given `path` are marked as updated.
-pub(crate) fn compute_merge_bound(
-    marker_tree: &AggregationNode<bool>,
-    path: &[Direction],
-) -> Result<usize, ArtError> {
-    let mut parent = marker_tree;
-    let mut secrets_amount_to_merge = parent.data as usize;
-    if parent.data {
-        for (_, dir) in path.iter().enumerate() {
-            parent = parent.child(*dir).ok_or(ArtError::PathNotExists)?;
-            if parent.data {
-                secrets_amount_to_merge += 1;
-            } else {
-                break;
-            }
-        }
-    }
-
-    Ok(secrets_amount_to_merge)
 }
 
 /// apply key update change to the provided `art` tree, with the given leaf `secret_key`.

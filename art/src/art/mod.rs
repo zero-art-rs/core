@@ -12,15 +12,10 @@ pub use art_advanced_operations::ArtAdvancedOps;
 pub use private_art::{ArtSecret, ArtSecrets, PrivateArt};
 pub use public_art::{ArtNodePreview, PublicArt, PublicArtPreview, PublicMergeData};
 
-pub(crate) use artefacts::{ProverArtefacts, VerifierArtefacts};
+pub(crate) use artefacts::ProverArtefacts;
 
 /// Helper data type, returned after the most art update operations.
 pub(crate) type ArtLevel<G> = (
     Vec<Box<crate::art_node::ArtNode<G>>>,
     Vec<<G as ark_ec::AffineRepr>::ScalarField>,
-);
-pub(crate) type ArtUpdateOutput<G> = (
-    <G as ark_ec::AffineRepr>::ScalarField,
-    crate::changes::branch_change::BranchChange<G>,
-    ProverArtefacts<G>,
 );
