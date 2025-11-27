@@ -19,6 +19,7 @@ use zrt_zk::aggregated_art::ProverAggregationTree;
 mod tests;
 
 /// Context for Aggregation changes and their proof creation
+#[derive(Debug, Clone)]
 pub struct AggregationContext<T, G>
 where
     G: AffineRepr,
@@ -470,3 +471,4 @@ where
         aggregation.apply(art)
     }
 }
+

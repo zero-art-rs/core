@@ -5,13 +5,16 @@ use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
-use zrt_art::art::{ArtAdvancedOps, PrivateArt, PublicArt};
+use ark_serialize::CanonicalSerialize;
+use zrt_art::art::{AggregationContext, ArtAdvancedOps, PrivateArt, PublicArt};
 use zrt_art::art_node::TreeMethods;
+use zrt_art::changes::aggregations::AggregatedChange;
 use zrt_art::changes::ApplicableChange;
-use zrt_art::changes::branch_change::BranchChange;
+use zrt_art::changes::branch_change::{BranchChange, PrivateBranchChange};
 use zrt_art::node_index::NodeIndex;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// PrivateArt usage example. PrivateArt contain handle key management, while ART isn't.
 fn example_of_simple_flow() {
@@ -138,151 +141,148 @@ fn example_of_simple_flow() {
     assert!(verification_result.is_ok());
 }
 
-// fn example_of_merging_concurrent_changes() {
-//     let mut rng = &mut StdRng::seed_from_u64(0);
-//     let secrets: Vec<Fr> = (0..10).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-//
-//     let creator_art = PrivateArt::setup(&secrets).unwrap();
-//     let public_art = creator_art.get_public_art().clone();
-//
-//     // Create new users arts
-//     let mut user0 = PrivateZeroArt::new(creator_art, Box::new(thread_rng())).unwrap();
-//
-//     let mut user1 = PrivateZeroArt::new(
-//         PrivateArt::new(public_art.clone(), secrets[1]).unwrap(),
-//         Box::new(thread_rng()),
-//     )
-//     .unwrap();
-//
-//     let mut user2 = PrivateZeroArt::new(
-//         PrivateArt::new(public_art.clone(), secrets[2]).unwrap(),
-//         Box::new(thread_rng()),
-//     )
-//     .unwrap();
-//
-//     let mut user3 = PrivateZeroArt::new(
-//         PrivateArt::new(public_art.clone(), secrets[8]).unwrap(),
-//         Box::new(thread_rng()),
-//     )
-//     .unwrap();
-//
-//     // Create some concurrent changes
-//     let sk0 = Fr::rand(&mut rng);
-//     let private_change0 = user0.update_key(sk0).unwrap();
-//     let change0 = private_change0.get_branch_change().clone();
-//
-//     let sk2 = Fr::rand(&mut rng);
-//     let private_change2 = user2.update_key(sk2).unwrap();
-//     let change2 = private_change2.get_branch_change().clone();
-//
-//     let sk3 = Fr::rand(&mut rng);
-//     let private_change3 = user3.update_key(sk3).unwrap();
-//     let change3 = private_change3.get_branch_change().clone();
-//
-//     let new_root = *change0.public_keys.first().unwrap()
-//         + *change2.public_keys.first().unwrap()
-//         + *change3.public_keys.first().unwrap();
-//     let new_root = new_root.into_affine();
-//
-//     // Apply changes to ART trees. Use private_change to apply change of the user own key.
-//     // Every application returns partial root secret, i.e. the one, provided with the
-//     // change itself.
-//     let tk11 = private_change0.get_secret().apply(&mut user0).unwrap();
-//     let tk21 = change2.apply(&mut user0).unwrap();
-//     let tk31 = change3.apply(&mut user0).unwrap();
-//     user0.commit().unwrap();
-//     assert_eq!(tk11 + tk21 + tk31, user0.get_root_secret_key());
-//
-//     let tk12 = change0.apply(&mut user1).unwrap();
-//     let tk22 = change2.apply(&mut user1).unwrap();
-//     let tk32 = change3.apply(&mut user1).unwrap();
-//     user1.commit().unwrap();
-//     assert_eq!(tk12 + tk22 + tk32, user1.get_root_secret_key());
-//
-//     let tk13 = change0.apply(&mut user2).unwrap();
-//     let tk23 = private_change2.apply(&mut user2).unwrap();
-//     let tk33 = change3.apply(&mut user2).unwrap();
-//     user2.commit().unwrap();
-//     assert_eq!(tk13 + tk23 + tk33, user2.get_root_secret_key());
-//
-//     let tk14 = change0.apply(&mut user3).unwrap();
-//     let tk24 = change2.apply(&mut user3).unwrap();
-//     let tk34 = private_change3.apply(&mut user3).unwrap();
-//     user3.commit().unwrap();
-//     assert_eq!(tk14 + tk24 + tk34, user3.get_root_secret_key());
-//
-//     assert_eq!(user0.get_upstream_art().get_root_public_key(), new_root);
-//     assert_eq!(user1.get_upstream_art().get_root_public_key(), new_root);
-//     assert_eq!(user2.get_upstream_art().get_root_public_key(), new_root);
-//     assert_eq!(user3.get_upstream_art().get_root_public_key(), new_root);
-//
-//     // Now all the participants have the same view on the state of the art
-//     assert_eq!(user0, user1);
-//     assert_eq!(user0, user2);
-//     assert_eq!(user0, user3);
-// }
-//
-// fn example_of_aggregation_usage() {
-//     // Init test context.
-//     let mut rng = StdRng::seed_from_u64(0);
-//
-//     let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
-//     let art0 = PrivateArt::setup(&secrets).unwrap();
-//
-//     // Create a different user.
-//     let mut art1 =
-//         PrivateArt::<CortadoAffine>::new(art0.get_public_art().clone(), secrets[1]).unwrap();
-//
-//     // Define some target user, to be removed.
-//     let target_3 = art0
-//         .get_path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-//         .unwrap();
-//     let target_3_index = NodeIndex::from(target_3);
-//
-//     // Create zero_art to create proofs.
-//     let mut zero_art0 = PrivateZeroArt::new(art0, Box::new(thread_rng())).unwrap();
-//
-//     // Create default aggregation
-//     let mut agg = AggregationContext::from_private_zero_art(&zero_art0, Box::new(thread_rng()));
-//
-//     // Perform some changes
-//     agg.add_member(Fr::rand(&mut rng)).unwrap();
-//     agg.remove_member(&target_3_index, Fr::rand(&mut rng))
-//         .unwrap();
-//     agg.add_member(Fr::rand(&mut rng)).unwrap();
-//     agg.leave_group(Fr::rand(&mut rng)).unwrap();
-//
-//     // Gather associated data
-//     let associated_data = b"associated data";
-//
-//     // Create verifiable aggregation.
-//     let proof = agg.prove(associated_data, None).unwrap();
-//     let plain_agg = AggregatedChange::try_from(&agg).unwrap();
-//
-//     // Aggregation verification is similar to usual change aggregation.
-//     let aux_pk = zero_art0.get_base_art().get_leaf_public_key();
-//     let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
-//     plain_agg
-//         .verify(&zero_art0, associated_data, eligibility_requirement, &proof)
-//         .unwrap();
-//
-//     // Finally update private art with the `extracted_agg` aggregation.
-//     agg.apply(&mut zero_art0).unwrap();
-//     plain_agg.apply(&mut art1).unwrap();
-//
-//     assert_eq!(agg.get_operation_tree(), &art1);
-//     assert_eq!(
-//         zero_art0.get_upstream_art().get_public_art(),
-//         art1.get_public_art()
-//     );
-//     assert_eq!(
-//         zero_art0.get_upstream_art().get_root_secret_key(),
-//         art1.get_root_secret_key()
-//     );
-// }
+fn example_of_merging_concurrent_changes() {
+    let mut rng = &mut StdRng::seed_from_u64(0);
+    let secrets: Vec<Fr> = (0..10).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+    let creator_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+    let public_art = creator_art.public_art().clone();
+
+    // Create new users arts
+    let mut user0 = creator_art;
+    let mut user1 = PrivateArt::new(public_art.clone(), secrets[1]).unwrap();
+    let mut user2 = PrivateArt::new(public_art.clone(), secrets[2]).unwrap();
+    let mut user3 = PrivateArt::new(public_art.clone(), secrets[8]).unwrap();
+
+    // Create some concurrent changes
+    let sk0 = Fr::rand(&mut rng);
+    let (_, change0) = user0.update_key(sk0).unwrap();
+
+    let sk2 = Fr::rand(&mut rng);
+    let (_, change2) = user2.update_key(sk2).unwrap();
+
+    let sk3 = Fr::rand(&mut rng);
+    let (_, change3) = user3.update_key(sk3).unwrap();
+
+    let new_root = *change0.public_keys.first().unwrap()
+        + *change2.public_keys.first().unwrap()
+        + *change3.public_keys.first().unwrap();
+    let new_root = new_root.into_affine();
+
+    // Apply changes to ART trees. Use private_change to apply change of the user own key.
+    // Every application returns partial root secret, i.e. the one, provided with the
+    // change itself.
+    let tk11 = sk0.apply(&mut user0).unwrap();
+    let tk21 = change2.apply(&mut user0).unwrap();
+    let tk31 = change3.apply(&mut user0).unwrap();
+    user0.commit().unwrap();
+    assert_eq!(tk11 + tk21 + tk31, user0.root_secret_key());
+
+    let tk12 = change0.apply(&mut user1).unwrap();
+    let tk22 = change2.apply(&mut user1).unwrap();
+    let tk32 = change3.apply(&mut user1).unwrap();
+    user1.commit().unwrap();
+    assert_eq!(tk12 + tk22 + tk32, user1.root_secret_key());
+
+    let tk13 = change0.apply(&mut user2).unwrap();
+    let tk23 = sk2.apply(&mut user2).unwrap();
+    let tk33 = change3.apply(&mut user2).unwrap();
+    user2.commit().unwrap();
+    assert_eq!(tk13 + tk23 + tk33, user2.root_secret_key());
+
+    let tk14 = change0.apply(&mut user3).unwrap();
+    let tk24 = change2.apply(&mut user3).unwrap();
+    let tk34 = sk3.apply(&mut user3).unwrap();
+    user3.commit().unwrap();
+    assert_eq!(tk14 + tk24 + tk34, user3.root_secret_key());
+
+    assert_eq!(user0.root_public_key(), new_root);
+    assert_eq!(user1.root_public_key(), new_root);
+    assert_eq!(user2.root_public_key(), new_root);
+    assert_eq!(user3.root_public_key(), new_root);
+
+    // Now all the participants have the same view on the state of the art
+    assert_eq!(user0, user1);
+    assert_eq!(user0, user2);
+    assert_eq!(user0, user3);
+}
+
+fn example_of_aggregation_usage() {
+    // Create default prover and verifier engines for proof creation and verification.
+    let prover_engine = ZeroArtProverEngine::default();
+    let verifier_engine = ZeroArtVerifierEngine::default();
+
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let secrets: Vec<Fr> = (0..100).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+    let mut user0: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+
+    // Create a different user.
+    let mut user1 = PrivateArt::new(user0.public_art().clone(), secrets[1]).unwrap();
+
+    // Define some target user, to be removed.
+    let target_3 = user0
+        .root()
+        .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
+        .unwrap();
+    let target_3_index = NodeIndex::from(target_3);
+
+    // Create default aggregation
+    let mut agg = AggregationContext::from(user0.clone());
+
+    // Perform some changes
+    agg.add_member(Fr::rand(&mut rng)).unwrap();
+    agg.remove_member(&target_3_index, Fr::rand(&mut rng))
+        .unwrap();
+    agg.add_member(Fr::rand(&mut rng)).unwrap();
+    agg.leave_group(Fr::rand(&mut rng)).unwrap();
+
+    // Gather associated data
+    let associated_data = b"associated data";
+
+    // Create verifiable aggregation.
+    let eligibility_artefact = EligibilityArtefact::Owner((user0.leaf_secret_key(), user0.leaf_public_key()));
+    let proof = prover_engine
+        .new_context(eligibility_artefact)
+        .for_aggregation(&ProverAggregationTree::try_from(&agg).unwrap())
+        .with_associated_data(associated_data)
+        .prove(&mut thread_rng())
+        .unwrap();
+
+    let change = AggregatedChange::try_from(&agg).unwrap();
+
+    // Aggregation verification is similar to usual change aggregation.
+    let aux_pk = user0.leaf_public_key();
+    let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
+    let verifier_artefacts = change.add_co_path(user0.public_art()).unwrap();
+    let verifier_tree = VerifierAggregationTree::try_from(&verifier_artefacts).unwrap();
+    verifier_engine
+        .new_context(eligibility_requirement)
+        .for_aggregation(&verifier_tree)
+        .with_associated_data(associated_data)
+        .verify(&proof)
+        .unwrap();
+
+    // Finally update private art with the `change` aggregation. Note, that we cant update
+    // user0 in usual means, because his secret key changed.
+    user0 = PrivateArt::from(agg.clone());
+    change.apply(&mut user1).unwrap();
+    user1.commit().unwrap();
+
+    assert_eq!(agg.operation_tree(), &user1);
+    assert_eq!(
+        user0.public_art(),
+        user1.public_art()
+    );
+    assert_eq!(
+        user0.root_secret_key(),
+        user1.root_secret_key()
+    );
+}
 
 fn main() {
     example_of_simple_flow();
-    // example_of_merging_concurrent_changes();
-    // example_of_aggregation_usage();
+    example_of_merging_concurrent_changes();
+    example_of_aggregation_usage();
 }
