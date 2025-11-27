@@ -63,10 +63,13 @@ impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>>
     }
 }
 
-impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>> for AggregatedChange<CortadoAffine> {
+impl<'a, T, G> TryFrom<&'a AggregationContext<T, G>> for AggregatedChange<G>
+where
+    G: AffineRepr,
+{
     type Error = ArtError;
 
-    fn try_from(value: &'a AggregationContext<T, CortadoAffine>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a AggregationContext<T, G>) -> Result<Self, Self::Error> {
         Self::try_from(&value.prover_aggregation)
     }
 }
@@ -111,6 +114,9 @@ where
             .map(|(((dir, pk), sk), co_pk)| (dir, pk, sk, co_pk));
 
         for (dir, pk, sk, co_pk) in artefacts_iterator {
+            if let Some(co_node) = current_node.mut_child(dir.other()) {
+                co_node.data.co_public_key = Some(*pk);
+            }
             current_node = current_node.mut_child(*dir).get_or_insert_default();
             current_node.data.aggregate(*pk, Some(*co_pk), *sk, None);
         }
@@ -321,8 +327,9 @@ where
         self.prover_aggregation
             .update_branch(&artefacts, &path, Some(hint))?;
 
-        self.operation_tree.apply(&change)?;
+        self.operation_tree.apply(&new_key)?;
         self.operation_tree.commit()?;
+        self.operation_tree.mut_node_at(&path)?.set_status(LeafStatus::PendingRemoval).unwrap();
 
         Ok(())
     }
@@ -332,13 +339,13 @@ where
         let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
         change.change_type = BranchChangeType::UpdateKey;
 
-        let hint = BranchChangeTypeHint::Leave {
+        let hint = BranchChangeTypeHint::UpdateKey {
             pk: G::generator().mul(new_key).into_affine(),
         };
         self.prover_aggregation
             .update_branch(&artefacts, &path, Some(hint))?;
 
-        self.operation_tree.apply(&change)?;
+        self.operation_tree.apply(&new_key)?;
         self.operation_tree.commit()?;
 
         Ok(())
@@ -543,5 +550,27 @@ where
             }
             Ok(tk) => Ok(tk),
         }
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>, ()> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+        let aggregation = AggregatedChange::try_from(self)?;
+        aggregation.apply(art)
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        let aggregation = AggregatedChange::try_from(self)?;
+        aggregation.apply(art)
     }
 }
