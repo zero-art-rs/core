@@ -471,4 +471,3 @@ where
         aggregation.apply(art)
     }
 }
-

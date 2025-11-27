@@ -1,20 +1,20 @@
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use postcard::{from_bytes, to_allocvec};
 use std::ops::Mul;
-use ark_serialize::CanonicalSerialize;
 use zrt_art::art::{AggregationContext, ArtAdvancedOps, PrivateArt, PublicArt};
 use zrt_art::art_node::TreeMethods;
-use zrt_art::changes::aggregations::AggregatedChange;
 use zrt_art::changes::ApplicableChange;
+use zrt_art::changes::aggregations::AggregatedChange;
 use zrt_art::changes::branch_change::{BranchChange, PrivateBranchChange};
 use zrt_art::node_index::NodeIndex;
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
-use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// PrivateArt usage example. PrivateArt contain handle key management, while ART isn't.
 fn example_of_simple_flow() {
@@ -242,7 +242,8 @@ fn example_of_aggregation_usage() {
     let associated_data = b"associated data";
 
     // Create verifiable aggregation.
-    let eligibility_artefact = EligibilityArtefact::Owner((user0.leaf_secret_key(), user0.leaf_public_key()));
+    let eligibility_artefact =
+        EligibilityArtefact::Owner((user0.leaf_secret_key(), user0.leaf_public_key()));
     let proof = prover_engine
         .new_context(eligibility_artefact)
         .for_aggregation(&ProverAggregationTree::try_from(&agg).unwrap())
@@ -255,8 +256,8 @@ fn example_of_aggregation_usage() {
     // Aggregation verification is similar to usual change aggregation.
     let aux_pk = user0.leaf_public_key();
     let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
-    let verifier_artefacts = change.add_co_path(user0.public_art()).unwrap();
-    let verifier_tree = VerifierAggregationTree::try_from(&verifier_artefacts).unwrap();
+
+    let verifier_tree = user0.public_art().verification_tree(&change).unwrap();
     verifier_engine
         .new_context(eligibility_requirement)
         .for_aggregation(&verifier_tree)
@@ -271,14 +272,8 @@ fn example_of_aggregation_usage() {
     user1.commit().unwrap();
 
     assert_eq!(agg.operation_tree(), &user1);
-    assert_eq!(
-        user0.public_art(),
-        user1.public_art()
-    );
-    assert_eq!(
-        user0.root_secret_key(),
-        user1.root_secret_key()
-    );
+    assert_eq!(user0.public_art(), user1.public_art());
+    assert_eq!(user0.root_secret_key(), user1.root_secret_key());
 }
 
 fn main() {

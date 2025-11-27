@@ -1911,12 +1911,10 @@ fn test_append_node_proof() {
     let private_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
     let public_art = private_art.public_art().clone();
 
-    let main_rng = Box::new(StdRng::seed_from_u64(rand::random()));
     let mut art = private_art;
 
     let test_art = PrivateArt::new(public_art, secrets[1]).unwrap();
 
-    let secret_key = art.leaf_secret_key();
     let public_key = art.leaf_public_key();
     let new_secret_key = Fr::rand(&mut rng);
 
@@ -2078,6 +2076,137 @@ fn test_append_node_after_make_blank_proof() {
         "Must successfully verify, while get {:?} result",
         verification_result
     );
+}
+
+/// the flow is as next:
+/// - Epoch1..: add new member with user `user0`.
+/// - Epoch2..: update key (`user0`, `user1`).
+#[test]
+fn test_merge_proof_verify() {
+    init_tracing();
+
+    let prover_engine = ZeroArtProverEngine::default();
+    let verifier_engine = ZeroArtVerifierEngine::default();
+
+    let mut rng = &mut StdRng::seed_from_u64(0);
+    let secrets: Vec<Fr> = (0..7).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+
+    let creator_art: PrivateArt<CortadoAffine> = PrivateArt::setup(&secrets).unwrap();
+    let public_art = creator_art.public_art().clone();
+
+    // Create new users arts
+    let mut user0 = creator_art;
+    let test_users = 4usize;
+
+    let mut users = (0..test_users)
+        .map(|i| PrivateArt::new(public_art.clone(), secrets[i]).unwrap())
+        .collect::<Vec<_>>();
+
+    let sk = std::iter::repeat_with(|| Fr::rand(&mut rng))
+        .take(4)
+        .collect::<Vec<_>>();
+
+    let mut private_changes = Vec::with_capacity(test_users);
+    let mut proofs = Vec::with_capacity(test_users);
+    let mut associated_data = Vec::with_capacity(test_users);
+    for (i, user) in users.iter_mut().enumerate() {
+        let (_, change, prover_branch) = user.update_key(sk[i]).unwrap();
+
+        private_changes.push(PrivateBranchChange::new(sk[i], change));
+
+        let prover_eligibility =
+            EligibilityArtefact::Member((user.leaf_secret_key(), user.leaf_public_key()));
+
+        let ad = std::iter::repeat_with(|| random::<u8>())
+            .take(20)
+            .collect::<Vec<_>>();
+
+        let proof = prover_engine
+            .new_context(prover_eligibility)
+            .for_branch(&prover_branch)
+            .with_associated_data(&ad)
+            .prove(&mut thread_rng())
+            .unwrap();
+
+        proofs.push(proof);
+        associated_data.push(ad);
+    }
+
+    for (i, user) in users.iter_mut().enumerate() {
+        for (j, change) in private_changes.iter().enumerate() {
+            let prover_leaf = user
+                .node(&change.branch_change().node_index)
+                .unwrap()
+                .public_key();
+            let eligibility_requirement = EligibilityRequirement::Member(prover_leaf);
+
+            verifier_engine
+                .new_context(eligibility_requirement)
+                .with_associated_data(&associated_data[j])
+                .for_branch(&user.verification_branch(change.branch_change()).unwrap())
+                .verify(&proofs[j])
+                .unwrap();
+
+            user.apply(change).unwrap();
+        }
+    }
+
+    users[0].commit().unwrap();
+    let sk = Fr::rand(&mut rng);
+    let (_, change, prover_branch) = users[0].update_key(sk).unwrap();
+    users[0].apply(&sk).unwrap();
+    users[0].commit().unwrap();
+
+    let prover_eligibility =
+        EligibilityArtefact::Member((users[0].leaf_secret_key(), users[0].leaf_public_key()));
+
+    let ad = std::iter::repeat_with(|| random::<u8>())
+        .take(20)
+        .collect::<Vec<_>>();
+
+    let proof = prover_engine
+        .new_context(prover_eligibility)
+        .for_branch(&prover_branch)
+        .with_associated_data(&ad)
+        .prove(&mut thread_rng())
+        .unwrap();
+
+    let eligibility_requirement = EligibilityRequirement::Member(users[0].leaf_public_key());
+    for (i, user) in users.iter_mut().enumerate().skip(1) {
+        let result = verifier_engine
+            .new_context(eligibility_requirement.clone())
+            .with_associated_data(&ad)
+            .for_branch(&user.verification_branch(&change).unwrap())
+            .verify(&proof);
+
+        assert!(matches!(result, Err(_)));
+
+        let result = verifier_engine
+            .new_context(eligibility_requirement.clone())
+            .with_associated_data(&ad)
+            .for_branch(&user.preview().verification_branch(&change).unwrap())
+            .verify(&proof);
+
+        assert!(matches!(result, Ok(_)));
+
+        user.commit().unwrap();
+
+        let result = verifier_engine
+            .new_context(eligibility_requirement.clone())
+            .with_associated_data(&ad)
+            .for_branch(&user.preview().verification_branch(&change).unwrap())
+            .verify(&proof);
+
+        assert!(matches!(result, Ok(_)));
+
+        user.commit().unwrap();
+        user.apply(&change).unwrap();
+        user.commit().unwrap();
+    }
+
+    for user in users.iter() {
+        assert_eq!(&users[0], user);
+    }
 }
 
 pub(crate) fn member_leaf_eligibility_artefact(

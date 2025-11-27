@@ -1,16 +1,21 @@
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{AggregationNode, AggregationTree, TreeNodeIterWithPath};
-use crate::changes::branch_change::{BranchChange, BranchChangeType};
+use crate::changes::aggregations::{
+    AggregationData, AggregationNode, AggregationNodeIterWithPath, AggregationTree,
+    TreeNodeIterWithPath, VerifierAggregationData,
+};
+use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
+use curve25519_dalek::digest::core_api::CoreProxy;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::fmt::Debug;
 use std::mem;
+use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::VerifierNodeData;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
@@ -386,6 +391,113 @@ where
 
         verifier_artefacts.to_verifier_branch()
     }
+
+    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    pub fn verification_tree(
+        &self,
+        agg: &AggregationTree<AggregationData<G>>,
+    ) -> Result<VerifierAggregationTree<G>, ArtError> {
+        let agg_root = match agg.root() {
+            Some(root) => root,
+            None => return Err(ArtError::NoChanges),
+        };
+
+        let mut resulting_aggregation_root =
+            AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
+            let aggregation_parent = path
+                .last()
+                .ok_or(ArtError::NoChanges)
+                .map(|(node, _)| *node)?;
+
+            let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
+
+            // Update co-path
+            let pk = if let Ok(co_leaf) = aggregation_parent.node_at(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                co_leaf.data.public_key
+            } else if let Ok(parent) = self.node_at(&parent_path)
+                && let Some(other_child) = parent.child(last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                other_child.public_key()
+            } else {
+                // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
+                let mut path = parent_path.clone();
+                path.push(last_direction.other());
+                Self::get_last_public_key_on_path(self, agg_root, &path)?
+            };
+            resulting_target_node.data.co_public_key = Some(pk);
+        }
+
+        let agg_tree = AggregationTree::new(Some(resulting_aggregation_root));
+        VerifierAggregationTree::try_from(&agg_tree)
+    }
+
+    /// Retrieve the last public key on given `path`, by applying required changes from the
+    /// `aggregation`.
+    pub(crate) fn get_last_public_key_on_path(
+        art: &PublicArt<G>,
+        aggregation: &AggregationNode<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ArtError> {
+        let mut leaf_public_key = art.root().public_key();
+
+        let mut current_art_node = Some(art.root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            if let Some(art_node) = current_art_node {
+                current_art_node = art_node.child(*dir);
+                if let Some(ArtNode::Leaf { public_key, .. }) = current_art_node {
+                    leaf_public_key = *public_key;
+                }
+            }
+
+            if let Some(agg_node) = current_agg_node {
+                current_agg_node = agg_node.child(*dir);
+
+                if let Some(node) = current_agg_node {
+                    if let Some(pk) = extract_public_key(&node.data, path.get(i + 1)) {
+                        leaf_public_key = pk
+                    }
+                };
+            };
+        }
+
+        Ok(leaf_public_key)
+    }
+}
+
+fn extract_public_key<G: AffineRepr>(
+    data: &AggregationData<G>,
+    next_direction: Option<&Direction>,
+) -> Option<G> {
+    let mut result = None;
+    for change_type in &data.change_type {
+        match change_type {
+            BranchChangeTypeHint::RemoveMember { pk: blank_pk, .. } => {
+                result = Some(*blank_pk);
+            }
+            BranchChangeTypeHint::AddMember { pk, ext_pk, .. } => {
+                if let Some(replacement_pk) = ext_pk {
+                    match next_direction {
+                        Some(Direction::Right) => result = Some(*pk),
+                        Some(Direction::Left) => {}
+                        None => result = Some(*replacement_pk),
+                    }
+                } else {
+                    result = Some(*pk);
+                }
+            }
+            BranchChangeTypeHint::UpdateKey { pk } => result = Some(*pk),
+            BranchChangeTypeHint::Leave { pk } => result = Some(*pk),
+        }
+    }
+
+    result
 }
 
 impl<G> BranchChange<G>
@@ -532,7 +644,7 @@ where
     pub(crate) fn verification_branch(
         &self,
         changes: &BranchChange<G>,
-    ) -> Result<VerifierArtefacts<G>, ArtError> {
+    ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
         let mut co_path = Vec::new();
 
         let mut parent = self.root();
@@ -545,22 +657,99 @@ where
                     co_path.push(parent.public_key())
                 }
             } else {
-                co_path.push(
-                    parent
-                        .child(direction.other())
-                        .ok_or(ArtError::PathNotExists)?
-                        .public_key(),
-                );
+                let co_public_key = parent
+                    .child(direction.other())
+                    .ok_or(ArtError::PathNotExists)?
+                    .public_key();
+                co_path.push(co_public_key);
                 parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
             }
         }
 
         co_path.reverse();
 
-        Ok(VerifierArtefacts {
-            path: changes.public_keys.iter().rev().cloned().collect(),
-            co_path,
-        })
+        let path = changes.public_keys.iter().rev().cloned().collect();
+        VerifierArtefacts { path, co_path }.to_verifier_branch()
+    }
+
+    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
+    pub fn verification_tree(
+        &self,
+        agg: &AggregationTree<AggregationData<G>>,
+    ) -> Result<VerifierAggregationTree<G>, ArtError> {
+        let agg_root = match agg.root() {
+            Some(root) => root,
+            None => return Err(ArtError::NoChanges),
+        };
+
+        let mut resulting_aggregation_root =
+            AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+
+        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
+            let aggregation_parent = path
+                .last()
+                .ok_or(ArtError::NoChanges)
+                .map(|(node, _)| *node)?;
+
+            let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
+
+            // Update co-path
+            let pk = if let Ok(co_leaf) = aggregation_parent.node_at(&[last_direction.other()]) {
+                // Retrieve co-path from the aggregation
+                co_leaf.data.public_key
+            } else if let Ok(parent) = self.node_at(&parent_path)
+                && let Some(other_child) = parent.child(last_direction.other())
+            {
+                // Try to retrieve Co-path from the original ART
+                other_child.public_key()
+            } else {
+                // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
+                let mut path = parent_path.clone();
+                path.push(last_direction.other());
+                Self::get_last_public_key_on_path(self, agg_root, &path)?
+            };
+            resulting_target_node.data.co_public_key = Some(pk);
+        }
+
+        let agg_tree = AggregationTree::new(Some(resulting_aggregation_root));
+        VerifierAggregationTree::try_from(&agg_tree)
+    }
+
+    /// Retrieve the last public key on given `path`, by applying required changes from the
+    /// `aggregation`.
+    pub(crate) fn get_last_public_key_on_path(
+        art: &PublicArtPreview<G>,
+        aggregation: &AggregationNode<AggregationData<G>>,
+        path: &[Direction],
+    ) -> Result<G, ArtError> {
+        let mut leaf_public_key = art.root().public_key();
+
+        let mut current_art_node = Some(art.root());
+        let mut current_agg_node = Some(aggregation);
+        for (i, dir) in path.iter().enumerate() {
+            if let Some(art_node) = current_art_node {
+                current_art_node = art_node.child(*dir);
+                if let Some(leaf) = current_art_node {
+                    if leaf.is_leaf() {
+                        leaf_public_key = leaf.public_key();
+                    }
+                }
+            }
+
+            if let Some(agg_node) = current_agg_node {
+                current_agg_node = agg_node.child(*dir);
+
+                if let Some(node) = current_agg_node {
+                    if let Some(pk) = extract_public_key(&node.data, path.get(i + 1)) {
+                        leaf_public_key = pk
+                    }
+                };
+            };
+        }
+
+        Ok(leaf_public_key)
     }
 }
 

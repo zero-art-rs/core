@@ -30,6 +30,10 @@ pub struct AggregationTree<D> {
 }
 
 impl<D> AggregationTree<D> {
+    pub fn new(root: Option<AggregationNode<D>>) -> Self {
+        Self { root }
+    }
+
     pub fn root(&self) -> Option<&AggregationNode<D>> {
         self.root.as_ref()
     }
@@ -217,120 +221,6 @@ where
         }
 
         Ok(current_node)
-    }
-}
-
-impl<G> AggregationTree<AggregationData<G>>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
-    pub fn add_co_path(
-        &self,
-        art: &PublicArt<G>,
-    ) -> Result<VerifierChangeAggregation<G>, ArtError> {
-        let agg_root = match self.root() {
-            Some(root) => root,
-            None => return Err(ArtError::NoChanges),
-        };
-
-        let mut resulting_aggregation_root =
-            AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
-
-        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
-            let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let last_direction = parent_path.pop().ok_or(ArtError::NoChanges)?;
-
-            let aggregation_parent = path
-                .last()
-                .ok_or(ArtError::NoChanges)
-                .map(|(node, _)| *node)?;
-
-            let resulting_target_node = resulting_aggregation_root
-                .mut_node(&parent_path)?
-                .mut_node(&[last_direction])?;
-
-            // Update co-path
-            let pk = if let Ok(co_leaf) = aggregation_parent.node_at(&[last_direction.other()]) {
-                // Retrieve co-path from the aggregation
-                co_leaf.data.public_key
-            } else if let Ok(parent) = art.node(&NodeIndex::Direction(parent_path.clone()))
-                && let Some(other_child) = parent.child(last_direction.other())
-            {
-                // Try to retrieve Co-path from the original ART
-                other_child.public_key()
-            } else {
-                // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
-                let mut path = parent_path.clone();
-                path.push(last_direction.other());
-                Self::get_last_public_key_on_path(art, agg_root, &path)?
-            };
-            resulting_target_node.data.co_public_key = Some(pk);
-        }
-
-        Ok(AggregationTree {
-            root: Some(resulting_aggregation_root),
-        })
-    }
-
-    /// Retrieve the last public key on given `path`, by applying required changes from the
-    /// `aggregation`.
-    pub(crate) fn get_last_public_key_on_path(
-        art: &PublicArt<G>,
-        aggregation: &AggregationNode<AggregationData<G>>,
-        path: &[Direction],
-    ) -> Result<G, ArtError> {
-        let mut leaf_public_key = art.root().public_key();
-
-        let mut current_art_node = Some(art.root());
-        let mut current_agg_node = Some(aggregation);
-        for (i, dir) in path.iter().enumerate() {
-            // Retrieve leaf public key from art
-            if let Some(art_node) = current_art_node {
-                if let Some(node) = art_node.child(*dir) {
-                    if let ArtNode::Leaf { public_key, .. } = node {
-                        leaf_public_key = *public_key;
-                    }
-
-                    current_art_node = Some(node);
-                } else {
-                    current_art_node = None;
-                }
-            }
-
-            // Retrieve leaf public key updates form aggregation
-            if let Some(agg_node) = current_agg_node {
-                if let Some(node) = agg_node.child(*dir) {
-                    for change_type in &node.data.change_type {
-                        match change_type {
-                            BranchChangeTypeHint::RemoveMember { pk: blank_pk, .. } => {
-                                leaf_public_key = *blank_pk
-                            }
-                            BranchChangeTypeHint::AddMember { pk, ext_pk, .. } => {
-                                if let Some(replacement_pk) = ext_pk {
-                                    match path.get(i + 1) {
-                                        Some(Direction::Right) => leaf_public_key = *pk,
-                                        Some(Direction::Left) => {}
-                                        None => leaf_public_key = *replacement_pk,
-                                    }
-                                } else {
-                                    leaf_public_key = *pk;
-                                }
-                            }
-                            BranchChangeTypeHint::UpdateKey { pk } => leaf_public_key = *pk,
-                            BranchChangeTypeHint::Leave { pk } => leaf_public_key = *pk,
-                        }
-                    }
-
-                    current_agg_node = Some(node);
-                } else {
-                    current_agg_node = None;
-                }
-            }
-        }
-
-        Ok(leaf_public_key)
     }
 }
 
