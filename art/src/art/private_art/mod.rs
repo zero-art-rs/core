@@ -557,7 +557,7 @@ where
         Ok((upper_level_nodes, upper_level_secrets))
     }
 
-    pub(crate) fn preview(&self) -> PublicArtPreview<G> {
+    pub fn preview(&self) -> PublicArtPreview<G> {
         self.public_art.preview()
     }
 
@@ -606,7 +606,7 @@ where
         Ok((artefacts, change))
     }
 
-    pub(crate) fn find_place_for_new_node(&self) -> Result<Vec<Direction>, ArtError> {
+    pub fn find_place_for_new_node(&self) -> Result<Vec<Direction>, ArtError> {
         match self.find_path_to_left_most_blank_node() {
             Some(path) => Ok(path),
             None => self.find_path_to_lowest_leaf(),
@@ -614,7 +614,7 @@ where
     }
 
     /// Searches for the left most blank node and returns the vector of directions to it.
-    fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
+    pub fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
         for (node, path) in LeafIterWithPath::new(self.root()) {
             if node.is_leaf() && !matches!(node.status(), Some(LeafStatus::Active)) {
                 let mut node_path = Vec::with_capacity(path.len());
@@ -632,7 +632,7 @@ where
 
     /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
     /// with the smallest weight. Priority is given to left branch.
-    fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ArtError> {
+    pub fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ArtError> {
         let mut candidate = self.root();
         let mut next = vec![];
 
