@@ -54,11 +54,11 @@ where
         Self(sk, change)
     }
 
-    pub fn branch_change(&self) -> &BranchChange<G> {
+    pub fn change(&self) -> &BranchChange<G> {
         &self.1
     }
 
-    pub fn secret_key(&self) -> &G::ScalarField {
+    pub fn key(&self) -> &G::ScalarField {
         &self.0
     }
 }

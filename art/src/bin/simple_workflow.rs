@@ -1,5 +1,4 @@
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
@@ -9,10 +8,10 @@ use std::ops::Mul;
 use zrt_art::art::{AggregationContext, ArtAdvancedOps, PrivateArt, PublicArt};
 use zrt_art::art_node::TreeMethods;
 use zrt_art::changes::ApplicableChange;
-use zrt_art::changes::aggregations::AggregatedChange;
-use zrt_art::changes::branch_change::{BranchChange, PrivateBranchChange};
+use zrt_art::changes::aggregations::{AggregatedChange, PrivateAggregatedChange};
+use zrt_art::changes::branch_change::BranchChange;
 use zrt_art::node_index::NodeIndex;
-use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 
@@ -236,7 +235,8 @@ fn example_of_aggregation_usage() {
     agg.remove_member(&target_3_index, Fr::rand(&mut rng))
         .unwrap();
     agg.add_member(Fr::rand(&mut rng)).unwrap();
-    agg.leave_group(Fr::rand(&mut rng)).unwrap();
+    let new_key = Fr::rand(&mut rng);
+    agg.update_key(new_key).unwrap();
 
     // Gather associated data
     let associated_data = b"associated data";
@@ -267,11 +267,17 @@ fn example_of_aggregation_usage() {
 
     // Finally update private art with the `change` aggregation. Note, that we cant update
     // user0 in usual means, because his secret key changed.
-    user0 = PrivateArt::from(agg.clone());
+    let private_change = PrivateAggregatedChange::new(new_key, change.clone());
+    private_change.apply(&mut user0).unwrap();
+    user0.commit().unwrap();
+
+    // It is also possible to retrieve new art directly from AggregationContext
+    let extracted_user0 = PrivateArt::from(agg.clone());
+    assert_eq!(user0, extracted_user0);
+
     change.apply(&mut user1).unwrap();
     user1.commit().unwrap();
 
-    assert_eq!(agg.operation_tree(), &user1);
     assert_eq!(user0.public_art(), user1.public_art());
     assert_eq!(user0.root_secret_key(), user1.root_secret_key());
 }

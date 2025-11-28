@@ -4,7 +4,7 @@ use crate::art_node::{LeafIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
     AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
-    VerifierAggregationData,
+    PrivateAggregatedChange, VerifierAggregationData,
 };
 use crate::errors::ArtError;
 use crate::helper_tools::iota_function;
@@ -648,5 +648,47 @@ fn test_branch_aggregation_with_public_art() {
     plain_agg.apply(&mut user1).unwrap();
     user1.commit().unwrap();
 
+    assert_eq!(agg.operation_tree, user1);
+}
+
+#[test]
+fn test_apply_own_aggregation() {
+    init_tracing();
+
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+    let group_length = 7;
+    let secrets = (0..group_length)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+    let mut user1 =
+        PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
+
+    // Create aggregation
+    let mut agg = AggregationContext::from(user0.clone());
+
+    for i in 0..4 {
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
+    }
+    let new_key = Fr::rand(&mut rng);
+    agg.update_key(new_key).unwrap();
+
+    for i in 0..400 {
+        agg.add_member(Fr::rand(&mut rng)).unwrap();
+    }
+
+    let private_change =
+        PrivateAggregatedChange::new(new_key, AggregatedChange::try_from(&agg).unwrap());
+    let plain_agg = AggregatedChange::try_from(&agg).unwrap();
+
+    private_change.apply(&mut user0).unwrap();
+    user0.commit().unwrap();
+
+    plain_agg.apply(&mut user1).unwrap();
+    user1.commit().unwrap();
+
+    assert_eq!(agg.operation_tree, user0);
     assert_eq!(agg.operation_tree, user1);
 }

@@ -1,7 +1,11 @@
 use crate::art::art_advanced_operations::ArtAdvancedOps;
-use crate::art::{ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview};
+use crate::art::public_art::PublicArtApplySnapshot;
+use crate::art::{
+    AggregationContext, ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview, PublicMergeData,
+};
 use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
+use crate::changes::aggregations::{AggregatedChange, AggregationTree, PrivateAggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
@@ -283,6 +287,27 @@ where
     pub(crate) node_index: ArtNodeIndex,
 }
 
+/// The state of uncommited part of `PrivateArt` tree.
+pub struct PrivateArtApplySnapshot<G: AffineRepr> {
+    public_art_snapshot: PublicArtApplySnapshot<G>,
+    secrets_snapshot: Vec<ArtSecret<G>>,
+    node_index_snapshot: Option<NodeIndex>,
+}
+
+impl<G: AffineRepr> PrivateArtApplySnapshot<G> {
+    pub fn new(
+        public_art_snapshot: PublicArtApplySnapshot<G>,
+        secrets_snapshot: Vec<ArtSecret<G>>,
+        node_index_snapshot: Option<NodeIndex>,
+    ) -> Self {
+        Self {
+            public_art_snapshot,
+            secrets_snapshot,
+            node_index_snapshot,
+        }
+    }
+}
+
 impl<G> PrivateArt<G>
 where
     G: AffineRepr,
@@ -367,7 +392,28 @@ where
         change.apply(self)
     }
 
+    pub fn snapshot(&self) -> PrivateArtApplySnapshot<G> {
+        PrivateArtApplySnapshot::new(
+            self.public_art.snapshot(),
+            self.secrets.secrets_preview.clone(),
+            self.node_index.node_index_preview.clone(),
+        )
+    }
+
+    pub fn undo_apply(&mut self, snapshot: PrivateArtApplySnapshot<G>) {
+        self.public_art.undo_apply(snapshot.public_art_snapshot);
+        self.secrets.secrets_preview = snapshot.secrets_snapshot;
+        self.node_index.node_index_preview = snapshot.node_index_snapshot;
+    }
+
     pub fn commit(&mut self) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+
+        self.commit_without_rollback()
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn commit_without_rollback(&mut self) -> Result<(), ArtError> {
         self.public_art.commit()?;
         self.secrets.commit()?;
         self.node_index.commit();
@@ -719,11 +765,11 @@ where
 
         let (weak_only, _) = self.pub_art_apply_prepare(art.public_art())?;
 
-        let merge_tree_reserve_copy = art.public_art().merge_tree.clone();
+        let snapshot = art.snapshot();
 
         match self.private_art_unrecoverable_apply(art, weak_only) {
             Err(err) => {
-                art.public_art.merge_tree = merge_tree_reserve_copy;
+                art.undo_apply(snapshot);
                 Err(err)
             }
             Ok(tk) => Ok(tk),
@@ -738,7 +784,67 @@ where
     G::BaseField: PrimeField,
 {
     fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
-        helper_tools::inner_apply_own_key_update(art, *self)
+        let snapshot = art.snapshot();
+
+        match helper_tools::inner_apply_own_key_update(art, *self) {
+            Err(err) => {
+                art.undo_apply(snapshot);
+                Err(err)
+            }
+            Ok(tk) => Ok(tk),
+        }
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for AggregatedChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        let snapshot = art.snapshot();
+
+        match self.private_art_unrecoverable_apply(art) {
+            Err(err) => {
+                art.undo_apply(snapshot);
+                Err(err)
+            }
+            Ok(tk) => Ok(tk),
+        }
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for PrivateAggregatedChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        let snapshot = art.snapshot();
+
+        match {
+            self.change()
+                .pub_art_unrecoverable_apply(&mut art.public_art)?;
+            self.change()
+                .private_art_secrets_unrecoverable_apply(art, Some(self.key()))
+        } {
+            Err(err) => {
+                art.undo_apply(snapshot);
+                Err(err)
+            }
+            Ok(tk) => Ok(tk),
+        }
+    }
+}
+
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        let aggregation = AggregatedChange::try_from(self)?;
+        aggregation.apply(art)
     }
 }
 

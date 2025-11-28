@@ -3,7 +3,7 @@ use crate::art_node::{LeafStatus, NodePair, PriorityNodePair, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
     AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
-    AggregationTree, ProverAggregationData,
+    AggregationTree, PrivateAggregatedChange, ProverAggregationData,
 };
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -140,6 +140,40 @@ where
     G::BaseField: PrimeField,
 {
     fn add_member(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.add_member_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn remove_member(
+        &mut self,
+        target: &NodeIndex,
+        new_key: G::ScalarField,
+    ) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.remove_member_without_rollback(target, new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.leave_group_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.update_key_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+}
+
+impl<G> AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn add_member_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
         let path = self.operation_tree.find_place_for_new_node()?;
 
         let target_node = self.operation_tree.root().node_at(&path)?;
@@ -179,7 +213,7 @@ where
         Ok(())
     }
 
-    fn remove_member(
+    fn remove_member_without_rollback(
         &mut self,
         target_leaf: &NodeIndex,
         new_key: G::ScalarField,
@@ -209,7 +243,7 @@ where
         Ok(())
     }
 
-    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+    fn leave_group_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
         let path = self.operation_tree.node_index().get_path()?;
         let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
         change.change_type = BranchChangeType::Leave;
@@ -230,7 +264,7 @@ where
         Ok(())
     }
 
-    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+    fn update_key_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
         let path = self.operation_tree.node_index().get_path()?;
         let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
         change.change_type = BranchChangeType::UpdateKey;
@@ -262,11 +296,7 @@ where
             let full_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let mut path = full_path.clone();
 
-            let art_node_preview = art
-                // .preview()
-                .node_at(&full_path)
-                .ok()
-                .map(|node| node.public_key());
+            let art_node_preview = art.node_at(&full_path).ok().map(|node| node.public_key());
 
             let merge_node = if let Some(last_dir) = path.pop() {
                 // update other nodes
@@ -353,6 +383,7 @@ where
     pub fn private_art_secrets_unrecoverable_apply(
         &self,
         art: &mut PrivateArt<G>,
+        user_secret: Option<G::ScalarField>,
     ) -> Result<G::ScalarField, ArtError> {
         let Some(agg_root) = self.root() else {
             return Err(ArtError::NoChanges);
@@ -361,7 +392,6 @@ where
         let path = art.node_index().get_path()?;
 
         let (level_sk, co_path, use_all_secrets) = if let Some(mut node) = self.node_at(&path) {
-            // let mut secrets_increase = 0;
             let mut user_leaf_path = path.clone();
             while let Some(child) = node.child(Direction::Left) {
                 user_leaf_path.push(Direction::Left);
@@ -370,19 +400,27 @@ where
                 node = child;
             }
 
-            user_leaf_path.push(Direction::Left);
-            art.node_index.push(Direction::Left);
+            // Update path on AddMember
+            if let Some(_) = node.child(Direction::Right) {
+                user_leaf_path.push(Direction::Left);
+                art.node_index.push(Direction::Left);
+            }
 
             let co_path = self.aggregation_co_path(&art, &user_leaf_path)?;
 
-            (art.leaf_secret_key(), co_path, true)
+            let leaf_sk = match user_secret {
+                Some(leaf_sk) => leaf_sk,
+                None => art.leaf_secret_key(),
+            };
+
+            (leaf_sk, co_path, true)
         } else {
             let intersection = agg_root.get_intersection(&path);
 
             let level_sk = art
                 .secrets
                 .secret(intersection.len() + 1)
-                .ok_or(ArtError::InvalidBranchChange)?;
+                .ok_or(ArtError::InvalidAggregation)?;
 
             let co_path = self.aggregation_co_path(&art, &path[..intersection.len() + 1])?;
 
@@ -401,7 +439,7 @@ where
         Ok(*artefacts
             .secrets
             .last()
-            .ok_or(ArtError::InvalidBranchChange)?)
+            .ok_or(ArtError::InvalidAggregation)?)
     }
 
     pub(crate) fn private_art_unrecoverable_apply(
@@ -409,65 +447,8 @@ where
         art: &mut PrivateArt<G>,
     ) -> Result<G::ScalarField, ArtError> {
         self.pub_art_unrecoverable_apply(&mut art.public_art)?;
-        let tk = self.private_art_secrets_unrecoverable_apply(art)?;
+        let tk = self.private_art_secrets_unrecoverable_apply(art, None)?;
 
         Ok(tk)
-    }
-}
-
-impl<G> ApplicableChange<PublicArt<G>, ()> for AggregatedChange<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        let merge_tree_reserve_copy = art.merge_tree.clone();
-
-        if let Err(err) = self.pub_art_unrecoverable_apply(art) {
-            art.merge_tree = merge_tree_reserve_copy;
-            return Err(err);
-        }
-
-        Ok(())
-    }
-}
-
-impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for AggregatedChange<G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
-        let merge_tree_reserve_copy = art.public_art().merge_tree.clone();
-
-        match self.private_art_unrecoverable_apply(art) {
-            Err(err) => {
-                art.public_art.merge_tree = merge_tree_reserve_copy;
-                Err(err)
-            }
-            Ok(tk) => Ok(tk),
-        }
-    }
-}
-
-impl<G> ApplicableChange<PublicArt<G>, ()> for AggregationContext<PrivateArt<G>, G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        let aggregation = AggregatedChange::try_from(self)?;
-        aggregation.apply(art)
-    }
-}
-
-impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for AggregationContext<PrivateArt<G>, G>
-where
-    G: AffineRepr,
-    G::BaseField: PrimeField,
-{
-    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
-        let aggregation = AggregatedChange::try_from(self)?;
-        aggregation.apply(art)
     }
 }

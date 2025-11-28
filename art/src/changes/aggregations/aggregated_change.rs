@@ -3,7 +3,9 @@ use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::{
     AggregationData, AggregationNode, AggregationNodeIterWithPath, VerifierAggregationData,
 };
-use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
+use crate::changes::branch_change::{
+    BranchChange, BranchChangeType, BranchChangeTypeHint, PrivateBranchChange,
+};
 use crate::errors::ArtError;
 use crate::errors::ArtError::InapplicableAggregation;
 use crate::node_index::{Direction, NodeIndex};
@@ -18,6 +20,9 @@ use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
 pub type AggregatedChange<G> = AggregationTree<AggregationData<G>>;
+
+/// Helper structure to apply aggregations with own key update correctly.
+pub struct PrivateAggregatedChange<G: AffineRepr>(G::ScalarField, AggregatedChange<G>);
 
 /// Helper data struct for proof verification.
 pub(crate) type VerifierChangeAggregation<G> = AggregationTree<VerifierAggregationData<G>>;
@@ -70,6 +75,20 @@ impl<D> AggregationTree<D> {
         }
 
         Some(target_node)
+    }
+}
+
+impl<G: AffineRepr> PrivateAggregatedChange<G> {
+    pub fn new(sk: G::ScalarField, change: AggregatedChange<G>) -> Self {
+        Self(sk, change)
+    }
+
+    pub fn change(&self) -> &AggregatedChange<G> {
+        &self.1
+    }
+
+    pub fn key(&self) -> G::ScalarField {
+        self.0
     }
 }
 

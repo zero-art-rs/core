@@ -1272,11 +1272,7 @@ fn test_merge_flow_with_removal() {
     user3.commit().unwrap();
 
     let root = *epoch2_removal.public_keys.first().unwrap()
-        + *epoch2_key_update
-            .branch_change()
-            .public_keys
-            .first()
-            .unwrap();
+        + *epoch2_key_update.change().public_keys.first().unwrap();
     let root = root.into_affine();
 
     assert_eq!(user0, user1);
@@ -1297,9 +1293,9 @@ fn test_merge_flow_with_removal() {
     let (_, private_change3) = user3.update_key(sk3).unwrap();
     let change3 = PrivateBranchChange::new(sk3, private_change3.clone());
 
-    let new_root = *change0.branch_change().public_keys.first().unwrap()
-        + *change2.branch_change().public_keys.first().unwrap()
-        + *change3.branch_change().public_keys.first().unwrap();
+    let new_root = *change0.change().public_keys.first().unwrap()
+        + *change2.change().public_keys.first().unwrap()
+        + *change3.change().public_keys.first().unwrap();
     let new_root = new_root.into_affine();
 
     // Apply changes to ART trees. Use private_change to apply change of the user own key.
@@ -1621,12 +1617,12 @@ fn test_key_update_proof() {
     let member_el = member_leaf_eligibility_artefact(&art);
     assert_eq!(
         CortadoAffine::generator().mul(tk).into_affine(),
-        change.branch_change().public_keys[0]
+        change.change().public_keys[0]
     );
     let tk = change.apply(&mut art).unwrap();
     assert_eq!(
         CortadoAffine::generator().mul(tk).into_affine(),
-        change.branch_change().public_keys[0]
+        change.change().public_keys[0]
     );
     art.commit().unwrap();
 
@@ -1639,7 +1635,7 @@ fn test_key_update_proof() {
 
     let mut proof_bytes = Vec::new();
     proof.serialize_compressed(&mut proof_bytes).unwrap();
-    let key_update_change = change.branch_change();
+    let key_update_change = change.change();
 
     assert_eq!(
         art.root().public_key(),
@@ -2134,16 +2130,13 @@ fn test_merge_proof_verify() {
 
     for (i, user) in users.iter_mut().enumerate() {
         for (j, change) in private_changes.iter().enumerate() {
-            let prover_leaf = user
-                .node(&change.branch_change().node_index)
-                .unwrap()
-                .public_key();
+            let prover_leaf = user.node(&change.change().node_index).unwrap().public_key();
             let eligibility_requirement = EligibilityRequirement::Member(prover_leaf);
 
             verifier_engine
                 .new_context(eligibility_requirement)
                 .with_associated_data(&associated_data[j])
-                .for_branch(&user.verification_branch(change.branch_change()).unwrap())
+                .for_branch(&user.verification_branch(change.change()).unwrap())
                 .verify(&proofs[j])
                 .unwrap();
 

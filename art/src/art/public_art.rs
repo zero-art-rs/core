@@ -1,16 +1,17 @@
 use crate::art::artefacts::VerifierArtefacts;
+use crate::art::{AggregationContext, PrivateArt};
 use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregationData, AggregationNode, AggregationNodeIterWithPath, AggregationTree,
-    TreeNodeIterWithPath, VerifierAggregationData,
+    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
+    AggregationTree, PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
-use curve25519_dalek::digest::core_api::CoreProxy;
+use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::fmt::Debug;
@@ -109,6 +110,9 @@ where
     pub(crate) merge_tree: AggregationTree<PublicMergeData<G>>,
 }
 
+/// The state of uncommited part of `PublicArt` tree.
+pub struct PublicArtApplySnapshot<G: AffineRepr>(AggregationTree<PublicMergeData<G>>);
+
 pub struct PublicArtPreview<'a, G>
 where
     G: AffineRepr,
@@ -145,6 +149,12 @@ where
     }
 }
 
+impl<G: AffineRepr> PublicArtApplySnapshot<G> {
+    pub fn new(merge_tree: AggregationTree<PublicMergeData<G>>) -> Self {
+        Self(merge_tree)
+    }
+}
+
 impl<G> PublicArt<G>
 where
     G: AffineRepr,
@@ -154,6 +164,14 @@ where
         C: ApplicableChange<Self, R>,
     {
         change.apply(self)
+    }
+
+    pub fn snapshot(&self) -> PublicArtApplySnapshot<G> {
+        PublicArtApplySnapshot::new(self.merge_tree.clone())
+    }
+
+    pub fn undo_apply(&mut self, snapshot: PublicArtApplySnapshot<G>) {
+        self.merge_tree = snapshot.0;
     }
 
     pub fn commit(&mut self) -> Result<(), ArtError> {
@@ -553,10 +571,10 @@ where
     G: AffineRepr,
 {
     fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
-        let merge_tree_reserve_copy = art.merge_tree.clone();
+        let snapshot = art.snapshot();
 
         if let Err(err) = self.pub_art_unrecoverable_apply(art) {
-            art.merge_tree = merge_tree_reserve_copy;
+            art.undo_apply(snapshot);
             return Err(err);
         }
 
@@ -564,11 +582,49 @@ where
     }
 }
 
+impl<G> ApplicableChange<PublicArt<G>, ()> for AggregatedChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+        let snapshot = art.snapshot();
+
+        if let Err(err) = self.pub_art_unrecoverable_apply(art) {
+            art.undo_apply(snapshot);
+            return Err(err);
+        }
+
+        Ok(())
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>, ()> for PrivateAggregatedChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+        self.change().apply(art)
+    }
+}
+
+impl<G> ApplicableChange<PublicArt<G>, ()> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+        let aggregation = AggregatedChange::try_from(self)?;
+        aggregation.apply(art)
+    }
+}
+
 impl<'a, G> PublicArtPreview<'a, G>
 where
     G: AffineRepr,
 {
-    pub fn find(&self, public_key: G) -> Result<ArtNodePreview<G>, ArtError> {
+    pub fn find(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
         for (node, _) in TreeNodeIterWithPath::new(self.root()) {
             if node.public_key().eq(&public_key) {
                 return Ok(node);
@@ -578,7 +634,7 @@ where
         Err(ArtError::PathNotExists)
     }
 
-    pub fn find_leaf(&self, public_key: G) -> Result<ArtNodePreview<G>, ArtError> {
+    pub fn find_leaf(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
         for (node, _) in TreeNodeIterWithPath::new(self.root()) {
             if let Some(art_node) = node.art_node()
                 && art_node.is_leaf()
@@ -591,11 +647,11 @@ where
         Err(ArtError::PathNotExists)
     }
 
-    pub fn node(&self, index: &NodeIndex) -> Result<ArtNodePreview<G>, ArtError> {
+    pub fn node(&'a self, index: &NodeIndex) -> Result<ArtNodePreview<'a, G>, ArtError> {
         self.node_at(&index.get_path()?)
     }
 
-    pub fn node_at(&self, path: &[Direction]) -> Result<ArtNodePreview<G>, ArtError> {
+    pub fn node_at(&'a self, path: &[Direction]) -> Result<ArtNodePreview<'a, G>, ArtError> {
         let art_node = self.public_art.root().node_at(path).ok();
 
         let merge_node = self
