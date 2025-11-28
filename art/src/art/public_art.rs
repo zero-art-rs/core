@@ -353,7 +353,7 @@ where
     }
 
     /// Returns helper structure for verification of art update.
-    pub(crate) fn verification_branch(
+    pub fn verification_branch(
         &self,
         change: &BranchChange<G>,
     ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
