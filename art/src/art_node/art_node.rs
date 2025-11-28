@@ -309,12 +309,12 @@ where
     pub(crate) fn preview_public_key(&self, merge_data: &PublicMergeData<G>) -> G {
         let mut resulting_public_key = self.public_key();
 
-        if let Some(strong_key) = merge_data.strong_key() {
-            resulting_public_key = strong_key;
+        if let Some(strong_key) = &merge_data.strong_key {
+            resulting_public_key = *strong_key;
         }
 
-        if let Some(weak_key) = merge_data.weak_key() {
-            resulting_public_key = resulting_public_key.add(&weak_key).into_affine();
+        if let Some(weak_key) = &merge_data.weak_key {
+            resulting_public_key = resulting_public_key.add(weak_key).into_affine();
         }
 
         resulting_public_key
@@ -327,8 +327,8 @@ where
         if let Some(merge_data) = merge_data {
             *self.mut_public_key() = self.preview_public_key(merge_data);
 
-            if let Some(status) = merge_data.status() {
-                self.set_status(status)?;
+            if let Some(status) = &merge_data.status {
+                self.set_status(*status)?;
             }
 
             if let Ok(weight) = self.mut_weight() {

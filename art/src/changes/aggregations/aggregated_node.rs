@@ -1,7 +1,7 @@
 use crate::art::{ArtNodePreview, ProverArtefacts};
-use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::art_node::{ArtNode, NodeIterWithPath};
 use crate::changes::aggregations::{
-    AggregationData, AggregationTree, ProverAggregationData, VerifierAggregationData,
+    BinaryTree, ProverAggregationData, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -9,48 +9,30 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::UniformRand;
-use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
-use std::mem;
 use tree_ds::prelude::Node;
-use zrt_zk::{
-    aggregated_art::{ProverAggregationTree, VerifierAggregationTree},
-    art::{ProverNodeData, VerifierNodeData},
-};
+use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 /// Node of the aggregation tree. nodes contain data of some generic type `D`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AggregationNode<D> {
+pub struct BinaryTreeNode<D> {
     pub(crate) l: Option<Box<Self>>,
     pub(crate) r: Option<Box<Self>>,
     pub data: D,
 }
 
-pub struct AggregatedNodeWrapper<'a, D> {
-    node: &'a AggregationNode<D>,
+pub struct BinaryTreeNodeWrapper<'a, D> {
+    node: &'a BinaryTreeNode<D>,
 }
 
-impl<'a, D> AggregatedNodeWrapper<'a, D> {
-    pub fn new(node: &'a AggregationNode<D>) -> Self {
-        AggregatedNodeWrapper { node }
+impl<'a, D> BinaryTreeNodeWrapper<'a, D> {
+    pub fn new(node: &'a BinaryTreeNode<D>) -> Self {
+        BinaryTreeNodeWrapper { node }
     }
 }
 
-impl<'a, D> TreeIterHelper for AggregatedNodeWrapper<'a, D> {
-    type Child = Self;
-
-    fn child(&self, dir: Direction) -> Option<Self::Child> {
-        if let Some(node) = self.node.child(dir) {
-            return Some(Self { node });
-        }
-
-        None
-    }
-}
-
-impl<D> AggregationNode<D> {
+impl<D> BinaryTreeNode<D> {
     pub fn new_leaf(data: D) -> Self {
         Self {
             l: None,
@@ -156,7 +138,7 @@ impl<D> AggregationNode<D> {
     }
 }
 
-impl<G> AggregationNode<ProverAggregationData<G>>
+impl<G> BinaryTreeNode<ProverAggregationData<G>>
 where
     G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
     G::ScalarField: PrimeField,
@@ -245,78 +227,8 @@ where
     }
 }
 
-impl<G> AggregationNode<AggregationData<G>>
-where
-    G: AffineRepr + CanonicalSerialize + CanonicalDeserialize,
-    G::ScalarField: PrimeField,
-{
-    // /// Append `BranchChange<G>` to the structure by overwriting unnecessary data. utilizes
-    // /// `change_type_hint` to perform extension correctly
-    // pub fn extend(
-    //     &mut self,
-    //     change: &BranchChange<G>,
-    //     prover_artefacts: &ProverArtefacts<G>,
-    //     change_type_hint: BranchChangeTypeHint<G>,
-    // ) -> Result<(), ArtError> {
-    //     let mut leaf_path = change.node_index.get_path()?;
-    //
-    //     if leaf_path.is_empty() {
-    //         return Err(ArtError::EmptyArt);
-    //     }
-    //
-    //     if let BranchChangeTypeHint::AddMember {
-    //         ext_pk: Some(_), ..
-    //     } = change_type_hint
-    //     {
-    //         leaf_path.pop();
-    //     }
-    //
-    //     self.extend_tree_with(change, prover_artefacts)?;
-    //
-    //     let target_leaf = self.mut_node(&leaf_path)?;
-    //     target_leaf.data.change_type.push(change_type_hint);
-    //
-    //     Ok(())
-    // }
-
-    fn extend_tree_with(
-        &mut self,
-        change: &BranchChange<G>,
-        prover_artefacts: &ProverArtefacts<G>,
-    ) -> Result<(), ArtError> {
-        let leaf_path = change.node_index.get_path()?;
-
-        if change.public_keys.len() != leaf_path.len() + 1
-            || prover_artefacts.secrets.len() != leaf_path.len() + 1
-            || prover_artefacts.co_path.len() != leaf_path.len()
-        {
-            return Err(ArtError::InvalidInput);
-        }
-
-        // Update root.
-        self.data.public_key = *prover_artefacts.path.last().ok_or(ArtError::EmptyArt)?;
-
-        // Update other nodes.
-        let mut parent = &mut *self;
-        for (i, dir) in leaf_path.iter().rev().enumerate().rev() {
-            // compute new child node
-            let child_data = AggregationData::<G> {
-                // public_key: change.public_keys[i + 1],
-                public_key: prover_artefacts.path[i],
-                change_type: vec![],
-            };
-
-            // Update parent
-            parent = parent.get_or_insert_default(*dir);
-            parent.data.aggregate(child_data);
-        }
-
-        Ok(())
-    }
-}
-
 // impl<D> TreeNode<AggregationNode<D>> for AggregationNode<D>
-impl<D> AggregationNode<D> {
+impl<D> BinaryTreeNode<D> {
     /// Return a reference on a child on the given direction. Return None, if there is no
     /// child there.
     pub(crate) fn child(&self, dir: Direction) -> Option<&Self> {
@@ -334,21 +246,9 @@ impl<D> AggregationNode<D> {
             Direction::Left => &mut self.l,
         }
     }
-
-    /// Return a mutable reference on a child on the given direction. Return None,
-    /// if there is no child there.
-    pub(crate) fn mut_child_or_default(&mut self, dir: Direction) -> &mut Self
-    where
-        D: Default,
-    {
-        match dir {
-            Direction::Right => self.r.get_or_insert_default().as_mut(),
-            Direction::Left => self.l.get_or_insert_default().as_mut(),
-        }
-    }
 }
 
-impl<D> From<D> for AggregationNode<D>
+impl<D> From<D> for BinaryTreeNode<D>
 where
 // D: RelatedData + Clone + Default,
 {
@@ -361,25 +261,25 @@ where
     }
 }
 
-impl<D1, D2> TryFrom<&AggregationNode<D1>> for AggregationNode<D2>
+impl<D1, D2> TryFrom<&BinaryTreeNode<D1>> for BinaryTreeNode<D2>
 where
     D1: Clone + Default,
     D2: From<D1> + Clone + Default,
 {
     type Error = ArtError;
 
-    fn try_from(prover_aggregation: &AggregationNode<D1>) -> Result<Self, Self::Error> {
+    fn try_from(prover_aggregation: &BinaryTreeNode<D1>) -> Result<Self, Self::Error> {
         let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
         let (node, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
         let verifier_data = D2::from(node.data.clone());
-        let mut aggregation = AggregationNode::from(verifier_data);
+        let mut aggregation = BinaryTreeNode::from(verifier_data);
 
         for (node, path) in iter {
             let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             if let Some(last_dir) = node_path.pop() {
                 let verifier_data = D2::from(node.data.clone());
-                let next_node = AggregationNode::from(verifier_data);
+                let next_node = BinaryTreeNode::from(verifier_data);
 
                 if let Ok(child) = aggregation.mut_node(&node_path) {
                     child.set_child(last_dir, next_node);
@@ -391,7 +291,7 @@ where
     }
 }
 
-impl<G> TryFrom<&ArtNode<G>> for AggregationNode<bool>
+impl<G> TryFrom<&ArtNode<G>> for BinaryTreeNode<bool>
 where
     G: AffineRepr,
 {
@@ -401,12 +301,12 @@ where
         let mut iter = NodeIterWithPath::new(prover_aggregation);
         let (_, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
-        let mut aggregation = AggregationNode::from(false);
+        let mut aggregation = BinaryTreeNode::from(false);
 
         for (_, path) in iter {
             let mut node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             if let Some(last_dir) = node_path.pop() {
-                let next_node = AggregationNode::from(false);
+                let next_node = BinaryTreeNode::from(false);
 
                 if let Ok(child) = aggregation.mut_node(&node_path) {
                     child.set_child(last_dir, next_node);
@@ -418,13 +318,13 @@ where
     }
 }
 
-impl<G> TryFrom<&AggregationNode<ProverAggregationData<G>>> for ProverAggregationTree<G>
+impl<G> TryFrom<&BinaryTreeNode<ProverAggregationData<G>>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
 {
     type Error = ArtError;
 
-    fn try_from(value: &AggregationNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
+    fn try_from(value: &BinaryTreeNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(value);
@@ -451,13 +351,13 @@ where
     }
 }
 
-impl<G> TryFrom<&AggregationNode<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
+impl<G> TryFrom<&BinaryTreeNode<VerifierAggregationData<G>>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
 {
     type Error = ArtError;
 
-    fn try_from(value: &AggregationNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
+    fn try_from(value: &BinaryTreeNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
         let mut node_iter = AggregationNodeIterWithPath::new(value);
@@ -491,13 +391,13 @@ where
 /// `(&'a AggregationNode<D>, Direction)` on path from the root to the current node.
 #[derive(Debug, Clone)]
 pub struct AggregationNodeIterWithPath<'a, D> {
-    pub(crate) current_node: Option<&'a AggregationNode<D>>,
-    pub(crate) path: Vec<(&'a AggregationNode<D>, Direction)>,
+    pub(crate) current_node: Option<&'a BinaryTreeNode<D>>,
+    pub(crate) path: Vec<(&'a BinaryTreeNode<D>, Direction)>,
 }
 
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
 impl<'a, D> AggregationNodeIterWithPath<'a, D> {
-    pub fn new(root: &'a AggregationNode<D>) -> Self {
+    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
         AggregationNodeIterWithPath {
             current_node: Some(root),
             path: vec![],
@@ -505,8 +405,8 @@ impl<'a, D> AggregationNodeIterWithPath<'a, D> {
     }
 }
 
-impl<'a, D> From<&'a AggregationTree<D>> for AggregationNodeIterWithPath<'a, D> {
-    fn from(value: &'a AggregationTree<D>) -> Self {
+impl<'a, D> From<&'a BinaryTree<D>> for AggregationNodeIterWithPath<'a, D> {
+    fn from(value: &'a BinaryTree<D>) -> Self {
         match &value.root {
             None => AggregationNodeIterWithPath {
                 current_node: None,
@@ -522,8 +422,8 @@ where
     D: Default,
 {
     type Item = (
-        &'a AggregationNode<D>,
-        Vec<(&'a AggregationNode<D>, Direction)>,
+        &'a BinaryTreeNode<D>,
+        Vec<(&'a BinaryTreeNode<D>, Direction)>,
     );
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -578,22 +478,6 @@ where
 
         None
     }
-}
-
-// pub(crate) struct Child<'a, N> {
-//     child: Option<N>,
-// }
-
-pub(crate) trait TreeIterHelper {
-    type Child;
-
-    /// Return left and right child of the node
-    fn children(&self) -> (Option<Self::Child>, Option<Self::Child>) {
-        (self.child(Direction::Left), self.child(Direction::Right))
-    }
-
-    /// Return concreate_child of a node
-    fn child(&self, dir: Direction) -> Option<Self::Child>;
 }
 
 #[derive(Debug, Clone)]

@@ -3,8 +3,8 @@ use crate::art::{AggregationContext, PrivateArt};
 use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
-    AggregationTree, PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
+    AggregatedChange, AggregationData, BinaryTreeNode, AggregationNodeIterWithPath,
+    BinaryTree, PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -19,17 +19,18 @@ use std::mem;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::VerifierNodeData;
 
+/// Describes public key state after commit.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 pub struct PublicMergeData<G>
 where
     G: AffineRepr,
 {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub(crate) strong_key: Option<G>,
+    pub strong_key: Option<G>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    pub(crate) weak_key: Option<G>,
-    pub(crate) status: Option<LeafStatus>,
-    pub(crate) weight_change: i32,
+    pub weak_key: Option<G>,
+    pub status: Option<LeafStatus>,
+    pub weight_change: i32,
 }
 
 impl<G> PublicMergeData<G>
@@ -49,26 +50,8 @@ where
             weight_change,
         }
     }
-    pub fn weak_key(&self) -> Option<G> {
-        self.weak_key
-    }
 
-    pub fn mut_weak_key(&mut self) -> &mut Option<G> {
-        &mut self.weak_key
-    }
-
-    pub fn strong_key(&self) -> Option<G> {
-        self.strong_key
-    }
-
-    pub fn mut_strong_key(&mut self) -> &mut Option<G> {
-        &mut self.strong_key
-    }
-
-    pub fn status(&self) -> Option<LeafStatus> {
-        self.status
-    }
-
+    /// If `increment` is true, increment `self.weight_change`, else decrement it.
     pub fn update_weight_change(&mut self, increment: bool) {
         if increment {
             self.weight_change += 1;
@@ -77,6 +60,8 @@ where
         }
     }
 
+    /// Change `status` to the given one. Note, that `Blank` node stays `Blank`, `PendingRemoval`
+    /// can be changed to `Blank` or stay `PendingRemoval`, while `Active` node can change to any status.
     pub fn update_status(&mut self, status: LeafStatus) {
         if let Some(inner_status) = &mut self.status {
             *inner_status = max(status, *inner_status);
@@ -85,6 +70,7 @@ where
         }
     }
 
+    /// Update public key of the merge data in correspondence to rules.
     pub fn update_public_key(&mut self, public_key: G, weak_only: bool) {
         if weak_only || self.strong_key.is_some() {
             match self.weak_key {
@@ -107,12 +93,13 @@ where
     G: AffineRepr,
 {
     pub(crate) tree_root: ArtNode<G>,
-    pub(crate) merge_tree: AggregationTree<PublicMergeData<G>>,
+    pub(crate) merge_tree: BinaryTree<PublicMergeData<G>>,
 }
 
 /// The state of uncommited part of `PublicArt` tree.
-pub struct PublicArtApplySnapshot<G: AffineRepr>(AggregationTree<PublicMergeData<G>>);
+pub struct PublicArtApplySnapshot<G: AffineRepr>(BinaryTree<PublicMergeData<G>>);
 
+/// A view of the `PublicArt` state after commit.
 pub struct PublicArtPreview<'a, G>
 where
     G: AffineRepr,
@@ -120,6 +107,7 @@ where
     public_art: &'a PublicArt<G>,
 }
 
+/// A view of the `ArtNode` in  `PublicArt` state after commit.
 #[derive(Clone, Copy, Debug)]
 pub enum ArtNodePreview<'a, G>
 where
@@ -129,11 +117,11 @@ where
         art_node: &'a ArtNode<G>,
     },
     MergeNodeOnly {
-        merge_node: &'a AggregationNode<PublicMergeData<G>>,
+        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
     },
     Full {
         art_node: &'a ArtNode<G>,
-        merge_node: &'a AggregationNode<PublicMergeData<G>>,
+        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
     },
 }
 
@@ -150,7 +138,7 @@ where
 }
 
 impl<G: AffineRepr> PublicArtApplySnapshot<G> {
-    pub fn new(merge_tree: AggregationTree<PublicMergeData<G>>) -> Self {
+    pub fn new(merge_tree: BinaryTree<PublicMergeData<G>>) -> Self {
         Self(merge_tree)
     }
 }
@@ -193,7 +181,7 @@ where
 
     fn inner_commit(
         &mut self,
-        merge_tree: &AggregationNode<PublicMergeData<G>>,
+        merge_tree: &BinaryTreeNode<PublicMergeData<G>>,
     ) -> Result<(), ArtError> {
         for (merge_node, path_data) in merge_tree.node_iter_with_path() {
             let path = path_data.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -310,10 +298,10 @@ where
                 Some(true),
             )?;
 
-            *merge_leaf.mut_child(Direction::Right) = Some(Box::new(AggregationNode::new_leaf(
+            *merge_leaf.mut_child(Direction::Right) = Some(Box::new(BinaryTreeNode::new_leaf(
                 PublicMergeData::new(Some(new_leaf_public_key), None, Some(LeafStatus::Active), 0),
             )));
-            *merge_leaf.mut_child(Direction::Left) = Some(Box::new(AggregationNode::new_leaf(
+            *merge_leaf.mut_child(Direction::Left) = Some(Box::new(BinaryTreeNode::new_leaf(
                 PublicMergeData::new(Some(public_key), None, Some(status), 0),
             )));
         } else {
@@ -413,7 +401,7 @@ where
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
     pub fn verification_tree(
         &self,
-        agg: &AggregationTree<AggregationData<G>>,
+        agg: &BinaryTree<AggregationData<G>>,
     ) -> Result<VerifierAggregationTree<G>, ArtError> {
         let agg_root = match agg.root() {
             Some(root) => root,
@@ -421,7 +409,7 @@ where
         };
 
         let mut resulting_aggregation_root =
-            AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+            BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
         for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -451,7 +439,7 @@ where
             resulting_target_node.data.co_public_key = Some(pk);
         }
 
-        let agg_tree = AggregationTree::new(Some(resulting_aggregation_root));
+        let agg_tree = BinaryTree::new(Some(resulting_aggregation_root));
         VerifierAggregationTree::try_from(&agg_tree)
     }
 
@@ -459,7 +447,7 @@ where
     /// `aggregation`.
     pub(crate) fn get_last_public_key_on_path(
         art: &PublicArt<G>,
-        aggregation: &AggregationNode<AggregationData<G>>,
+        aggregation: &BinaryTreeNode<AggregationData<G>>,
         path: &[Direction],
     ) -> Result<G, ArtError> {
         let mut leaf_public_key = art.root().public_key();
@@ -624,6 +612,7 @@ impl<'a, G> PublicArtPreview<'a, G>
 where
     G: AffineRepr,
 {
+    /// Search for a node with the given `public_key`.
     pub fn find(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
         for (node, _) in TreeNodeIterWithPath::new(self.root()) {
             if node.public_key().eq(&public_key) {
@@ -634,6 +623,7 @@ where
         Err(ArtError::PathNotExists)
     }
 
+    /// Search for a leaf node with the given `public_key`.
     pub fn find_leaf(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
         for (node, _) in TreeNodeIterWithPath::new(self.root()) {
             if let Some(art_node) = node.art_node()
@@ -647,10 +637,12 @@ where
         Err(ArtError::PathNotExists)
     }
 
+    /// Retrieve node by `NodeIndex`.
     pub fn node(&'a self, index: &NodeIndex) -> Result<ArtNodePreview<'a, G>, ArtError> {
         self.node_at(&index.get_path()?)
     }
 
+    /// Retrieve node by the given `path`.
     pub fn node_at(&'a self, path: &[Direction]) -> Result<ArtNodePreview<'a, G>, ArtError> {
         let art_node = self.public_art.root().node_at(path).ok();
 
@@ -664,6 +656,7 @@ where
         ArtNodePreview::new(art_node, merge_node)
     }
 
+    /// Return a reference on the root preview node.
     pub fn root(&self) -> ArtNodePreview<'a, G> {
         match self.public_art.merge_tree.root.as_ref() {
             None => ArtNodePreview::ArtNodeOnly {
@@ -697,7 +690,7 @@ where
     }
 
     /// Returns helper structure for verification of art update.
-    pub(crate) fn verification_branch(
+    pub fn verification_branch(
         &self,
         changes: &BranchChange<G>,
     ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
@@ -731,7 +724,7 @@ where
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
     pub fn verification_tree(
         &self,
-        agg: &AggregationTree<AggregationData<G>>,
+        agg: &BinaryTree<AggregationData<G>>,
     ) -> Result<VerifierAggregationTree<G>, ArtError> {
         let agg_root = match agg.root() {
             Some(root) => root,
@@ -739,7 +732,7 @@ where
         };
 
         let mut resulting_aggregation_root =
-            AggregationNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
+            BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
         for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -769,7 +762,7 @@ where
             resulting_target_node.data.co_public_key = Some(pk);
         }
 
-        let agg_tree = AggregationTree::new(Some(resulting_aggregation_root));
+        let agg_tree = BinaryTree::new(Some(resulting_aggregation_root));
         VerifierAggregationTree::try_from(&agg_tree)
     }
 
@@ -777,7 +770,7 @@ where
     /// `aggregation`.
     pub(crate) fn get_last_public_key_on_path(
         art: &PublicArtPreview<G>,
-        aggregation: &AggregationNode<AggregationData<G>>,
+        aggregation: &BinaryTreeNode<AggregationData<G>>,
         path: &[Direction],
     ) -> Result<G, ArtError> {
         let mut leaf_public_key = art.root().public_key();
@@ -815,7 +808,7 @@ where
 {
     pub fn new(
         art_node: Option<&'a ArtNode<G>>,
-        merge_node: Option<&'a AggregationNode<PublicMergeData<G>>>,
+        merge_node: Option<&'a BinaryTreeNode<PublicMergeData<G>>>,
     ) -> Result<Self, ArtError> {
         match (art_node, merge_node) {
             (Some(art_node), Some(merge_node)) => Ok(Self::Full {
@@ -828,6 +821,7 @@ where
         }
     }
 
+    /// Returns reference on the corresponding `ArtNode`.
     pub fn art_node(&self) -> Option<&'a ArtNode<G>> {
         match self {
             Self::ArtNodeOnly { art_node, .. } => Some(art_node),
@@ -856,7 +850,8 @@ where
         Ok(node)
     }
 
-    pub(crate) fn merge_node(&self) -> Option<&'a AggregationNode<PublicMergeData<G>>> {
+    /// Returns merge node is exists, else `None`.
+    pub(crate) fn merge_node(&self) -> Option<&'a BinaryTreeNode<PublicMergeData<G>>> {
         match self {
             Self::ArtNodeOnly { .. } => None,
             Self::MergeNodeOnly { merge_node, .. } => Some(merge_node),
@@ -883,6 +878,7 @@ where
         }
     }
 
+    /// Returns a children node on the given direction `dir` if exists, else `None`.
     pub fn child(&self, dir: Direction) -> Option<Self> {
         let art_node: Option<&'a ArtNode<G>> = match self.art_node() {
             Some(node) => node.child(dir),

@@ -1,12 +1,11 @@
 use crate::art::{ArtNodePreview, PublicMergeData};
 use crate::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::AggregationNode;
+use crate::changes::aggregations::BinaryTreeNode;
 use crate::helper_tools::prepare_short_marker_for_option;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
-use std::fmt::{Display, Formatter, write};
-use tracing_subscriber::fmt::format;
+use std::fmt::{Display, Formatter};
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {
@@ -126,7 +125,7 @@ pub enum AggregationDisplayTree {
     },
 }
 
-impl<D> Display for AggregationNode<D>
+impl<D> Display for BinaryTreeNode<D>
 where
     D: Clone + Display + Default,
 {
@@ -173,28 +172,28 @@ where
     G: AffineRepr,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let wpk = prepare_short_marker_for_option(&self.weak_key().and_then(|point| point.x()));
-        let spk = prepare_short_marker_for_option(&self.strong_key().and_then(|point| point.x()));
-        let op = prepare_short_marker_for_option(&self.status());
+        let wpk = prepare_short_marker_for_option(&self.weak_key.clone().and_then(|point| point.x()));
+        let spk = prepare_short_marker_for_option(&self.strong_key.clone().and_then(|point| point.x()));
+        let op = prepare_short_marker_for_option(&self.status);
 
         write!(f, "weak_key: {}, strong_key: {}, status: {}", wpk, spk, op)
     }
 }
 
-impl<D> From<&Box<AggregationNode<D>>> for AggregationDisplayTree
+impl<D> From<&Box<BinaryTreeNode<D>>> for AggregationDisplayTree
 where
     D: Clone + Display,
 {
-    fn from(value: &Box<AggregationNode<D>>) -> Self {
+    fn from(value: &Box<BinaryTreeNode<D>>) -> Self {
         AggregationDisplayTree::from(value.as_ref())
     }
 }
 
-impl<D> From<&AggregationNode<D>> for AggregationDisplayTree
+impl<D> From<&BinaryTreeNode<D>> for AggregationDisplayTree
 where
     D: Display + Clone,
 {
-    fn from(value: &AggregationNode<D>) -> Self {
+    fn from(value: &BinaryTreeNode<D>) -> Self {
         match (value.l.as_ref(), value.r.as_ref()) {
             (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
                 public_key: format!("Node {}", value.data),

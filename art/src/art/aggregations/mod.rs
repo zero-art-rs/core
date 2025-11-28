@@ -2,8 +2,8 @@ use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicM
 use crate::art_node::{LeafStatus, NodePair, PriorityNodePair, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNode, AggregationNodeIterWithPath,
-    AggregationTree, PrivateAggregatedChange, ProverAggregationData,
+    AggregatedChange, AggregationData, BinaryTreeNode, AggregationNodeIterWithPath,
+    BinaryTree, PrivateAggregatedChange, ProverAggregationData,
 };
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -24,7 +24,7 @@ pub struct AggregationContext<T, G>
 where
     G: AffineRepr,
 {
-    pub(crate) prover_aggregation: AggregationTree<ProverAggregationData<G>>,
+    pub(crate) prover_aggregation: BinaryTree<ProverAggregationData<G>>,
     pub(crate) operation_tree: T,
 }
 
@@ -32,6 +32,7 @@ impl<T, G> AggregationContext<T, G>
 where
     G: AffineRepr,
 {
+    /// Returns a state of the updated art.
     pub fn operation_tree(&self) -> &T {
         &self.operation_tree
     }
@@ -79,7 +80,7 @@ where
     }
 }
 
-impl<G> AggregationTree<ProverAggregationData<G>>
+impl<G> BinaryTree<ProverAggregationData<G>>
 where
     G: AffineRepr,
     G::BaseField: PrimeField,
@@ -89,7 +90,7 @@ where
         prover_artefacts: &ProverArtefacts<G>,
         update_path: &[Direction],
         type_hint: Option<BranchChangeTypeHint<G>>,
-    ) -> Result<&mut AggregationNode<ProverAggregationData<G>>, ArtError> {
+    ) -> Result<&mut BinaryTreeNode<ProverAggregationData<G>>, ArtError> {
         if update_path.len() + 1 != prover_artefacts.path.len()
             || update_path.len() + 1 != prover_artefacts.secrets.len()
             || update_path.len() != prover_artefacts.co_path.len()

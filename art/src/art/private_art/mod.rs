@@ -5,7 +5,7 @@ use crate::art::{
 };
 use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{AggregatedChange, AggregationTree, PrivateAggregatedChange};
+use crate::changes::aggregations::{AggregatedChange, BinaryTree, PrivateAggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
@@ -20,25 +20,26 @@ use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 #[cfg(test)]
 pub(crate) mod tests;
 
+/// Describes secret key state after commit.
 #[derive(Default, Deserialize, Serialize, Clone, PartialEq)]
-pub struct ArtSecret<G>
+pub struct ArtSecretPreview<G>
 where
     G: AffineRepr,
 {
-    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
-    weak_key: Option<G::ScalarField>,
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     strong_key: Option<G::ScalarField>,
+    #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
+    weak_key: Option<G::ScalarField>,
 }
 
-impl<G> ArtSecret<G>
+impl<G> ArtSecretPreview<G>
 where
     G: AffineRepr,
 {
-    pub fn new(weak_key: Option<G::ScalarField>, strong_key: Option<G::ScalarField>) -> Self {
+    pub fn new(strong_key: Option<G::ScalarField>, weak_key: Option<G::ScalarField>) -> Self {
         Self {
-            weak_key,
             strong_key,
+            weak_key,
         }
     }
 
@@ -76,7 +77,7 @@ where
     }
 }
 
-impl<G> Debug for ArtSecret<G>
+impl<G> Debug for ArtSecretPreview<G>
 where
     G: AffineRepr,
 {
@@ -108,12 +109,13 @@ where
     }
 }
 
+/// Merge context for ART branch secrets.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(bound = "")]
 pub struct ArtSecrets<G: AffineRepr> {
     #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
     secrets: Vec<G::ScalarField>,
-    secrets_preview: Vec<ArtSecret<G>>,
+    secrets_preview: Vec<ArtSecretPreview<G>>,
 }
 
 impl<G> ArtSecrets<G>
@@ -185,7 +187,7 @@ where
         }
 
         for (i, sk) in new_secrets_iterator {
-            self.secrets_preview.push(ArtSecret::default());
+            self.secrets_preview.push(ArtSecretPreview::default());
             self.secrets_preview[i].update(*sk, weak_only);
         }
 
@@ -290,14 +292,14 @@ where
 /// The state of uncommited part of `PrivateArt` tree.
 pub struct PrivateArtApplySnapshot<G: AffineRepr> {
     public_art_snapshot: PublicArtApplySnapshot<G>,
-    secrets_snapshot: Vec<ArtSecret<G>>,
+    secrets_snapshot: Vec<ArtSecretPreview<G>>,
     node_index_snapshot: Option<NodeIndex>,
 }
 
 impl<G: AffineRepr> PrivateArtApplySnapshot<G> {
     pub fn new(
         public_art_snapshot: PublicArtApplySnapshot<G>,
-        secrets_snapshot: Vec<ArtSecret<G>>,
+        secrets_snapshot: Vec<ArtSecretPreview<G>>,
         node_index_snapshot: Option<NodeIndex>,
     ) -> Self {
         Self {

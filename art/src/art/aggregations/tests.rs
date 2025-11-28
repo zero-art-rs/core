@@ -3,7 +3,7 @@ use crate::art::{AggregationContext, ArtAdvancedOps, PrivateArt};
 use crate::art_node::{LeafIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNodeIterWithPath, AggregationTree,
+    AggregatedChange, AggregationData, AggregationNodeIterWithPath, BinaryTree,
     PrivateAggregatedChange, VerifierAggregationData,
 };
 use crate::errors::ArtError;
@@ -17,9 +17,8 @@ use ark_std::rand::prelude::StdRng;
 use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use std::ops::Mul;
-use tracing::debug;
 use zrt_zk::EligibilityRequirement;
-use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
+use zrt_zk::aggregated_art::{ProverAggregationTree};
 use zrt_zk::art::ArtProof;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 
@@ -71,14 +70,12 @@ fn test_branch_aggregation_flow() {
     let sk2 = Fr::rand(&mut rng);
     let sk3 = Fr::rand(&mut rng);
     let sk4 = Fr::rand(&mut rng);
-    let sk5 = Fr::rand(&mut rng);
 
     agg.remove_member(&user3.node_index(), sk1).unwrap();
     agg.remove_member(&user4.node_index(), sk1).unwrap();
     agg.add_member(sk2).unwrap();
     agg.add_member(sk3).unwrap();
     agg.add_member(sk4).unwrap();
-    // agg.add_member(sk5).unwrap();
 
     let mut user2_clone = user2.clone();
     let aggregation = AggregatedChange::try_from(&agg).unwrap();
@@ -237,16 +234,16 @@ fn test_branch_aggregation_flow() {
         }
     }
 
-    let verifier_aggregation = AggregationTree::<VerifierAggregationData<CortadoAffine>>::try_from(
+    let verifier_aggregation = BinaryTree::<VerifierAggregationData<CortadoAffine>>::try_from(
         &agg.prover_aggregation,
     )
     .unwrap();
 
     let aggregation_from_prover =
-        AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+        BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
     let aggregation_from_verifier =
-        AggregationTree::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation).unwrap();
+        BinaryTree::<AggregationData<CortadoAffine>>::try_from(&verifier_aggregation).unwrap();
 
     assert_eq!(
         aggregation_from_prover, aggregation_from_verifier,
@@ -289,7 +286,6 @@ fn test_fail_on_branch_aggregation_with_commit_removal() {
         .collect::<Vec<_>>();
 
     let base_art = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-    let user0_rng = Box::new(thread_rng());
     let mut user0 = base_art;
 
     let user3_path = NodeIndex::from(
@@ -353,7 +349,7 @@ fn test_branch_aggregation_with_leave() {
     agg.add_member(Fr::rand(&mut rng)).unwrap();
     agg.leave_group(Fr::rand(&mut rng)).unwrap();
 
-    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+    let plain_agg = BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
     plain_agg.apply(&mut user1).unwrap();
     user1.commit().unwrap();
@@ -481,15 +477,10 @@ fn test_branch_aggregation_proof_verify() {
     let mut user1 =
         PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
 
-    let target_3 = user0
-        .root()
-        .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-        .unwrap();
-
     // Create aggregation
     let mut agg = AggregationContext::from(user0.clone());
 
-    for i in 0..4 {
+    for _ in 0..4 {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
     }
 
@@ -519,7 +510,7 @@ fn test_branch_aggregation_proof_verify() {
         .verify(&decoded_proof)
         .unwrap();
 
-    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+    let plain_agg = BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
     plain_agg.apply(&mut user1).unwrap();
     plain_agg.apply(&mut user0).unwrap();
@@ -528,7 +519,7 @@ fn test_branch_aggregation_proof_verify() {
     // Create second aggregation for the next epoch
     let mut agg = AggregationContext::from(user0.clone());
 
-    for i in 0..6 {
+    for _ in 0..6 {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
     }
 
@@ -577,7 +568,7 @@ fn test_branch_aggregation_proof_verify() {
     let verifier_tree_preview = user1.preview().verification_tree(&plain_agg).unwrap();
     assert_eq!(verifier_tree_preview, verifier_tree);
 
-    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+    let plain_agg = BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
     plain_agg.apply(&mut user1).unwrap();
     plain_agg.apply(&mut user0).unwrap();
     user1.commit().unwrap();
@@ -600,19 +591,14 @@ fn test_branch_aggregation_with_public_art() {
         .collect::<Vec<_>>();
 
     let user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
-    let mut user0_rng = Box::new(thread_rng());
     let mut user0 = user0;
     let mut user1 =
         PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), secrets[1]).unwrap();
 
-    let target_3 = user0
-        .root()
-        .path_to_leaf_with(CortadoAffine::generator().mul(secrets[3]).into_affine())
-        .unwrap();
     // Create aggregation
     let mut agg = AggregationContext::from(user0.clone());
 
-    for i in 0..4 {
+    for _ in 0..4 {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
     }
 
@@ -643,7 +629,7 @@ fn test_branch_aggregation_with_public_art() {
         .verify(&decoded_proof)
         .unwrap();
 
-    let plain_agg = AggregationTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
+    let plain_agg = BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();
 
     plain_agg.apply(&mut user1).unwrap();
     user1.commit().unwrap();
@@ -669,13 +655,13 @@ fn test_apply_own_aggregation() {
     // Create aggregation
     let mut agg = AggregationContext::from(user0.clone());
 
-    for i in 0..4 {
+    for _ in 0..4 {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
     }
     let new_key = Fr::rand(&mut rng);
     agg.update_key(new_key).unwrap();
 
-    for i in 0..400 {
+    for _ in 0..400 {
         agg.add_member(Fr::rand(&mut rng)).unwrap();
     }
 
@@ -685,9 +671,11 @@ fn test_apply_own_aggregation() {
 
     private_change.apply(&mut user0).unwrap();
     user0.commit().unwrap();
+    verify_secrets_are_correct(&user0).unwrap();
 
     plain_agg.apply(&mut user1).unwrap();
     user1.commit().unwrap();
+    verify_secrets_are_correct(&user1).unwrap();
 
     assert_eq!(agg.operation_tree, user0);
     assert_eq!(agg.operation_tree, user1);

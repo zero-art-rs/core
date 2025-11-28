@@ -1,7 +1,7 @@
 use crate::art::{PublicArt, PublicMergeData};
 use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::{
-    AggregationData, AggregationNode, AggregationNodeIterWithPath, VerifierAggregationData,
+    AggregationData, BinaryTreeNode, AggregationNodeIterWithPath, VerifierAggregationData,
 };
 use crate::changes::branch_change::{
     BranchChange, BranchChangeType, BranchChangeTypeHint, PrivateBranchChange,
@@ -19,35 +19,35 @@ use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 
 /// Helper data type, which contains necessary data about aggregation. Can be used to update
 /// state of other ART tree.
-pub type AggregatedChange<G> = AggregationTree<AggregationData<G>>;
+pub type AggregatedChange<G> = BinaryTree<AggregationData<G>>;
 
 /// Helper structure to apply aggregations with own key update correctly.
 pub struct PrivateAggregatedChange<G: AffineRepr>(G::ScalarField, AggregatedChange<G>);
 
 /// Helper data struct for proof verification.
-pub(crate) type VerifierChangeAggregation<G> = AggregationTree<VerifierAggregationData<G>>;
+pub(crate) type VerifierChangeAggregation<G> = BinaryTree<VerifierAggregationData<G>>;
 
 /// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
-pub struct AggregationTree<D> {
-    pub(crate) root: Option<AggregationNode<D>>,
+pub struct BinaryTree<D> {
+    pub(crate) root: Option<BinaryTreeNode<D>>,
 }
 
-impl<D> AggregationTree<D> {
-    pub fn new(root: Option<AggregationNode<D>>) -> Self {
+impl<D> BinaryTree<D> {
+    pub fn new(root: Option<BinaryTreeNode<D>>) -> Self {
         Self { root }
     }
 
-    pub fn root(&self) -> Option<&AggregationNode<D>> {
+    pub fn root(&self) -> Option<&BinaryTreeNode<D>> {
         self.root.as_ref()
     }
 
-    pub(crate) fn mut_root(&mut self) -> &mut Option<AggregationNode<D>> {
+    pub(crate) fn mut_root(&mut self) -> &mut Option<BinaryTreeNode<D>> {
         &mut self.root
     }
 
-    pub fn node_at(&self, path: &[Direction]) -> Option<&AggregationNode<D>> {
+    pub fn node_at(&self, path: &[Direction]) -> Option<&BinaryTreeNode<D>> {
         let Some(mut target_node) = self.root.as_ref() else {
             return None;
         };
@@ -62,7 +62,7 @@ impl<D> AggregationTree<D> {
         Some(target_node)
     }
 
-    pub fn mut_node_at(&mut self, path: &[Direction]) -> Option<&mut AggregationNode<D>> {
+    pub fn mut_node_at(&mut self, path: &[Direction]) -> Option<&mut BinaryTreeNode<D>> {
         let Some(mut target_node) = self.root.as_mut() else {
             return None;
         };
@@ -92,7 +92,7 @@ impl<G: AffineRepr> PrivateAggregatedChange<G> {
     }
 }
 
-impl<G> AggregationNode<PublicMergeData<G>>
+impl<G> BinaryTreeNode<PublicMergeData<G>>
 where
     G: AffineRepr,
 {
@@ -102,9 +102,10 @@ where
         // }
 
         self.data
-            .strong_key()
+            .strong_key
+            .clone()
             .get_or_insert_with(G::zero)
-            .add(*self.data.weak_key().get_or_insert_with(G::zero))
+            .add(*self.data.weak_key.clone().get_or_insert_with(G::zero))
             .into_affine()
     }
 
@@ -184,7 +185,7 @@ where
     }
 
     pub fn status(&self) -> Option<LeafStatus> {
-        self.data.status()
+        self.data.status
     }
 
     pub(crate) fn update_public_key(&mut self, public_key: G, weak_only: bool) {
@@ -192,7 +193,7 @@ where
     }
 }
 
-impl<G> AggregationTree<PublicMergeData<G>>
+impl<G> BinaryTree<PublicMergeData<G>>
 where
     G: AffineRepr,
 {
@@ -203,7 +204,7 @@ where
         path: &[Direction],
         weak_only: bool,
         weight_change: Option<bool>,
-    ) -> Result<&mut AggregationNode<PublicMergeData<G>>, ArtError> {
+    ) -> Result<&mut BinaryTreeNode<PublicMergeData<G>>, ArtError> {
         if public_keys.len() != path.len() + 1 {
             error!(
                 "Invalid size for pk path ({}) and direction path: ({})",
@@ -243,33 +244,33 @@ where
     }
 }
 
-impl<'a, D1, D2> TryFrom<&'a AggregationTree<D1>> for AggregationTree<D2>
+impl<'a, D1, D2> TryFrom<&'a BinaryTree<D1>> for BinaryTree<D2>
 where
     D1: Clone + Default,
     D2: From<D1> + Clone + Default,
-    AggregationNode<D2>: TryFrom<&'a AggregationNode<D1>, Error = ArtError>,
+    BinaryTreeNode<D2>: TryFrom<&'a BinaryTreeNode<D1>, Error = ArtError>,
 {
     type Error = ArtError;
 
-    fn try_from(value: &'a AggregationTree<D1>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a BinaryTree<D1>) -> Result<Self, Self::Error> {
         match &value.root {
-            None => Ok(AggregationTree::default()),
-            Some(root) => Ok(AggregationTree {
-                root: Some(AggregationNode::<D2>::try_from(root)?),
+            None => Ok(BinaryTree::default()),
+            Some(root) => Ok(BinaryTree {
+                root: Some(BinaryTreeNode::<D2>::try_from(root)?),
             }),
         }
     }
 }
 
-impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for VerifierAggregationTree<G>
+impl<'a, D, G> TryFrom<&'a BinaryTree<D>> for VerifierAggregationTree<G>
 where
     G: AffineRepr,
     D: Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
+    Self: TryFrom<&'a BinaryTreeNode<D>, Error = ArtError>,
 {
-    type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
+    type Error = <Self as TryFrom<&'a BinaryTreeNode<D>>>::Error;
 
-    fn try_from(value: &'a AggregationTree<D>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a BinaryTree<D>) -> Result<Self, Self::Error> {
         if let Some(root) = &value.root {
             Self::try_from(root)
         } else {
@@ -278,7 +279,7 @@ where
     }
 }
 
-impl<D> Display for AggregationTree<D>
+impl<D> Display for BinaryTree<D>
 where
     D: Clone + Display + Default,
 {
@@ -290,15 +291,15 @@ where
     }
 }
 
-impl<'a, D, G> TryFrom<&'a AggregationTree<D>> for ProverAggregationTree<G>
+impl<'a, D, G> TryFrom<&'a BinaryTree<D>> for ProverAggregationTree<G>
 where
     G: AffineRepr,
     D: Clone + Default,
-    Self: TryFrom<&'a AggregationNode<D>, Error = ArtError>,
+    Self: TryFrom<&'a BinaryTreeNode<D>, Error = ArtError>,
 {
-    type Error = <Self as TryFrom<&'a AggregationNode<D>>>::Error;
+    type Error = <Self as TryFrom<&'a BinaryTreeNode<D>>>::Error;
 
-    fn try_from(value: &'a AggregationTree<D>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a BinaryTree<D>) -> Result<Self, Self::Error> {
         if let Some(root) = &value.root {
             Self::try_from(root)
         } else {

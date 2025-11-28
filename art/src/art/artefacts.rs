@@ -4,8 +4,6 @@ use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::UniformRand;
-use ark_std::rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};

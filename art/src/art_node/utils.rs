@@ -1,6 +1,6 @@
 use crate::art::ArtNodePreview;
 use crate::art_node::ArtNode;
-use crate::changes::aggregations::AggregationNode;
+use crate::changes::aggregations::BinaryTreeNode;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 
@@ -98,15 +98,15 @@ where
 }
 
 pub struct AggregationNodeWrapper<'a, D> {
-    node: &'a AggregationNode<D>,
+    node: &'a BinaryTreeNode<D>,
 }
 
 impl<'a, D> AggregationNodeWrapper<'a, D> {
-    pub fn new(node: &'a AggregationNode<D>) -> Self {
+    pub fn new(node: &'a BinaryTreeNode<D>) -> Self {
         Self { node }
     }
 
-    pub fn node(&self) -> &AggregationNode<D> {
+    pub fn node(&self) -> &BinaryTreeNode<D> {
         &self.node
     }
 }
