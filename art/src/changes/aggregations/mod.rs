@@ -9,6 +9,6 @@ mod aggregation_data;
 
 pub use aggregated_change::{AggregatedChange, BinaryTree, PrivateAggregatedChange};
 pub use aggregated_node::{
-    BinaryTreeNodeWrapper, BinaryTreeNode, AggregationNodeIterWithPath, TreeNodeIterWithPath,
+    AggregationNodeIterWithPath, BinaryTreeNode, BinaryTreeNodeWrapper, TreeNodeIterWithPath,
 };
 pub use aggregation_data::{AggregationData, ProverAggregationData, VerifierAggregationData};

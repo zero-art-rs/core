@@ -2,8 +2,8 @@ use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicM
 use crate::art_node::{LeafStatus, NodePair, PriorityNodePair, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, BinaryTreeNode, AggregationNodeIterWithPath,
-    BinaryTree, PrivateAggregatedChange, ProverAggregationData,
+    AggregatedChange, AggregationData, AggregationNodeIterWithPath, BinaryTree, BinaryTreeNode,
+    PrivateAggregatedChange, ProverAggregationData,
 };
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -85,7 +85,7 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub fn update_branch(
+    pub(crate) fn update_branch(
         &mut self,
         prover_artefacts: &ProverArtefacts<G>,
         update_path: &[Direction],
@@ -288,7 +288,10 @@ where
     G: AffineRepr,
     G::BaseField: PrimeField,
 {
-    pub fn pub_art_unrecoverable_apply(&self, art: &mut PublicArt<G>) -> Result<(), ArtError> {
+    pub(crate) fn pub_art_unrecoverable_apply(
+        &self,
+        art: &mut PublicArt<G>,
+    ) -> Result<(), ArtError> {
         let Some(agg_root) = &self.root else {
             return Ok(());
         };
@@ -351,7 +354,7 @@ where
         Ok(())
     }
 
-    pub fn aggregation_co_path(
+    pub(crate) fn aggregation_co_path(
         &self,
         art: &PrivateArt<G>,
         path: &[Direction],
@@ -381,7 +384,7 @@ where
         Ok(partial_co_path)
     }
 
-    pub fn private_art_secrets_unrecoverable_apply(
+    pub(crate) fn private_art_secrets_unrecoverable_apply(
         &self,
         art: &mut PrivateArt<G>,
         user_secret: Option<G::ScalarField>,

@@ -1,10 +1,10 @@
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{AggregationContext, PrivateArt};
-use crate::art_node::{ArtNode, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, BinaryTreeNode, AggregationNodeIterWithPath,
-    BinaryTree, PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
+    AggregatedChange, AggregationData, AggregationNodeIterWithPath, BinaryTree, BinaryTreeNode,
+    PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -13,7 +13,7 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
+use std::cmp::{Ordering, max};
 use std::fmt::Debug;
 use std::mem;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
@@ -692,33 +692,47 @@ where
     /// Returns helper structure for verification of art update.
     pub fn verification_branch(
         &self,
-        changes: &BranchChange<G>,
+        change: &BranchChange<G>,
     ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
-        let mut co_path = Vec::new();
+        let mut path = change.node_index.get_path()?;
+        if matches!(change.change_type, BranchChangeType::AddMember)
+            && matches!(
+                self.node_at(&path)?.status(),
+                Some(LeafStatus::Active | LeafStatus::PendingRemoval)
+            )
+        {
+            path.push(Direction::Right);
+        }
 
+        let mut co_path = Vec::new();
         let mut parent = self.root();
-        for direction in &changes.node_index.get_path()? {
+        for direction in &path {
             if parent.is_leaf() {
-                if let BranchChangeType::AddMember = changes.change_type
+                if let BranchChangeType::AddMember = change.change_type
                     && matches!(parent.status(), Some(LeafStatus::Active))
                 {
                     // The current node is a part of the co-path
                     co_path.push(parent.public_key())
                 }
             } else {
-                let co_public_key = parent
-                    .child(direction.other())
-                    .ok_or(ArtError::PathNotExists)?
-                    .public_key();
-                co_path.push(co_public_key);
+                co_path.push(
+                    parent
+                        .child(direction.other())
+                        .ok_or(ArtError::PathNotExists)?
+                        .public_key(),
+                );
                 parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
             }
         }
 
         co_path.reverse();
 
-        let path = changes.public_keys.iter().rev().cloned().collect();
-        VerifierArtefacts { path, co_path }.to_verifier_branch()
+        let verifier_artefacts = VerifierArtefacts {
+            path: change.public_keys.iter().rev().cloned().collect(),
+            co_path,
+        };
+
+        verifier_artefacts.to_verifier_branch()
     }
 
     /// Update public art public keys with ones provided in the `verifier_aggregation` tree.
@@ -800,6 +814,71 @@ where
 
         Ok(leaf_public_key)
     }
+
+    pub(crate) fn find_place_for_new_node(&self) -> Result<Vec<Direction>, ArtError> {
+        match self.find_path_to_left_most_blank_node() {
+            Some(path) => Ok(path),
+            None => self.find_path_to_lowest_leaf(),
+        }
+    }
+
+    /// Searches for the left most blank node and returns the vector of directions to it.
+    pub(crate) fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
+        for (node, path) in TreeNodeIterWithPath::new(self.root()) {
+            if node.is_leaf() && !matches!(node.status(), Some(LeafStatus::Active)) {
+                let mut node_path = Vec::with_capacity(path.len());
+
+                for (_, dir) in path {
+                    node_path.push(dir);
+                }
+
+                return Some(node_path);
+            }
+        }
+
+        None
+    }
+
+    /// Searches for the closest leaf to the root. Assume that the required leaf is in a subtree,
+    /// with the smallest weight. Priority is given to left branch.
+    pub(crate) fn find_path_to_lowest_leaf(&self) -> Result<Vec<Direction>, ArtError> {
+        let mut candidate = self.root();
+        let mut next = vec![];
+
+        while !candidate.is_leaf() {
+            let l = candidate
+                .child(Direction::Left)
+                .ok_or(ArtError::PathNotExists)?;
+            let r = candidate
+                .child(Direction::Right)
+                .ok_or(ArtError::PathNotExists)?;
+
+            let next_direction = match l.weight() <= r.weight() {
+                true => Direction::Left,
+                false => Direction::Right,
+            };
+
+            next.push(next_direction);
+            candidate = candidate
+                .child(next_direction)
+                .ok_or(ArtError::InvalidInput)?;
+        }
+
+        while let (Some(l), Some(r)) = (
+            candidate.child(Direction::Left),
+            candidate.child(Direction::Right),
+        ) {
+            if l.weight() <= r.weight() {
+                next.push(Direction::Left);
+                candidate = l;
+            } else {
+                next.push(Direction::Right);
+                candidate = r;
+            }
+        }
+
+        Ok(next)
+    }
 }
 
 impl<'a, G> ArtNodePreview<'a, G>
@@ -875,6 +954,26 @@ where
             Self::ArtNodeOnly { art_node } => art_node.status(),
             Self::MergeNodeOnly { merge_node } => merge_node.status(),
             Self::Full { merge_node, .. } => merge_node.status(),
+        }
+    }
+
+    pub fn weight(&self) -> usize {
+        match self {
+            Self::ArtNodeOnly { art_node } => art_node.weight(),
+            Self::MergeNodeOnly { merge_node } => merge_node.data.weight_change as usize,
+            Self::Full {
+                merge_node,
+                art_node,
+            } => {
+                let mut weight = art_node.weight();
+                match merge_node.data.weight_change.cmp(&0) {
+                    Ordering::Less => weight -= merge_node.data.weight_change.abs() as usize,
+                    Ordering::Equal => {}
+                    Ordering::Greater => weight += merge_node.data.weight_change as usize,
+                }
+
+                weight
+            }
         }
     }
 

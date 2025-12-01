@@ -172,8 +172,10 @@ where
     G: AffineRepr,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let wpk = prepare_short_marker_for_option(&self.weak_key.clone().and_then(|point| point.x()));
-        let spk = prepare_short_marker_for_option(&self.strong_key.clone().and_then(|point| point.x()));
+        let wpk =
+            prepare_short_marker_for_option(&self.weak_key.clone().and_then(|point| point.x()));
+        let spk =
+            prepare_short_marker_for_option(&self.strong_key.clone().and_then(|point| point.x()));
         let op = prepare_short_marker_for_option(&self.status);
 
         write!(f, "weak_key: {}, strong_key: {}, status: {}", wpk, spk, op)

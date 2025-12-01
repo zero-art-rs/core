@@ -18,7 +18,7 @@ use ark_std::rand::{SeedableRng, thread_rng};
 use cortado::{CortadoAffine, Fr};
 use std::ops::Mul;
 use zrt_zk::EligibilityRequirement;
-use zrt_zk::aggregated_art::{ProverAggregationTree};
+use zrt_zk::aggregated_art::ProverAggregationTree;
 use zrt_zk::art::ArtProof;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 
@@ -234,10 +234,9 @@ fn test_branch_aggregation_flow() {
         }
     }
 
-    let verifier_aggregation = BinaryTree::<VerifierAggregationData<CortadoAffine>>::try_from(
-        &agg.prover_aggregation,
-    )
-    .unwrap();
+    let verifier_aggregation =
+        BinaryTree::<VerifierAggregationData<CortadoAffine>>::try_from(&agg.prover_aggregation)
+            .unwrap();
 
     let aggregation_from_prover =
         BinaryTree::<AggregationData<CortadoAffine>>::try_from(&agg).unwrap();

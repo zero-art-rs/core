@@ -85,7 +85,7 @@ mod tests {
             );
             assert_eq!(
                 art.node_index().get_path().unwrap().len() + 1,
-                art.secrets().secret_keys().len(),
+                art.secrets().secrets().len(),
             );
         }
 
@@ -134,21 +134,23 @@ mod tests {
         );
 
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].secrets().secret_keys()[0];
+            let old_sk = group_arts[i].secrets().leaf();
 
             if i != target_user {
                 group_arts[i].apply(&change).unwrap();
                 group_arts[i].commit().unwrap();
             }
 
-            assert_eq!(
-                old_sk,
-                group_arts[i].leaf_secret_key(),
-                "Sanity check: User secret key didn't changed."
-            );
+            if i != target_user {
+                assert_eq!(
+                    old_sk,
+                    group_arts[i].leaf_secret_key(),
+                    "Sanity check: User secret key didn't changed."
+                );
+            }
             assert_eq!(
                 group_arts[i].node_index().get_path().unwrap().len() + 1,
-                group_arts[i].secrets().secret_keys().len(),
+                group_arts[i].secrets().secrets().len(),
             );
             assert_eq!(
                 group_arts[target_user], group_arts[i],
@@ -221,7 +223,7 @@ mod tests {
             );
             assert_eq!(
                 group_arts[i].node_index().get_path().unwrap().len() + 1,
-                group_arts[i].secrets().secret_keys().len(),
+                group_arts[i].secrets().secrets().len(),
                 "Length of `path_secrets` = direction_path + 1 for user {}: {:?}.",
                 i,
                 group_arts[i].node_index(),
@@ -303,7 +305,7 @@ mod tests {
             );
             assert_eq!(
                 group_arts[i].node_index().get_path().unwrap().len() + 1,
-                group_arts[i].secrets().secret_keys().len(),
+                group_arts[i].secrets().secrets().len(),
                 "Length of path secrets is length of direction path to node + 1 for user_{i}: {:?}.",
                 group_arts[i].node_index(),
             );

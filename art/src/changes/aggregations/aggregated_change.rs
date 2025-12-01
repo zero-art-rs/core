@@ -1,7 +1,7 @@
 use crate::art::{PublicArt, PublicMergeData};
 use crate::art_node::{ArtNode, LeafStatus};
 use crate::changes::aggregations::{
-    AggregationData, BinaryTreeNode, AggregationNodeIterWithPath, VerifierAggregationData,
+    AggregationData, AggregationNodeIterWithPath, BinaryTreeNode, VerifierAggregationData,
 };
 use crate::changes::branch_change::{
     BranchChange, BranchChangeType, BranchChangeTypeHint, PrivateBranchChange,

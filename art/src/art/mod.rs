@@ -10,7 +10,9 @@ mod public_art;
 pub use aggregations::AggregationContext;
 pub use art_advanced_operations::ArtAdvancedOps;
 pub use private_art::{ArtSecretPreview, ArtSecrets, PrivateArt, PrivateArtApplySnapshot};
-pub use public_art::{ArtNodePreview, PublicArt, PublicArtPreview, PublicMergeData, PublicArtApplySnapshot};
+pub use public_art::{
+    ArtNodePreview, PublicArt, PublicArtApplySnapshot, PublicArtPreview, PublicMergeData,
+};
 
 pub(crate) use artefacts::ProverArtefacts;
 

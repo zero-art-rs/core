@@ -1,8 +1,6 @@
 use crate::art::{ArtNodePreview, ProverArtefacts};
 use crate::art_node::{ArtNode, NodeIterWithPath};
-use crate::changes::aggregations::{
-    BinaryTree, ProverAggregationData, VerifierAggregationData,
-};
+use crate::changes::aggregations::{BinaryTree, ProverAggregationData, VerifierAggregationData};
 use crate::changes::branch_change::{BranchChange, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};

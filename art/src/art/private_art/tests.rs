@@ -463,7 +463,7 @@ fn test_art_key_update() {
 
     for (secret_key, corr_pk) in users_arts[main_user_id]
         .secrets
-        .secret_keys()
+        .secrets()
         .iter()
         .zip(pub_keys.iter())
     {
@@ -732,7 +732,7 @@ fn test_correctness_for_method_from() {
 
     let user1_2 = PrivateArt::restore(
         public_art.clone(),
-        ArtSecrets::try_from(user1.secrets.secret_keys()).unwrap(),
+        ArtSecrets::try_from(user1.secrets.secrets().clone()).unwrap(),
     )
     .unwrap();
 
@@ -1527,7 +1527,7 @@ pub(crate) fn verify_secrets_are_correct(
 
     let mut secrets = private_art
         .secrets
-        .secret_keys()
+        .secrets()
         .iter()
         .rev()
         .cloned()
@@ -1908,14 +1908,10 @@ fn test_append_node_proof() {
     let public_art = private_art.public_art().clone();
 
     let mut art = private_art;
-
     let test_art = PrivateArt::new(public_art, secrets[1]).unwrap();
-
     let public_key = art.leaf_public_key();
+
     let new_secret_key = Fr::rand(&mut rng);
-
-    let associated_data = &[2, 3, 4, 5, 6, 7, 8, 9, 10];
-
     let (_, append_node_changes, prover_branch) = art.add_member(new_secret_key).unwrap();
 
     let tk = append_node_changes.apply(&mut art).unwrap();
@@ -1925,6 +1921,7 @@ fn test_append_node_proof() {
     );
     art.commit().unwrap();
 
+    let associated_data = &[2, 3, 4, 5, 6, 7, 8, 9, 10];
     let proof = prover_engine
         .new_context(owner_leaf_eligibility_artefact(&art))
         .for_branch(&prover_branch)
@@ -1945,6 +1942,45 @@ fn test_append_node_proof() {
         "Must successfully verify, while get {:?} result",
         verification_result
     );
+}
+
+#[test]
+fn test_append_node_changes_creation() {
+    init_tracing();
+
+    let mut rng = StdRng::seed_from_u64(rand::random());
+    let secrets = (0..TEST_GROUP_SIZE)
+        .map(|_| Fr::rand(&mut rng))
+        .collect::<Vec<_>>();
+
+    let mut user0 = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
+    let mut user1 = PrivateArt::new(user0.public_art().clone(), secrets[1]).unwrap();
+    let mut user2 = PrivateArt::new(user0.public_art().clone(), secrets[2]).unwrap();
+
+    let (_, removal_change0, _) = user0
+        .remove_member(user2.node_index(), Fr::rand(&mut rng))
+        .unwrap();
+
+    user0.apply(&removal_change0).unwrap();
+    user1.apply(&removal_change0).unwrap();
+
+    let (_, append_node_change1, _) = user0.add_member(Fr::rand(&mut rng)).unwrap();
+
+    user0.commit().unwrap();
+    user1.commit().unwrap();
+
+    user0.apply(&append_node_change1).unwrap();
+    user1.apply(&append_node_change1).unwrap();
+
+    for _ in 0..10 {
+        let (_, append_node_change2, _) = user0.add_member(Fr::rand(&mut rng)).unwrap();
+
+        user0.commit().unwrap();
+        user0.apply(&append_node_change2).unwrap();
+
+        user1.commit().unwrap();
+        user1.apply(&append_node_change2).unwrap();
+    }
 }
 
 #[test]
