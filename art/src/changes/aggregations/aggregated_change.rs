@@ -1,17 +1,11 @@
-use crate::art::{PublicArt, PublicMergeData};
-use crate::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::{
-    AggregationData, AggregationNodeIterWithPath, BinaryTreeNode, VerifierAggregationData,
-};
-use crate::changes::branch_change::{
-    BranchChange, BranchChangeType, BranchChangeTypeHint, PrivateBranchChange,
-};
+use crate::art::PublicMergeData;
+use crate::art_node::{BinaryTree, BinaryTreeNode, LeafStatus};
+use crate::changes::aggregations::AggregationData;
+use crate::changes::branch_change::BranchChangeTypeHint;
 use crate::errors::ArtError;
 use crate::errors::ArtError::InapplicableAggregation;
-use crate::node_index::{Direction, NodeIndex};
+use crate::node_index::Direction;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::PrimeField;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::mem;
 use tracing::error;
@@ -23,60 +17,6 @@ pub type AggregatedChange<G> = BinaryTree<AggregationData<G>>;
 
 /// Helper structure to apply aggregations with own key update correctly.
 pub struct PrivateAggregatedChange<G: AffineRepr>(G::ScalarField, AggregatedChange<G>);
-
-/// Helper data struct for proof verification.
-pub(crate) type VerifierChangeAggregation<G> = BinaryTree<VerifierAggregationData<G>>;
-
-/// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
-pub struct BinaryTree<D> {
-    pub(crate) root: Option<BinaryTreeNode<D>>,
-}
-
-impl<D> BinaryTree<D> {
-    pub fn new(root: Option<BinaryTreeNode<D>>) -> Self {
-        Self { root }
-    }
-
-    pub fn root(&self) -> Option<&BinaryTreeNode<D>> {
-        self.root.as_ref()
-    }
-
-    pub(crate) fn mut_root(&mut self) -> &mut Option<BinaryTreeNode<D>> {
-        &mut self.root
-    }
-
-    pub fn node_at(&self, path: &[Direction]) -> Option<&BinaryTreeNode<D>> {
-        let Some(mut target_node) = self.root.as_ref() else {
-            return None;
-        };
-
-        for dir in path {
-            let Some(child) = target_node.child(*dir) else {
-                return None;
-            };
-            target_node = child;
-        }
-
-        Some(target_node)
-    }
-
-    pub fn mut_node_at(&mut self, path: &[Direction]) -> Option<&mut BinaryTreeNode<D>> {
-        let Some(mut target_node) = self.root.as_mut() else {
-            return None;
-        };
-
-        for dir in path {
-            let Some(child) = target_node.mut_child(*dir) else {
-                return None;
-            };
-            target_node = child;
-        }
-
-        Some(target_node)
-    }
-}
 
 impl<G: AffineRepr> PrivateAggregatedChange<G> {
     pub fn new(sk: G::ScalarField, change: AggregatedChange<G>) -> Self {

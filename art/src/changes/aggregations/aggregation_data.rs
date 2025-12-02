@@ -80,16 +80,6 @@ where
     pub change_type: Vec<BranchChangeTypeHint<G>>,
 }
 
-impl<G> AggregationData<G>
-where
-    G: AffineRepr,
-{
-    pub(crate) fn aggregate(&mut self, other: Self) {
-        self.public_key = other.public_key;
-        self.change_type.extend(other.change_type);
-    }
-}
-
 /// Helper structure. Similar to `AggregationData`, but with additional co-path values for
 /// proof verification.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -49,14 +49,12 @@ fn example_of_simple_flow() {
     let new_secret_key_1 = Fr::rand(&mut rng);
 
     // Any user can update his public art with the next method.
-    let (_, output_1) = art_1.update_key(new_secret_key_1).unwrap();
+    let (_, change_1): (Fr, BranchChange<CortadoAffine>) =
+        art_1.update_key(new_secret_key_1).unwrap();
     // Apply ephemeral operation to the ART tree with private branch change.
     new_secret_key_1.apply(&mut art_1).unwrap();
     // Commit applied operation.
     art_1.commit().unwrap();
-
-    // Retrieve change from the private branch change
-    let change_1 = BranchChange::from(output_1);
 
     // Root key tk is a new common secret. To get common secret, user should use the next method.
     let _retrieved_tk_1 = art_0.root_secret_key();
@@ -105,11 +103,10 @@ fn example_of_simple_flow() {
     // For proof creation one can use prover engine.
     let prover_engine = ZeroArtProverEngine::default();
     // Create context, and provide it with required data.
+    let leaf_sk = art_1.secrets().preview().leaf();
+    let leaf_pk = CortadoAffine::generator().mul(leaf_sk).into_affine();
     let proof = prover_engine
-        .new_context(EligibilityArtefact::Member((
-            art_1.leaf_secret_key(),
-            art_1.leaf_public_key(),
-        )))
+        .new_context(EligibilityArtefact::Member((leaf_sk, leaf_pk)))
         .for_branch(&prover_branch_4)
         .with_associated_data(associated_data)
         .prove(&mut thread_rng())
@@ -118,15 +115,13 @@ fn example_of_simple_flow() {
     // On the other hand, for verification one can use verifier engine with verifier context
     let verifier_engine = ZeroArtVerifierEngine::default();
     // To verify the change, one eligibility_requirement should be passed as with proof creation.
-    let eligibility_requirement = EligibilityRequirement::Member(
-        art_0
-            .root()
-            .node(&changes_4.node_index)
-            .unwrap()
-            .public_key(),
-    );
+    let target_leaf_pk = art_0
+        .root()
+        .node(&changes_4.node_index)
+        .unwrap()
+        .public_key();
     let verification_result = verifier_engine
-        .new_context(eligibility_requirement)
+        .new_context(EligibilityRequirement::Member(target_leaf_pk))
         .with_associated_data(associated_data)
         .for_branch(&art_0.verification_branch(&changes_4).unwrap())
         .verify(&proof);
@@ -242,10 +237,10 @@ fn example_of_aggregation_usage() {
     let associated_data = b"associated data";
 
     // Create verifiable aggregation.
-    let eligibility_artefact =
-        EligibilityArtefact::Owner((user0.leaf_secret_key(), user0.leaf_public_key()));
+    let leaf_sk = user0.secrets().preview().leaf();
+    let leaf_pk = CortadoAffine::generator().mul(leaf_sk).into_affine();
     let proof = prover_engine
-        .new_context(eligibility_artefact)
+        .new_context(EligibilityArtefact::Owner((leaf_sk, leaf_pk)))
         .for_aggregation(&ProverAggregationTree::try_from(&agg).unwrap())
         .with_associated_data(associated_data)
         .prove(&mut thread_rng())
@@ -253,13 +248,9 @@ fn example_of_aggregation_usage() {
 
     let change = AggregatedChange::try_from(&agg).unwrap();
 
-    // Aggregation verification is similar to usual change aggregation.
-    let aux_pk = user0.leaf_public_key();
-    let eligibility_requirement = EligibilityRequirement::Previleged((aux_pk, vec![]));
-
-    let verifier_tree = user0.public_art().verification_tree(&change).unwrap();
+    let verifier_tree = user0.preview().verification_tree(&change).unwrap();
     verifier_engine
-        .new_context(eligibility_requirement)
+        .new_context(EligibilityRequirement::Previleged((leaf_pk, vec![])))
         .for_aggregation(&verifier_tree)
         .with_associated_data(associated_data)
         .verify(&proof)

@@ -3,9 +3,9 @@ use crate::art::public_art::PublicArtApplySnapshot;
 use crate::art::{
     AggregationContext, ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview, PublicMergeData,
 };
-use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, TreeMethods};
+use crate::art_node::{ArtNode, BinaryTree, LeafIterWithPath, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{AggregatedChange, BinaryTree, PrivateAggregatedChange};
+use crate::changes::aggregations::{AggregatedChange, PrivateAggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
@@ -14,8 +14,7 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
-use std::cmp::{Ordering, max};
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
@@ -169,9 +168,13 @@ where
         new_secrets: impl IntoIterator<Item = &'a G::ScalarField>,
         weak_only: bool,
     ) -> Result<(), ArtError> {
-        let mut new_secrets_iterator = new_secrets.into_iter().enumerate();
+        let mut new_secrets_iterator = new_secrets.into_iter();
 
-        for (i, sk) in new_secrets_iterator.by_ref().take(self.secrets.len()) {
+        for (i, sk) in new_secrets_iterator
+            .by_ref()
+            .take(self.secrets.len())
+            .enumerate()
+        {
             if let Some(sk_preview) = self.secrets_preview.get_mut(i) {
                 sk_preview.update(*sk, weak_only);
             } else {
@@ -180,13 +183,17 @@ where
             }
         }
 
-        for (_, sk) in new_secrets_iterator {
-            if weak_only {
-                return Err(ArtError::InvalidInput);
-            }
+        for (i, sk) in new_secrets_iterator.enumerate() {
+            if let Some(sk_excess_preview) = self.secrets_preview_excess.get_mut(i) {
+                sk_excess_preview.update(*sk)
+            } else {
+                if weak_only {
+                    return Err(ArtError::InvalidInput);
+                }
 
-            self.secrets_preview_excess
-                .push(ArtSecretPreviewExcess::new(*sk, None))
+                self.secrets_preview_excess
+                    .push(ArtSecretPreviewExcess::new(*sk, None))
+            }
         }
 
         Ok(())
@@ -296,14 +303,6 @@ impl ArtNodeIndex {
         }
     }
 
-    pub fn preview(&self) -> &NodeIndex {
-        if let Some(index) = &self.node_index_preview {
-            return index;
-        } else {
-            &self.node_index
-        }
-    }
-
     pub fn discard(&mut self) {
         self.node_index_preview = None;
     }
@@ -347,7 +346,7 @@ pub struct PrivateArt<G>
 where
     G: AffineRepr,
 {
-    /// Public part of the art
+    /// Public part of the art.
     pub(crate) public_art: PublicArt<G>,
 
     /// Set of secret keys on path from the user leaf to the root.
@@ -361,6 +360,7 @@ where
 pub struct PrivateArtApplySnapshot<G: AffineRepr> {
     public_art_snapshot: PublicArtApplySnapshot<G>,
     secrets_snapshot: Vec<ArtSecretPreview<G>>,
+    secrets_preview_excess: Vec<ArtSecretPreviewExcess<G>>,
     node_index_snapshot: Option<NodeIndex>,
 }
 
@@ -368,11 +368,13 @@ impl<G: AffineRepr> PrivateArtApplySnapshot<G> {
     pub fn new(
         public_art_snapshot: PublicArtApplySnapshot<G>,
         secrets_snapshot: Vec<ArtSecretPreview<G>>,
+        secrets_preview_excess: Vec<ArtSecretPreviewExcess<G>>,
         node_index_snapshot: Option<NodeIndex>,
     ) -> Self {
         Self {
             public_art_snapshot,
             secrets_snapshot,
+            secrets_preview_excess,
             node_index_snapshot,
         }
     }
@@ -466,6 +468,7 @@ where
         PrivateArtApplySnapshot::new(
             self.public_art.snapshot(),
             self.secrets.secrets_preview.clone(),
+            self.secrets.secrets_preview_excess.clone(),
             self.node_index.node_index_preview.clone(),
         )
     }
@@ -473,6 +476,7 @@ where
     pub fn undo_apply(&mut self, snapshot: PrivateArtApplySnapshot<G>) {
         self.public_art.undo_apply(snapshot.public_art_snapshot);
         self.secrets.secrets_preview = snapshot.secrets_snapshot;
+        self.secrets.secrets_preview_excess = snapshot.secrets_preview_excess;
         self.node_index.node_index_preview = snapshot.node_index_snapshot;
     }
 

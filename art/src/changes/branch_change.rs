@@ -42,7 +42,8 @@ where
 }
 
 /// Helper data type, which along with the `branch_change` contain additional
-/// artefacts, which can be used to create a proof.
+/// artefacts, which can be used to create a proof. Can be used to update ART tree
+/// after your own key update. Note that you can use secret key directly.
 #[derive(Debug, Clone)]
 pub struct PrivateBranchChange<G: AffineRepr>(G::ScalarField, BranchChange<G>);
 

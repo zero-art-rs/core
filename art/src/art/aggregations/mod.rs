@@ -1,10 +1,8 @@
 use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData};
-use crate::art_node::{LeafStatus, NodePair, PriorityNodePair, TreeMethods};
-use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNodeIterWithPath, BinaryTree, BinaryTreeNode,
-    PrivateAggregatedChange, ProverAggregationData,
+use crate::art_node::{
+    BinaryTree, BinaryTreeNode, BinaryTreeNodeIterWithPath, LeafStatus, TreeMethods,
 };
+use crate::changes::aggregations::{AggregatedChange, ProverAggregationData};
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::recompute_artefacts;
@@ -296,7 +294,7 @@ where
             return Ok(());
         };
 
-        for (node, path) in AggregationNodeIterWithPath::new(agg_root) {
+        for (node, path) in BinaryTreeNodeIterWithPath::new(agg_root) {
             let full_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let mut path = full_path.clone();
 

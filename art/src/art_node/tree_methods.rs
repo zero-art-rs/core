@@ -1,14 +1,10 @@
-use crate::art::{ArtNodePreview, PrivateArt, PublicArt};
-// use crate::art::{PrivateZeroArt, PublicZeroArt};
-use crate::art_node::{ArtNode, NodeIterWithPath};
+use crate::art::{PrivateArt, PublicArt};
+use crate::art_node::ArtNode;
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
-use ark_ff::PrimeField;
-use ark_std::rand::Rng;
-use tracing::debug;
 
-pub(crate) trait TreeNode {
+pub trait TreeNode {
     fn child_node(&self, dir: Direction) -> Option<&Self>;
     fn mut_child_node(&mut self, dir: Direction) -> Option<&mut Self>;
 }
@@ -130,31 +126,3 @@ where
         self.public_art.tree_root.mut_root()
     }
 }
-
-// impl<G> TreeMethods<G> for PublicZeroArt<G>
-// where
-//     G: AffineRepr,
-// {
-//     fn get_root(&self) -> &ArtNode<G> {
-//         self.base_art.tree_root.get_root()
-//     }
-//
-//     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-//         self.base_art.tree_root.get_mut_root()
-//     }
-// }
-//
-// impl<G, R> TreeMethods<G> for PrivateZeroArt<G, R>
-// where
-//     G: AffineRepr,
-//     G::BaseField: PrimeField,
-//     R: Rng + ?Sized,
-// {
-//     fn get_root(&self) -> &ArtNode<G> {
-//         self.base_art.public_art.tree_root.get_root()
-//     }
-//
-//     fn get_mut_root(&mut self) -> &mut ArtNode<G> {
-//         self.base_art.public_art.tree_root.get_mut_root()
-//     }
-// }

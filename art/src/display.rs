@@ -1,6 +1,6 @@
-use crate::art::{ArtNodePreview, PublicMergeData};
+use crate::art::PublicMergeData;
 use crate::art_node::{ArtNode, LeafStatus};
-use crate::changes::aggregations::BinaryTreeNode;
+use crate::art_node::{ArtNodePreview, BinaryTreeNode};
 use crate::helper_tools::prepare_short_marker_for_option;
 use crate::node_index::Direction;
 use ark_ec::AffineRepr;

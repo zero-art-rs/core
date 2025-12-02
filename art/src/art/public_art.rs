@@ -1,10 +1,12 @@
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{AggregationContext, PrivateArt};
-use crate::art_node::{ArtNode, LeafIterWithPath, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::art_node::{
+    ArtNode, ArtNodePreview, BinaryTree, BinaryTreeNode, BinaryTreeNodeIterWithPath, LeafStatus,
+    NodeIterWithPath, TreeMethods, TreeNodeIterWithPath,
+};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
-    AggregatedChange, AggregationData, AggregationNodeIterWithPath, BinaryTree, BinaryTreeNode,
-    PrivateAggregatedChange, TreeNodeIterWithPath, VerifierAggregationData,
+    AggregatedChange, AggregationData, PrivateAggregatedChange, VerifierAggregationData,
 };
 use crate::changes::branch_change::{BranchChange, BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -13,7 +15,7 @@ use crate::node_index::{Direction, NodeIndex};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
-use std::cmp::{Ordering, max};
+use std::cmp::max;
 use std::fmt::Debug;
 use std::mem;
 use zrt_zk::aggregated_art::VerifierAggregationTree;
@@ -105,24 +107,6 @@ where
     G: AffineRepr,
 {
     public_art: &'a PublicArt<G>,
-}
-
-/// A view of the `ArtNode` in  `PublicArt` state after commit.
-#[derive(Clone, Copy, Debug)]
-pub enum ArtNodePreview<'a, G>
-where
-    G: AffineRepr,
-{
-    ArtNodeOnly {
-        art_node: &'a ArtNode<G>,
-    },
-    MergeNodeOnly {
-        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
-    },
-    Full {
-        art_node: &'a ArtNode<G>,
-        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
-    },
 }
 
 impl<G> From<ArtNode<G>> for PublicArt<G>
@@ -411,7 +395,7 @@ where
         let mut resulting_aggregation_root =
             BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
-        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+        for (_, path) in BinaryTreeNodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
             let aggregation_parent = path
@@ -748,7 +732,7 @@ where
         let mut resulting_aggregation_root =
             BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
-        for (_, path) in AggregationNodeIterWithPath::new(agg_root).skip(1) {
+        for (_, path) in BinaryTreeNodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
             let aggregation_parent = path
@@ -878,124 +862,5 @@ where
         }
 
         Ok(next)
-    }
-}
-
-impl<'a, G> ArtNodePreview<'a, G>
-where
-    G: AffineRepr,
-{
-    pub fn new(
-        art_node: Option<&'a ArtNode<G>>,
-        merge_node: Option<&'a BinaryTreeNode<PublicMergeData<G>>>,
-    ) -> Result<Self, ArtError> {
-        match (art_node, merge_node) {
-            (Some(art_node), Some(merge_node)) => Ok(Self::Full {
-                art_node,
-                merge_node,
-            }),
-            (Some(art_node), None) => Ok(Self::ArtNodeOnly { art_node }),
-            (None, Some(merge_node)) => Ok(Self::MergeNodeOnly { merge_node }),
-            (None, None) => Err(ArtError::InvalidInput),
-        }
-    }
-
-    /// Returns reference on the corresponding `ArtNode`.
-    pub fn art_node(&self) -> Option<&'a ArtNode<G>> {
-        match self {
-            Self::ArtNodeOnly { art_node, .. } => Some(art_node),
-            Self::MergeNodeOnly { .. } => None,
-            Self::Full { art_node, .. } => Some(art_node),
-        }
-    }
-
-    /// If exists, returns a reference on the node with the given index, in correspondence to the
-    /// root node. Else return `ArtError`.
-    pub fn node(&self, index: &NodeIndex) -> Result<Self, ArtError> {
-        self.node_at(&index.get_path()?)
-    }
-
-    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
-    pub fn node_at(&self, path: &[Direction]) -> Result<Self, ArtError> {
-        let mut node = self.clone();
-        for direction in path {
-            if let Some(child_node) = node.child(*direction) {
-                node = child_node;
-            } else {
-                return Err(ArtError::PathNotExists);
-            }
-        }
-
-        Ok(node)
-    }
-
-    /// Returns merge node is exists, else `None`.
-    pub(crate) fn merge_node(&self) -> Option<&'a BinaryTreeNode<PublicMergeData<G>>> {
-        match self {
-            Self::ArtNodeOnly { .. } => None,
-            Self::MergeNodeOnly { merge_node, .. } => Some(merge_node),
-            Self::Full { merge_node, .. } => Some(merge_node),
-        }
-    }
-
-    pub fn public_key(&self) -> G {
-        match self {
-            Self::ArtNodeOnly { art_node } => art_node.public_key(),
-            Self::MergeNodeOnly { merge_node } => merge_node.preview_public_key(),
-            Self::Full {
-                art_node,
-                merge_node,
-            } => art_node.preview_public_key(&merge_node.data),
-        }
-    }
-
-    pub fn status(&self) -> Option<LeafStatus> {
-        match self {
-            Self::ArtNodeOnly { art_node } => art_node.status(),
-            Self::MergeNodeOnly { merge_node } => merge_node.status(),
-            Self::Full { merge_node, .. } => merge_node.status(),
-        }
-    }
-
-    pub fn weight(&self) -> usize {
-        match self {
-            Self::ArtNodeOnly { art_node } => art_node.weight(),
-            Self::MergeNodeOnly { merge_node } => merge_node.data.weight_change as usize,
-            Self::Full {
-                merge_node,
-                art_node,
-            } => {
-                let mut weight = art_node.weight();
-                match merge_node.data.weight_change.cmp(&0) {
-                    Ordering::Less => weight -= merge_node.data.weight_change.abs() as usize,
-                    Ordering::Equal => {}
-                    Ordering::Greater => weight += merge_node.data.weight_change as usize,
-                }
-
-                weight
-            }
-        }
-    }
-
-    /// Returns a children node on the given direction `dir` if exists, else `None`.
-    pub fn child(&self, dir: Direction) -> Option<Self> {
-        let art_node: Option<&'a ArtNode<G>> = match self.art_node() {
-            Some(node) => node.child(dir),
-            None => None,
-        };
-
-        let merge_node = match self.merge_node() {
-            Some(merge_node) => merge_node.child(dir),
-            None => None,
-        };
-
-        Self::new(art_node, merge_node).ok()
-    }
-
-    pub fn is_leaf(&self) -> bool {
-        let left = self.child(Direction::Left);
-        let right = self.child(Direction::Right);
-
-        left.is_none() && right.is_none()
     }
 }

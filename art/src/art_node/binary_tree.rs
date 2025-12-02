@@ -1,6 +1,6 @@
-use crate::art::{ArtNodePreview, ProverArtefacts};
-use crate::art_node::{ArtNode, NodeIterWithPath};
-use crate::changes::aggregations::{BinaryTree, ProverAggregationData, VerifierAggregationData};
+use crate::art::ProverArtefacts;
+use crate::art_node::{ArtNode, ArtNodePreview, NodeIterWithPath};
+use crate::changes::aggregations::{ProverAggregationData, VerifierAggregationData};
 use crate::changes::branch_change::{BranchChange, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::node_index::{Direction, NodeIndex};
@@ -11,6 +11,57 @@ use serde::{Deserialize, Serialize};
 use tree_ds::prelude::Node;
 use zrt_zk::aggregated_art::{ProverAggregationTree, VerifierAggregationTree};
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
+
+/// General tree for Aggregation structures. Type `D` is a data type stored in the node of a tree.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "D: Serialize", deserialize = "D: Deserialize<'de>"))]
+pub struct BinaryTree<D> {
+    pub(crate) root: Option<BinaryTreeNode<D>>,
+}
+
+impl<D> BinaryTree<D> {
+    pub fn new(root: Option<BinaryTreeNode<D>>) -> Self {
+        Self { root }
+    }
+
+    pub fn root(&self) -> Option<&BinaryTreeNode<D>> {
+        self.root.as_ref()
+    }
+
+    pub(crate) fn mut_root(&mut self) -> &mut Option<BinaryTreeNode<D>> {
+        &mut self.root
+    }
+
+    pub fn node_at(&self, path: &[Direction]) -> Option<&BinaryTreeNode<D>> {
+        let Some(mut target_node) = self.root.as_ref() else {
+            return None;
+        };
+
+        for dir in path {
+            let Some(child) = target_node.child(*dir) else {
+                return None;
+            };
+            target_node = child;
+        }
+
+        Some(target_node)
+    }
+
+    pub fn mut_node_at(&mut self, path: &[Direction]) -> Option<&mut BinaryTreeNode<D>> {
+        let Some(mut target_node) = self.root.as_mut() else {
+            return None;
+        };
+
+        for dir in path {
+            let Some(child) = target_node.mut_child(*dir) else {
+                return None;
+            };
+            target_node = child;
+        }
+
+        Some(target_node)
+    }
+}
 
 /// Node of the aggregation tree. nodes contain data of some generic type `D`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,8 +182,8 @@ impl<D> BinaryTreeNode<D> {
         child.as_mut()
     }
 
-    pub(crate) fn node_iter_with_path(&self) -> AggregationNodeIterWithPath<'_, D> {
-        AggregationNodeIterWithPath::new(self)
+    pub(crate) fn node_iter_with_path(&self) -> BinaryTreeNodeIterWithPath<'_, D> {
+        BinaryTreeNodeIterWithPath::new(self)
     }
 }
 
@@ -267,7 +318,7 @@ where
     type Error = ArtError;
 
     fn try_from(prover_aggregation: &BinaryTreeNode<D1>) -> Result<Self, Self::Error> {
-        let mut iter = AggregationNodeIterWithPath::new(prover_aggregation);
+        let mut iter = BinaryTreeNodeIterWithPath::new(prover_aggregation);
         let (node, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
         let verifier_data = D2::from(node.data.clone());
@@ -325,12 +376,12 @@ where
     fn try_from(value: &BinaryTreeNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = AggregationNodeIterWithPath::new(value);
+        let mut node_iter = BinaryTreeNodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(ProverNodeData::from(&root.data))), None)
-            .map_err(|_| Self::Error::TreeDs)?;
+            .map_err(|_| ArtError::TreeDs)?;
 
         for (agg_node, path) in node_iter {
             let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -358,12 +409,12 @@ where
     fn try_from(value: &BinaryTreeNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = AggregationNodeIterWithPath::new(value);
+        let mut node_iter = BinaryTreeNodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
             .add_node(Node::new(1, Some(VerifierNodeData::from(&root.data))), None)
-            .map_err(|_| Self::Error::TreeDs)?;
+            .map_err(|_| ArtError::TreeDs)?;
 
         for (agg_node, path) in node_iter {
             let node_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
@@ -388,25 +439,25 @@ where
 /// aggregation tree. Besides the target node, this iterator also returns pairs of
 /// `(&'a AggregationNode<D>, Direction)` on path from the root to the current node.
 #[derive(Debug, Clone)]
-pub struct AggregationNodeIterWithPath<'a, D> {
+pub struct BinaryTreeNodeIterWithPath<'a, D> {
     pub(crate) current_node: Option<&'a BinaryTreeNode<D>>,
     pub(crate) path: Vec<(&'a BinaryTreeNode<D>, Direction)>,
 }
 
 /// NodeIter iterates over all the nodes, performing a depth-first traversal
-impl<'a, D> AggregationNodeIterWithPath<'a, D> {
+impl<'a, D> BinaryTreeNodeIterWithPath<'a, D> {
     pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
-        AggregationNodeIterWithPath {
+        BinaryTreeNodeIterWithPath {
             current_node: Some(root),
             path: vec![],
         }
     }
 }
 
-impl<'a, D> From<&'a BinaryTree<D>> for AggregationNodeIterWithPath<'a, D> {
+impl<'a, D> From<&'a BinaryTree<D>> for BinaryTreeNodeIterWithPath<'a, D> {
     fn from(value: &'a BinaryTree<D>) -> Self {
         match &value.root {
-            None => AggregationNodeIterWithPath {
+            None => BinaryTreeNodeIterWithPath {
                 current_node: None,
                 path: vec![],
             },
@@ -415,7 +466,7 @@ impl<'a, D> From<&'a BinaryTree<D>> for AggregationNodeIterWithPath<'a, D> {
     }
 }
 
-impl<'a, D> Iterator for AggregationNodeIterWithPath<'a, D>
+impl<'a, D> Iterator for BinaryTreeNodeIterWithPath<'a, D>
 where
     D: Default,
 {

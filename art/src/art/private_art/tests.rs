@@ -23,11 +23,6 @@ use zrt_zk::art::ArtProof;
 use zrt_zk::engine::{ZeroArtProverEngine, ZeroArtVerifierEngine};
 use zrt_zk::{EligibilityArtefact, EligibilityRequirement};
 
-// use crate::art::{AggregationContext, ArtAdvancedOps, PrivateZeroArt};
-// use crate::changes::aggregations::{
-//     AggregatedChange, AggregationData, AggregationTree, VerifierAggregationData,
-// };
-
 const TEST_GROUP_SIZE: usize = 20;
 
 #[test]

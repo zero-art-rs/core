@@ -1,8 +1,9 @@
 use crate::art::PublicMergeData;
+use crate::art_node::BinaryTreeNode;
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
-use crate::node_index::Direction;
+use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ec::CurveGroup;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -10,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
-use tracing::debug;
 
 /// Status of the `ArtNode` leaf.
 #[derive(Debug, Deserialize, Serialize, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -258,7 +258,7 @@ where
     }
 
     /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
-    pub(crate) fn leaf_with(&self, public_key: G) -> Result<&Self, ArtError> {
+    pub fn leaf_with(&self, public_key: G) -> Result<&Self, ArtError> {
         for (node, _) in NodeIterWithPath::new(self) {
             if node.is_leaf() && node.public_key().eq(&public_key) {
                 return Ok(node);
@@ -269,7 +269,7 @@ where
     }
 
     /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
-    pub(crate) fn node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
+    pub fn node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
         for (node, _) in NodeIterWithPath::new(self) {
             if node.public_key().eq(&public_key) {
                 return Ok(node);
@@ -341,6 +341,143 @@ where
         };
 
         Ok(self.public_key())
+    }
+}
+
+/// A view of the `ArtNode` in  `PublicArt` state after commit.
+#[derive(Clone, Copy, Debug)]
+pub enum ArtNodePreview<'a, G>
+where
+    G: AffineRepr,
+{
+    ArtNodeOnly {
+        art_node: &'a ArtNode<G>,
+    },
+    MergeNodeOnly {
+        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
+    },
+    Full {
+        art_node: &'a ArtNode<G>,
+        merge_node: &'a BinaryTreeNode<PublicMergeData<G>>,
+    },
+}
+
+impl<'a, G> ArtNodePreview<'a, G>
+where
+    G: AffineRepr,
+{
+    pub fn new(
+        art_node: Option<&'a ArtNode<G>>,
+        merge_node: Option<&'a BinaryTreeNode<PublicMergeData<G>>>,
+    ) -> Result<Self, ArtError> {
+        match (art_node, merge_node) {
+            (Some(art_node), Some(merge_node)) => Ok(Self::Full {
+                art_node,
+                merge_node,
+            }),
+            (Some(art_node), None) => Ok(Self::ArtNodeOnly { art_node }),
+            (None, Some(merge_node)) => Ok(Self::MergeNodeOnly { merge_node }),
+            (None, None) => Err(ArtError::InvalidInput),
+        }
+    }
+
+    /// Returns reference on the corresponding `ArtNode`.
+    pub fn art_node(&self) -> Option<&'a ArtNode<G>> {
+        match self {
+            Self::ArtNodeOnly { art_node, .. } => Some(art_node),
+            Self::MergeNodeOnly { .. } => None,
+            Self::Full { art_node, .. } => Some(art_node),
+        }
+    }
+
+    /// If exists, returns a reference on the node with the given index, in correspondence to the
+    /// root node. Else return `ArtError`.
+    pub fn node(&self, index: &NodeIndex) -> Result<Self, ArtError> {
+        self.node_at(&index.get_path()?)
+    }
+
+    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
+    pub fn node_at(&self, path: &[Direction]) -> Result<Self, ArtError> {
+        let mut node = self.clone();
+        for direction in path {
+            if let Some(child_node) = node.child(*direction) {
+                node = child_node;
+            } else {
+                return Err(ArtError::PathNotExists);
+            }
+        }
+
+        Ok(node)
+    }
+
+    /// Returns merge node is exists, else `None`.
+    pub(crate) fn merge_node(&self) -> Option<&'a BinaryTreeNode<PublicMergeData<G>>> {
+        match self {
+            Self::ArtNodeOnly { .. } => None,
+            Self::MergeNodeOnly { merge_node, .. } => Some(merge_node),
+            Self::Full { merge_node, .. } => Some(merge_node),
+        }
+    }
+
+    pub fn public_key(&self) -> G {
+        match self {
+            Self::ArtNodeOnly { art_node } => art_node.public_key(),
+            Self::MergeNodeOnly { merge_node } => merge_node.preview_public_key(),
+            Self::Full {
+                art_node,
+                merge_node,
+            } => art_node.preview_public_key(&merge_node.data),
+        }
+    }
+
+    pub fn status(&self) -> Option<LeafStatus> {
+        match self {
+            Self::ArtNodeOnly { art_node } => art_node.status(),
+            Self::MergeNodeOnly { merge_node } => merge_node.status(),
+            Self::Full { merge_node, .. } => merge_node.status(),
+        }
+    }
+
+    pub fn weight(&self) -> usize {
+        match self {
+            Self::ArtNodeOnly { art_node } => art_node.weight(),
+            Self::MergeNodeOnly { merge_node } => merge_node.data.weight_change as usize,
+            Self::Full {
+                merge_node,
+                art_node,
+            } => {
+                let mut weight = art_node.weight();
+                match merge_node.data.weight_change.cmp(&0) {
+                    Ordering::Less => weight -= merge_node.data.weight_change.abs() as usize,
+                    Ordering::Equal => {}
+                    Ordering::Greater => weight += merge_node.data.weight_change as usize,
+                }
+
+                weight
+            }
+        }
+    }
+
+    /// Returns a children node on the given direction `dir` if exists, else `None`.
+    pub fn child(&self, dir: Direction) -> Option<Self> {
+        let art_node: Option<&'a ArtNode<G>> = match self.art_node() {
+            Some(node) => node.child(dir),
+            None => None,
+        };
+
+        let merge_node = match self.merge_node() {
+            Some(merge_node) => merge_node.child(dir),
+            None => None,
+        };
+
+        Self::new(art_node, merge_node).ok()
+    }
+
+    pub fn is_leaf(&self) -> bool {
+        let left = self.child(Direction::Left);
+        let right = self.child(Direction::Right);
+
+        left.is_none() && right.is_none()
     }
 }
 

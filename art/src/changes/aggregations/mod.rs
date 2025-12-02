@@ -4,11 +4,7 @@
 //! of the art by one user at the same time.
 
 mod aggregated_change;
-mod aggregated_node;
 mod aggregation_data;
 
-pub use aggregated_change::{AggregatedChange, BinaryTree, PrivateAggregatedChange};
-pub use aggregated_node::{
-    AggregationNodeIterWithPath, BinaryTreeNode, BinaryTreeNodeWrapper, TreeNodeIterWithPath,
-};
+pub use aggregated_change::{AggregatedChange, PrivateAggregatedChange};
 pub use aggregation_data::{AggregationData, ProverAggregationData, VerifierAggregationData};
