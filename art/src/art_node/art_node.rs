@@ -144,31 +144,11 @@ where
         }
     }
 
-    pub fn set_public_key(&mut self, new_public_key: G) {
-        match self {
-            Self::Internal { public_key, .. } => *public_key = new_public_key,
-            Self::Leaf { public_key, .. } => *public_key = new_public_key,
-        }
-    }
-
     pub fn mut_public_key(&mut self) -> &mut G {
         match self {
             Self::Internal { public_key, .. } => public_key,
             Self::Leaf { public_key, .. } => public_key,
         }
-    }
-
-    pub fn set_public_key_with_options(&mut self, new_public_key: G, append: bool) {
-        let new_public_key = match append {
-            true => new_public_key.add(self.public_key()).into_affine(),
-            false => new_public_key,
-        };
-
-        self.set_public_key(new_public_key);
-    }
-
-    pub fn merge_public_key(&mut self, new_public_key: G) {
-        self.set_public_key(new_public_key.add(self.public_key()).into_affine());
     }
 
     pub fn child<'a>(&'a self, child: Direction) -> Option<&'a Self> {
@@ -179,14 +159,6 @@ where
                 Direction::Right => Some(r.as_ref()),
             },
         }
-    }
-
-    pub fn left(&self) -> Option<&Self> {
-        self.child(Direction::Left)
-    }
-
-    pub fn right(&self) -> Option<&Self> {
-        self.child(Direction::Right)
     }
 
     pub fn mut_child(&mut self, child: Direction) -> Option<&mut Self> {
@@ -291,19 +263,6 @@ where
         }
 
         Err(ArtError::PathNotExists)
-    }
-
-    /// Increment or decrement weight by 1. Return error for leaf node.
-    pub(crate) fn update_weight(&mut self, increment: bool) -> Result<(), ArtError> {
-        match self {
-            ArtNode::Leaf { .. } => return Err(ArtError::InternalNodeOnly),
-            ArtNode::Internal { weight, .. } => match increment {
-                true => *weight += 1,
-                false => *weight -= 1,
-            },
-        }
-
-        Ok(())
     }
 
     pub(crate) fn preview_public_key(&self, merge_data: &PublicMergeData<G>) -> G {

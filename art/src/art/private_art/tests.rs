@@ -113,7 +113,7 @@ fn test_flow_append_join_update() {
         user0
             .node(&change0.node_index)
             .unwrap()
-            .right()
+            .child(Direction::Right)
             .unwrap()
             .public_key(),
         CortadoAffine::generator().mul(secret_key_1).into_affine(),
@@ -184,7 +184,7 @@ fn test_flow_append_join_update() {
     assert_eq!(user0.root(), user1.root());
     assert_eq!(user0.root_secret_key(), user1.root_secret_key());
     assert_eq!(
-        user0.root().right().unwrap().public_key(),
+        user0.root().child(Direction::Right).unwrap().public_key(),
         user1.leaf_public_key(),
     );
 

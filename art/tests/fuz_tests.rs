@@ -19,7 +19,7 @@ mod tests {
     use zrt_art::art_node::{LeafIterWithPath, TreeMethods};
     use zrt_art::changes::ApplicableChange;
     use zrt_art::errors::ArtError;
-    use zrt_art::node_index::NodeIndex;
+    use zrt_art::node_index::{Direction, NodeIndex};
 
     pub const SEED: u64 = 23;
     // pub const GROUP_INIT_SIZE: usize = 100;
@@ -191,7 +191,7 @@ mod tests {
                     .root()
                     .node(&change.node_index)
                     .unwrap()
-                    .right()
+                    .child(Direction::Right)
                     .unwrap()
                     .public_key(),
                 CortadoAffine::generator().mul(new_sk).into_affine(),
