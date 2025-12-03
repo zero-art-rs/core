@@ -466,10 +466,7 @@ impl<'a, D> From<&'a BinaryTree<D>> for BinaryTreeNodeIterWithPath<'a, D> {
     }
 }
 
-impl<'a, D> Iterator for BinaryTreeNodeIterWithPath<'a, D>
-where
-    D: Default,
-{
+impl<'a, D> Iterator for BinaryTreeNodeIterWithPath<'a, D> {
     type Item = (
         &'a BinaryTreeNode<D>,
         Vec<(&'a BinaryTreeNode<D>, Direction)>,
@@ -526,6 +523,86 @@ where
         }
 
         None
+    }
+}
+
+/// `LeafIterWithPath` iterates over all the leaves in a tree from left most to right most,
+/// performing a depth-first traversal.
+///
+/// Along with the leaf, this iterator returns pairs `(&'a ArtNode<G>, Direction)` on path from
+/// root to the node, as `TreeNodeIterWithPath` do.
+pub struct BinaryLeafIterWithPath<'a, D> {
+    inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
+}
+
+impl<'a, D> BinaryLeafIterWithPath<'a, D> {
+    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
+        Self {
+            inner_iter: BinaryTreeNodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for BinaryLeafIterWithPath<'a, D> {
+    type Item = (
+        &'a BinaryTreeNode<D>,
+        Vec<(&'a BinaryTreeNode<D>, Direction)>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (item, path) in &mut self.inner_iter {
+            if item.is_leaf() {
+                return Some((item, path));
+            }
+        }
+
+        None
+    }
+}
+
+/// `BinaryNodeIter` iterates over all the nodes, performing a depth-first traversal.
+pub struct BinaryNodeIter<'a, D> {
+    pub inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
+}
+
+impl<'a, D> BinaryNodeIter<'a, D> {
+    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
+        Self {
+            inner_iter: BinaryTreeNodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for BinaryNodeIter<'a, D> {
+    type Item = &'a BinaryTreeNode<D>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner_iter.next().map(|item| item.0)
+    }
+}
+
+/// `LeafIter` iterates over leaves from left most to right most, performing a depth-first traversal
+///
+/// It is a default iterator for `ArtNode`.
+pub struct BinaryLeafIter<'a, D> {
+    pub inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
+}
+
+impl<'a, D> BinaryLeafIter<'a, D> {
+    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
+        BinaryLeafIter {
+            inner_iter: BinaryTreeNodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for BinaryLeafIter<'a, D> {
+    type Item = &'a BinaryTreeNode<D>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (&mut self.inner_iter)
+            .map(|(item, _)| item)
+            .find(|&item| item.is_leaf())
     }
 }
 
