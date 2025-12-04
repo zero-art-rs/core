@@ -68,7 +68,7 @@ impl<D> BinaryTree<D> {
 pub struct BinaryTreeNode<D> {
     pub(crate) l: Option<Box<Self>>,
     pub(crate) r: Option<Box<Self>>,
-    pub data: D,
+    pub(crate) data: D,
 }
 
 impl<D> BinaryTreeNode<D> {
@@ -291,7 +291,7 @@ where
 impl<D> BinaryTreeNode<D> {
     /// Return a reference on a child on the given direction. Return None, if there is no
     /// child there.
-    pub(crate) fn child(&self, dir: Direction) -> Option<&Self> {
+    pub fn child(&self, dir: Direction) -> Option<&Self> {
         match dir {
             Direction::Right => self.r.as_ref().map(|node| node.as_ref()),
             Direction::Left => self.l.as_ref().map(|node| node.as_ref()),
