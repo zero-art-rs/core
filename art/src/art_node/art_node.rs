@@ -349,6 +349,20 @@ where
         Err(ArtError::PathNotExists)
     }
 
+    /// Searches for a leaf with the provided `public_key`. If there is no such leaf, return `ArtError`.
+    pub fn path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
+        for (node, path) in self.leaf_iter_with_path() {
+            if node.is_leaf() && node.public_key().eq(&public_key) {
+                return Ok(path
+                    .iter()
+                    .map(|(_, direction)| *direction)
+                    .collect::<Vec<Direction>>());
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
     /// Returns merge node is exists, else `None`.
     pub(crate) fn merge_node(&self) -> Option<&'a BinaryTreeNode<PublicMergeData<G>>> {
         match self {
