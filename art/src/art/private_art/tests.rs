@@ -1,6 +1,6 @@
 use crate::art::private_art::ArtSecrets;
 use crate::art::{ArtAdvancedOps, PrivateArt, PublicArt};
-use crate::art_node::{LeafIterWithPath, LeafStatus, NodeIter, TreeMethods};
+use crate::art_node::{LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::branch_change::{BranchChange, PrivateBranchChange};
 use crate::errors::ArtError;
@@ -72,7 +72,7 @@ fn test_art_weight_balance_at_creation() {
         let mut max_height = u64::MIN;
         let root = art.root();
 
-        for (_, path) in LeafIterWithPath::new(root) {
+        for (_, path) in root.leaf_iter_with_path() {
             min_height = min(min_height, path.len() as u64);
             max_height = max(max_height, path.len() as u64);
         }
@@ -115,18 +115,19 @@ fn test_flow_append_join_update() {
             .unwrap()
             .child(Direction::Right)
             .unwrap()
+            .data()
             .public_key(),
         CortadoAffine::generator().mul(secret_key_1).into_affine(),
         "New node is in the art, and it is on the correct path.",
     );
     assert_eq!(
-        user0.node(&user0.node_index()).unwrap().public_key(),
+        user0.node(&user0.node_index()).unwrap().data().public_key(),
         CortadoAffine::generator().mul(secret_key_0).into_affine(),
         "User node is isn't changed, after append member operation.",
     );
     assert_ne!(
-        user0.node(&change0.node_index).unwrap().public_key(),
-        user0.node(&user0.node_index()).unwrap().public_key(),
+        user0.node(&change0.node_index).unwrap().data().public_key(),
+        user0.node(&user0.node_index()).unwrap().data().public_key(),
         "Sanity check: Both users nodes have different public key.",
     );
 
@@ -184,7 +185,12 @@ fn test_flow_append_join_update() {
     assert_eq!(user0.root(), user1.root());
     assert_eq!(user0.root_secret_key(), user1.root_secret_key());
     assert_eq!(
-        user0.root().child(Direction::Right).unwrap().public_key(),
+        user0
+            .root()
+            .child(Direction::Right)
+            .unwrap()
+            .data()
+            .public_key(),
         user1.leaf_public_key(),
     );
 
@@ -271,6 +277,7 @@ fn test_removal_of_the_same_user() {
             .public_art()
             .node(&remove_member_change1.node_index)
             .unwrap()
+            .data()
             .public_key(),
         CortadoAffine::generator()
             .mul(blanking_secret_key_1)
@@ -307,6 +314,7 @@ fn test_removal_of_the_same_user() {
             .public_art()
             .node(&remove_member_change1.node_index)
             .unwrap()
+            .data()
             .public_key(),
         CortadoAffine::generator()
             .mul(blanking_secret_key_1)
@@ -327,6 +335,7 @@ fn test_removal_of_the_same_user() {
             .public_art()
             .node(&remove_member_change2.node_index)
             .unwrap()
+            .data()
             .public_key(),
         CortadoAffine::generator()
             .mul(blanking_secret_key_1 + blanking_secret_key_2)
@@ -334,7 +343,7 @@ fn test_removal_of_the_same_user() {
         "The node was removed correctly."
     );
     assert_eq!(
-        user1.root().public_key(),
+        user1.root().data().public_key(),
         CortadoAffine::generator().mul(tk_r2).into_affine(),
         "The node was removed correctly."
     );
@@ -381,6 +390,7 @@ fn test_removal_of_the_same_user() {
             .public_art()
             .node(&remove_member_change1.node_index)
             .unwrap()
+            .data()
             .public_key(),
         CortadoAffine::generator()
             .mul(blanking_secret_key_1 + blanking_secret_key_2)
@@ -450,9 +460,9 @@ fn test_art_key_update() {
     assert_ne!(users_arts[main_user_id].leaf_secret_key(), main_old_key);
 
     let mut parent = users_arts[main_user_id].root();
-    let mut pub_keys = vec![parent.public_key()];
+    let mut pub_keys = vec![parent.data().public_key()];
     for direction in &users_arts[main_user_id].node_index().get_path().unwrap() {
-        pub_keys.push(parent.child(*direction).unwrap().public_key());
+        pub_keys.push(parent.child(*direction).unwrap().data().public_key());
         parent = parent.child(*direction).unwrap();
     }
 
@@ -530,6 +540,7 @@ fn test_add_member_weight_correctness() {
             private_art
                 .node(private_art.node_index())
                 .unwrap()
+                .data()
                 .public_key(),
             user_public_key
         );
@@ -541,22 +552,23 @@ fn test_add_member_weight_correctness() {
             private_art
                 .node(private_art.node_index())
                 .unwrap()
+                .data()
                 .public_key(),
             user_public_key
         );
 
-        for node in NodeIter::new(private_art.root()) {
+        for node in private_art.root() {
             if node.is_leaf() {
-                if !matches!(node.status(), Some(LeafStatus::Active)) {
-                    assert_eq!(node.weight(), 0);
+                if !matches!(node.data().status(), Some(LeafStatus::Active)) {
+                    assert_eq!(node.data().weight(), 0);
                 } else {
-                    assert_eq!(node.weight(), 1);
+                    assert_eq!(node.data().weight(), 1);
                 }
             } else {
                 assert_eq!(
-                    node.weight(),
-                    node.child(Direction::Left).unwrap().weight()
-                        + node.child(Direction::Right).unwrap().weight(),
+                    node.data().weight(),
+                    node.child(Direction::Left).unwrap().data().weight()
+                        + node.child(Direction::Right).unwrap().data().weight(),
                     "private_art:\n{}",
                     private_art.root()
                 );
@@ -761,14 +773,14 @@ fn test_get_node() {
     for sk in &leaf_secrets {
         let pk = CortadoAffine::generator().mul(sk).into_affine();
         let leaf = user0.public_art().root().leaf_with(pk).unwrap();
-        assert_eq!(leaf.public_key(), pk);
+        assert_eq!(leaf.data().public_key(), pk);
         assert!(leaf.is_leaf());
     }
 
     for sk in &leaf_secrets {
         let pk = CortadoAffine::generator().mul(sk).into_affine();
         let leaf = user0.public_art().root().node_with(pk).unwrap();
-        assert_eq!(leaf.public_key(), pk);
+        assert_eq!(leaf.data().public_key(), pk);
     }
 
     for sk in &leaf_secrets {
@@ -778,7 +790,7 @@ fn test_get_node() {
             .public_art()
             .node(&NodeIndex::Direction(leaf_path))
             .unwrap();
-        assert_eq!(leaf.public_key(), pk);
+        assert_eq!(leaf.data().public_key(), pk);
 
         assert!(leaf.is_leaf());
     }
@@ -839,16 +851,16 @@ fn test_art_weights_after_one_add_member() {
 
     for node in tree.root() {
         if node.is_leaf() {
-            if !matches!(node.status(), Some(LeafStatus::Active)) {
-                assert_eq!(node.weight(), 0);
+            if !matches!(node.data().status(), Some(LeafStatus::Active)) {
+                assert_eq!(node.data().weight(), 0);
             } else {
-                assert_eq!(node.weight(), 1);
+                assert_eq!(node.data().weight(), 1);
             }
         } else {
             assert_eq!(
-                node.weight(),
-                node.child(Direction::Left).unwrap().weight()
-                    + node.child(Direction::Right).unwrap().weight()
+                node.data().weight(),
+                node.child(Direction::Left).unwrap().data().weight()
+                    + node.child(Direction::Right).unwrap().data().weight()
             );
         }
     }
@@ -874,20 +886,20 @@ fn test_weights_correctness_for_make_blank() {
     change.apply(&mut user0).unwrap();
     user0.commit().unwrap();
 
-    assert_eq!(user0.root().weight() + 1, secrets.len());
+    assert_eq!(user0.root().data().weight() + 1, secrets.len());
 
     for node in user0.root() {
         if node.is_leaf() {
-            if !matches!(node.status(), Some(LeafStatus::Active)) {
-                assert_eq!(node.weight(), 0);
+            if !matches!(node.data().status(), Some(LeafStatus::Active)) {
+                assert_eq!(node.data().weight(), 0);
             } else {
-                assert_eq!(node.weight(), 1);
+                assert_eq!(node.data().weight(), 1);
             }
         } else {
             assert_eq!(
-                node.weight(),
-                node.child(Direction::Left).unwrap().weight()
-                    + node.child(Direction::Right).unwrap().weight()
+                node.data().weight(),
+                node.child(Direction::Left).unwrap().data().weight()
+                    + node.child(Direction::Right).unwrap().data().weight()
             );
         }
     }
@@ -926,7 +938,11 @@ fn test_leaf_status_affect_on_make_blank() {
     remove12.apply(&mut art1).unwrap();
     art1.commit().unwrap();
     assert_eq!(
-        art1.public_art().node(&user_2_index).unwrap().public_key(),
+        art1.public_art()
+            .node(&user_2_index)
+            .unwrap()
+            .data()
+            .public_key(),
         CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
     );
 
@@ -934,6 +950,7 @@ fn test_leaf_status_affect_on_make_blank() {
     art2.public_art
         .mut_node(&user_2_index)
         .unwrap()
+        .data
         .set_status(LeafStatus::PendingRemoval)
         .unwrap();
     let (_, remove21) = art2.remove_member(&user_2_index, sk_1).unwrap();
@@ -944,7 +961,11 @@ fn test_leaf_status_affect_on_make_blank() {
     art2.commit().unwrap();
 
     assert_eq!(
-        art2.public_art().node(&user_2_index).unwrap().public_key(),
+        art2.public_art()
+            .node(&user_2_index)
+            .unwrap()
+            .data()
+            .public_key(),
         CortadoAffine::generator().mul(&(sk_1 + sk_2)).into_affine()
     );
 
@@ -952,6 +973,7 @@ fn test_leaf_status_affect_on_make_blank() {
     art3.public_art
         .mut_node(&user_2_index)
         .unwrap()
+        .data
         .set_status(LeafStatus::Blank)
         .unwrap();
     let (_, remove31) = art3.remove_member(&user_2_index, sk_1).unwrap();
@@ -961,7 +983,11 @@ fn test_leaf_status_affect_on_make_blank() {
     remove32.apply(&mut art3).unwrap();
     art3.commit().unwrap();
     assert_eq!(
-        art3.public_art().node(&user_2_index).unwrap().public_key(),
+        art3.public_art()
+            .node(&user_2_index)
+            .unwrap()
+            .data()
+            .public_key(),
         CortadoAffine::generator()
             .mul(&(secrets[1] + sk_1 + sk_2))
             .into_affine()
@@ -990,7 +1016,7 @@ fn test_if_changes_are_applied_the_same_for_context_and_art() {
 
         assert_eq!(
             &art1.preview().root().public_key(),
-            &art0.root().public_key(),
+            &art0.root().data().public_key(),
             "fail to assert_eq on tree1:\n{}\n and merge context:\n{}",
             &art1.preview().root(),
             &art0.root(),
@@ -1376,26 +1402,46 @@ fn test_continuous_merge_update() {
         assert_eq!(user0, user2);
         assert_eq!(user0, user3);
 
-        assert_eq!(user0.root_public_key(), user0.root().public_key());
-        assert_eq!(user1.root_public_key(), user1.root().public_key());
-        assert_eq!(user2.root_public_key(), user2.root().public_key());
-        assert_eq!(user3.root_public_key(), user3.root().public_key());
+        assert_eq!(user0.root_public_key(), user0.root().data().public_key());
+        assert_eq!(user1.root_public_key(), user1.root().data().public_key());
+        assert_eq!(user2.root_public_key(), user2.root().data().public_key());
+        assert_eq!(user3.root_public_key(), user3.root().data().public_key());
 
         assert_eq!(
             user0.leaf_public_key(),
-            user0.root().node(user0.node_index()).unwrap().public_key()
+            user0
+                .root()
+                .node(user0.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user1.leaf_public_key(),
-            user1.root().node(user1.node_index()).unwrap().public_key()
+            user1
+                .root()
+                .node(user1.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user2.leaf_public_key(),
-            user2.root().node(user2.node_index()).unwrap().public_key()
+            user2
+                .root()
+                .node(user2.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user3.leaf_public_key(),
-            user3.root().node(user3.node_index()).unwrap().public_key()
+            user3
+                .root()
+                .node(user3.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
     }
 
@@ -1424,13 +1470,14 @@ fn test_continuous_merge_update() {
             user_i.commit().unwrap();
             verify_secrets_are_correct(user_i).unwrap();
 
-            assert_eq!(user_i.root_public_key(), user_i.root().public_key());
+            assert_eq!(user_i.root_public_key(), user_i.root().data().public_key());
             assert_eq!(
                 user_i.leaf_public_key(),
                 user_i
                     .root()
                     .node(user_i.node_index())
                     .unwrap()
+                    .data()
                     .public_key()
             );
         }
@@ -1487,26 +1534,46 @@ fn test_continuous_merge_update() {
         assert_eq!(user0.public_art(), user2.public_art());
         assert_eq!(user0.public_art(), user3.public_art());
 
-        assert_eq!(user0.root_public_key(), user0.root().public_key());
-        assert_eq!(user1.root_public_key(), user1.root().public_key());
-        assert_eq!(user2.root_public_key(), user2.root().public_key());
-        assert_eq!(user3.root_public_key(), user3.root().public_key());
+        assert_eq!(user0.root_public_key(), user0.root().data().public_key());
+        assert_eq!(user1.root_public_key(), user1.root().data().public_key());
+        assert_eq!(user2.root_public_key(), user2.root().data().public_key());
+        assert_eq!(user3.root_public_key(), user3.root().data().public_key());
 
         assert_eq!(
             user0.leaf_public_key(),
-            user0.root().node(user0.node_index()).unwrap().public_key()
+            user0
+                .root()
+                .node(user0.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user1.leaf_public_key(),
-            user1.root().node(user1.node_index()).unwrap().public_key()
+            user1
+                .root()
+                .node(user1.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user2.leaf_public_key(),
-            user2.root().node(user2.node_index()).unwrap().public_key()
+            user2
+                .root()
+                .node(user2.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
         assert_eq!(
             user3.leaf_public_key(),
-            user3.root().node(user3.node_index()).unwrap().public_key()
+            user3
+                .root()
+                .node(user3.node_index())
+                .unwrap()
+                .data()
+                .public_key()
         );
 
         assert_eq!(user0, user1);
@@ -1535,13 +1602,14 @@ pub(crate) fn verify_secrets_are_correct(
     // trace!("parent:\n{}", parent);
 
     if parent
+        .data()
         .public_key()
         .ne(&CortadoAffine::generator().mul(root_secret).into_affine())
     {
         error!(
             "error in root computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
             root_secret,
-            parent.public_key().x(),
+            parent.data().public_key().x(),
             CortadoAffine::generator()
                 .mul(root_secret)
                 .into_affine()
@@ -1553,7 +1621,7 @@ pub(crate) fn verify_secrets_are_correct(
         // trace!(
         //     "Correct computations for root:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
         //     root_secret,
-        //     parent.public_key().x(),
+        //     parent.data().public_key().x(),
         //     CortadoAffine::generator().mul(root_secret).into_affine().x(),
         // );
     }
@@ -1562,13 +1630,14 @@ pub(crate) fn verify_secrets_are_correct(
         parent = parent.child(*dir).unwrap();
 
         if parent
+            .data()
             .public_key()
             .ne(&CortadoAffine::generator().mul(sk).into_affine())
         {
             error!(
                 "error in computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
                 sk,
-                parent.public_key().x(),
+                parent.data().public_key().x(),
                 CortadoAffine::generator().mul(sk).into_affine().x(),
                 private_art.root()
             );
@@ -1577,7 +1646,7 @@ pub(crate) fn verify_secrets_are_correct(
             // trace!(
             //     "Correct computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
             //     sk,
-            //     parent.public_key().x(),
+            //     parent.data().public_key().x(),
             //     CortadoAffine::generator().mul(sk).into_affine().x(),
             // );
         }
@@ -1633,7 +1702,7 @@ fn test_key_update_proof() {
     let key_update_change = change.change();
 
     assert_eq!(
-        art.root().public_key(),
+        art.root().data().public_key(),
         CortadoAffine::generator()
             .mul(art.root_secret_key())
             .into_affine()
@@ -1643,6 +1712,7 @@ fn test_key_update_proof() {
         test_art
             .node(&key_update_change.node_index)
             .unwrap()
+            .data()
             .public_key(),
     );
     let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
@@ -1709,6 +1779,7 @@ fn test_double_key_update_proof() {
         user2
             .node(&key_update_change0_0.node_index)
             .unwrap()
+            .data()
             .public_key(),
     );
 
@@ -1725,6 +1796,7 @@ fn test_double_key_update_proof() {
         user2
             .node(&key_update_change0_1.node_index)
             .unwrap()
+            .data()
             .public_key(),
     );
 
@@ -1836,7 +1908,7 @@ fn test_leave_proof() {
     proof.serialize_compressed(&mut proof_bytes).unwrap();
 
     assert_eq!(
-        art.root().public_key(),
+        art.root().data().public_key(),
         CortadoAffine::generator()
             .mul(art.root_secret_key())
             .into_affine()
@@ -1847,6 +1919,7 @@ fn test_leave_proof() {
             .root()
             .node(&leave_group_change.node_index)
             .unwrap()
+            .data()
             .public_key(),
     );
     let deserialized_proof = ArtProof::deserialize_compressed(proof_bytes.as_slice()).unwrap();
@@ -2057,7 +2130,11 @@ fn test_append_node_after_make_blank_proof() {
             .into_affine(),
     );
     assert_eq!(
-        art.root().node(art.node_index()).unwrap().public_key(),
+        art.root()
+            .node(art.node_index())
+            .unwrap()
+            .data()
+            .public_key(),
         CortadoAffine::generator()
             .mul(art.leaf_secret_key())
             .into_affine()
@@ -2073,10 +2150,18 @@ fn test_append_node_after_make_blank_proof() {
 
     assert_eq!(
         public_key,
-        art.root().node(art.node_index()).unwrap().public_key(),
+        art.root()
+            .node(art.node_index())
+            .unwrap()
+            .data()
+            .public_key(),
     );
     assert_eq!(
-        art.root().node(art.node_index()).unwrap().public_key(),
+        art.root()
+            .node(art.node_index())
+            .unwrap()
+            .data()
+            .public_key(),
         CortadoAffine::generator()
             .mul(art.leaf_secret_key())
             .into_affine()
@@ -2161,7 +2246,11 @@ fn test_merge_proof_verify() {
 
     for (i, user) in users.iter_mut().enumerate() {
         for (j, change) in private_changes.iter().enumerate() {
-            let prover_leaf = user.node(&change.change().node_index).unwrap().public_key();
+            let prover_leaf = user
+                .node(&change.change().node_index)
+                .unwrap()
+                .data()
+                .public_key();
             let eligibility_requirement = EligibilityRequirement::Member(prover_leaf);
 
             verifier_engine
@@ -2253,7 +2342,7 @@ pub(crate) fn removal_eligibility(
     art: &PrivateArt<CortadoAffine>,
     index: &NodeIndex,
 ) -> EligibilityArtefact {
-    let leaf_status = art.root().node(index).unwrap().status();
+    let leaf_status = art.root().node(index).unwrap().data().status();
     if leaf_status.is_none() {
         warn!("Trying to remove internal node, as it have leaf_status: None");
     }

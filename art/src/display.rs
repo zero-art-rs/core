@@ -1,5 +1,5 @@
 use crate::art::PublicMergeData;
-use crate::art_node::{ArtNode, LeafStatus};
+use crate::art_node::{ArtNode, ArtNodeData, LeafStatus};
 use crate::art_node::{ArtNodePreview, BinaryTreeNode};
 use crate::helper_tools::prepare_short_marker_for_option;
 use crate::node_index::Direction;
@@ -23,39 +23,39 @@ pub enum ARTDisplayTree {
     },
 }
 
-impl<G> From<&ArtNode<G>> for ARTDisplayTree
-where
-    G: AffineRepr,
-{
-    fn from(node: &ArtNode<G>) -> Self {
-        let blank_marker = match node {
-            ArtNode::Leaf { status, .. } => match status {
-                LeafStatus::Active => "Active",
-                LeafStatus::PendingRemoval => "PendingRemoval",
-                LeafStatus::Blank => "Blank",
-            },
-            ArtNode::Internal { .. } => "",
-        };
-
-        let pk_marker = prepare_short_marker_for_option(&node.public_key().x());
-
-        match node {
-            ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
-                public_key: format!(
-                    "{} leaf of weight: {}, x: {}",
-                    blank_marker,
-                    node.weight(),
-                    pk_marker,
-                ),
-            },
-            ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-                public_key: format!("Node of weight: {}, x: {}", node.weight(), pk_marker,),
-                left: Box::new(ARTDisplayTree::from(l.as_ref())),
-                right: Box::new(ARTDisplayTree::from(r.as_ref())),
-            },
-        }
-    }
-}
+// impl<G> From<&ArtNode<G>> for ARTDisplayTree
+// where
+//     G: AffineRepr,
+// {
+//     fn from(node: &ArtNode<G>) -> Self {
+//         let blank_marker = match node {
+//             ArtNode::Leaf { status, .. } => match status {
+//                 LeafStatus::Active => "Active",
+//                 LeafStatus::PendingRemoval => "PendingRemoval",
+//                 LeafStatus::Blank => "Blank",
+//             },
+//             ArtNode::Internal { .. } => "",
+//         };
+//
+//         let pk_marker = prepare_short_marker_for_option(&node.public_key().x());
+//
+//         match node {
+//             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
+//                 public_key: format!(
+//                     "{} leaf of weight: {}, x: {}",
+//                     blank_marker,
+//                     node.weight(),
+//                     pk_marker,
+//                 ),
+//             },
+//             ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
+//                 public_key: format!("Node of weight: {}, x: {}", node.weight(), pk_marker,),
+//                 left: Box::new(ARTDisplayTree::from(l.as_ref())),
+//                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
+//             },
+//         }
+//     }
+// }
 
 impl<'a, G> From<ArtNodePreview<'a, G>> for AggregationDisplayTree
 where
@@ -85,23 +85,29 @@ where
     }
 }
 
-impl<G> Display for ArtNode<G>
-where
-    G: AffineRepr,
-{
+impl<G: AffineRepr> Display for ArtNodeData<G> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            format_tree!(
-                ARTDisplayTree::from(self),
-                Style::default()
-                    .indentation(4)
-                    .char_set(CharSet::SINGLE_LINE)
-            )
-        )
+        write!(f, "{:?}", self)
     }
 }
+
+// impl<G> Display for ArtNode<G>
+// where
+//     G: AffineRepr,
+// {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         write!(
+//             f,
+//             "{}",
+//             format_tree!(
+//                 ARTDisplayTree::from(self),
+//                 Style::default()
+//                     .indentation(4)
+//                     .char_set(CharSet::SINGLE_LINE)
+//             )
+//         )
+//     }
+// }
 
 #[derive(DisplayTree, Debug, Clone)]
 pub enum AggregationDisplayTree {
@@ -127,7 +133,7 @@ pub enum AggregationDisplayTree {
 
 impl<D> Display for BinaryTreeNode<D>
 where
-    D: Clone + Display + Default,
+    D: Clone + Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(

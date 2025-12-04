@@ -1,6 +1,6 @@
 use crate::art::private_art::tests::{owner_leaf_eligibility_artefact, verify_secrets_are_correct};
 use crate::art::{AggregationContext, ArtAdvancedOps, PrivateArt};
-use crate::art_node::{BinaryTree, BinaryTreeNodeIterWithPath, LeafIterWithPath, TreeMethods};
+use crate::art_node::{BinaryTree, NodeIterWithPath, TreeMethods};
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
     AggregatedChange, AggregationData, PrivateAggregatedChange, VerifierAggregationData,
@@ -116,7 +116,7 @@ fn test_branch_aggregation_flow() {
     let tree_ds_tree = ProverAggregationTree::<CortadoAffine>::try_from(&agg);
     assert!(tree_ds_tree.is_ok());
 
-    for (node, path) in BinaryTreeNodeIterWithPath::from(&agg.prover_aggregation) {
+    for (node, path) in NodeIterWithPath::from(&agg.prover_aggregation) {
         assert_eq!(
             CortadoAffine::generator()
                 .mul(node.data.secret_key)
@@ -175,7 +175,7 @@ fn test_branch_aggregation_flow() {
     }
 
     let root_clone = user1.root().clone();
-    let leaf_iter = LeafIterWithPath::new(&root_clone).skip(10).take(10);
+    let leaf_iter = root_clone.leaf_iter_with_path().skip(10).take(10);
     for (_, path) in leaf_iter {
         let path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
         agg.remove_member(&NodeIndex::Direction(path), Fr::rand(&mut rng))
@@ -216,7 +216,7 @@ fn test_branch_aggregation_flow() {
     }
 
     // Verify structure correctness
-    for (node, path) in BinaryTreeNodeIterWithPath::from(&agg.prover_aggregation) {
+    for (node, path) in NodeIterWithPath::from(&agg.prover_aggregation) {
         assert_eq!(
             CortadoAffine::generator()
                 .mul(node.data.secret_key)

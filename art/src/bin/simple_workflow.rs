@@ -119,6 +119,7 @@ fn example_of_simple_flow() {
         .root()
         .node(&changes_4.node_index)
         .unwrap()
+        .data()
         .public_key();
     let verification_result = verifier_engine
         .new_context(EligibilityRequirement::Member(target_leaf_pk))

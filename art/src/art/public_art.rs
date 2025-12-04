@@ -1,8 +1,8 @@
 use crate::art::artefacts::VerifierArtefacts;
 use crate::art::{AggregationContext, PrivateArt};
 use crate::art_node::{
-    ArtNode, ArtNodePreview, BinaryTree, BinaryTreeNode, BinaryTreeNodeIterWithPath, LeafStatus,
-    NodeIterWithPath, TreeMethods, TreeNodeIterWithPath,
+    ArtNode, ArtNodeData, ArtNodePreview, BinaryTree, BinaryTreeNode, LeafStatus, NodeIterWithPath,
+    TreeMethods,
 };
 use crate::changes::ApplicableChange;
 use crate::changes::aggregations::{
@@ -138,14 +138,18 @@ where
         change.apply(self)
     }
 
+    /// Returns helper data with current merge configuration. Can be used to revert change
+    /// applications after last `commit()`.
     pub fn snapshot(&self) -> PublicArtApplySnapshot<G> {
         PublicArtApplySnapshot::new(self.merge_tree.clone())
     }
 
+    /// Return merge configuration fo the state specified in provided `snapshot`.
     pub fn undo_apply(&mut self, snapshot: PublicArtApplySnapshot<G>) {
         self.merge_tree = snapshot.0;
     }
 
+    /// Update art with all the stored epoch changes. removes all the merge data.
     pub fn commit(&mut self) -> Result<(), ArtError> {
         let Some(merge_tree) = mem::take(&mut self.merge_tree.root) else {
             return Ok(());
@@ -159,6 +163,7 @@ where
         })
     }
 
+    /// Clears current merge state without commiting.
     pub fn discard(&mut self) {
         self.merge_tree = Default::default();
     }
@@ -176,7 +181,8 @@ where
                     .child(Direction::Right)
                     .ok_or(ArtError::InvalidBranchChange)?
                     .preview_public_key();
-                art_node.extend(ArtNode::new_leaf(public_key));
+                let leaf_data = ArtNodeData::new_leaf(public_key, LeafStatus::Active, vec![]);
+                art_node.extend(ArtNode::new_leaf(leaf_data));
                 art_node.commit(Some(&merge_node.data))?;
             } else {
                 art_node.commit(Some(&merge_node.data))?;
@@ -187,8 +193,8 @@ where
     }
 
     pub fn find(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self.root()) {
-            if node.public_key().eq(&public_key) {
+        for (node, _) in self.root().node_iter_with_path() {
+            if node.data().public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
@@ -197,8 +203,8 @@ where
     }
 
     pub fn find_leaf(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self.root()) {
-            if node.is_leaf() && node.public_key().eq(&public_key) {
+        for (node, _) in self.root().node_iter_with_path() {
+            if node.is_leaf() && node.data().public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
@@ -218,7 +224,7 @@ where
         &mut self.tree_root
     }
 
-    pub fn preview(&self) -> PublicArtPreview<G> {
+    pub fn preview(&'_ self) -> PublicArtPreview<'_, G> {
         PublicArtPreview { public_art: self }
     }
 
@@ -233,6 +239,7 @@ where
                 parent
                     .child(direction.other())
                     .ok_or(ArtError::PathNotExists)?
+                    .data()
                     .public_key(),
             );
             parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
@@ -270,8 +277,8 @@ where
             let new_leaf_public_key = *public_keys.last().ok_or(ArtError::NoChanges)?;
 
             let target_node = self.node_at(path)?;
-            let public_key = target_node.public_key();
-            let Some(status) = target_node.status() else {
+            let public_key = target_node.data().public_key();
+            let Some(status) = target_node.data().status() else {
                 return Err(ArtError::InvalidBranchChange);
             };
 
@@ -344,7 +351,7 @@ where
         let mut path = change.node_index.get_path()?;
         if matches!(change.change_type, BranchChangeType::AddMember)
             && matches!(
-                self.node_at(&path)?.status(),
+                self.node_at(&path)?.data().status(),
                 Some(LeafStatus::Active | LeafStatus::PendingRemoval)
             )
         {
@@ -356,16 +363,17 @@ where
         for direction in &path {
             if parent.is_leaf() {
                 if let BranchChangeType::AddMember = change.change_type
-                    && matches!(parent.status(), Some(LeafStatus::Active))
+                    && matches!(parent.data().status(), Some(LeafStatus::Active))
                 {
                     // The current node is a part of the co-path
-                    co_path.push(parent.public_key())
+                    co_path.push(parent.data().public_key())
                 }
             } else {
                 co_path.push(
                     parent
                         .child(direction.other())
                         .ok_or(ArtError::PathNotExists)?
+                        .data()
                         .public_key(),
                 );
                 parent = parent.child(*direction).ok_or(ArtError::PathNotExists)?;
@@ -395,9 +403,9 @@ where
         let mut resulting_aggregation_root =
             BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
-        for (_, path) in BinaryTreeNodeIterWithPath::new(agg_root).skip(1) {
+        for (_, path) in NodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
+            let resulting_target_node = resulting_aggregation_root.mut_node_at(&parent_path)?;
             let aggregation_parent = path
                 .last()
                 .ok_or(ArtError::NoChanges)
@@ -413,7 +421,7 @@ where
                 && let Some(other_child) = parent.child(last_direction.other())
             {
                 // Try to retrieve Co-path from the original ART
-                other_child.public_key()
+                other_child.data().public_key()
             } else {
                 // Retrieve co-path as the last leaf on the path. Also apply all the changes on the path
                 let mut path = parent_path.clone();
@@ -434,15 +442,17 @@ where
         aggregation: &BinaryTreeNode<AggregationData<G>>,
         path: &[Direction],
     ) -> Result<G, ArtError> {
-        let mut leaf_public_key = art.root().public_key();
+        let mut leaf_public_key = art.root().data().public_key();
 
         let mut current_art_node = Some(art.root());
         let mut current_agg_node = Some(aggregation);
         for (i, dir) in path.iter().enumerate() {
             if let Some(art_node) = current_art_node {
                 current_art_node = art_node.child(*dir);
-                if let Some(ArtNode::Leaf { public_key, .. }) = current_art_node {
-                    leaf_public_key = *public_key;
+                if let Some(node) = current_art_node
+                    && node.is_leaf()
+                {
+                    leaf_public_key = node.data().public_key();
                 }
             }
 
@@ -499,8 +509,10 @@ where
         art: &PublicArt<G>,
     ) -> Result<(bool, Vec<Direction>), ArtError> {
         let weak_only = if let BranchChangeType::RemoveMember = self.change_type {
-            if let ArtNode::Leaf { status, .. } = art.node(&self.node_index)? {
-                matches!(status, LeafStatus::Blank)
+            if let node = art.node(&self.node_index)?
+                && node.is_leaf()
+            {
+                matches!(node.data().status(), Some(LeafStatus::Blank))
             } else {
                 return Err(ArtError::InvalidBranchChange);
             }
@@ -521,7 +533,7 @@ where
         match self.change_type {
             BranchChangeType::UpdateKey => art.apply_update_key(&self.public_keys, &path),
             BranchChangeType::AddMember => {
-                let target_status = art.node_at(&path)?.status();
+                let target_status = art.node_at(&path)?.data().status();
                 let extend_tree = matches!(
                     target_status,
                     Some(LeafStatus::Active | LeafStatus::PendingRemoval)
@@ -529,7 +541,7 @@ where
                 art.apply_add_member(&self.public_keys, &path, extend_tree)
             }
             BranchChangeType::RemoveMember => {
-                let target_status = art.node_at(&path)?.status();
+                let target_status = art.node_at(&path)?.data().status();
                 let weak_only = matches!(target_status, Some(LeafStatus::Blank));
                 art.apply_remove_member(&self.public_keys, &path, weak_only)
             }
@@ -598,7 +610,7 @@ where
 {
     /// Search for a node with the given `public_key`.
     pub fn find(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
-        for (node, _) in TreeNodeIterWithPath::new(self.root()) {
+        for (node, _) in self.root().node_iter_with_path() {
             if node.public_key().eq(&public_key) {
                 return Ok(node);
             }
@@ -609,10 +621,10 @@ where
 
     /// Search for a leaf node with the given `public_key`.
     pub fn find_leaf(&'a self, public_key: G) -> Result<ArtNodePreview<'a, G>, ArtError> {
-        for (node, _) in TreeNodeIterWithPath::new(self.root()) {
+        for (node, _) in self.root().node_iter_with_path() {
             if let Some(art_node) = node.art_node()
                 && art_node.is_leaf()
-                && art_node.public_key().eq(&public_key)
+                && art_node.data().public_key().eq(&public_key)
             {
                 return Ok(node);
             }
@@ -732,9 +744,9 @@ where
         let mut resulting_aggregation_root =
             BinaryTreeNode::<VerifierAggregationData<G>>::try_from(agg_root)?;
 
-        for (_, path) in BinaryTreeNodeIterWithPath::new(agg_root).skip(1) {
+        for (_, path) in NodeIterWithPath::new(agg_root).skip(1) {
             let mut parent_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
-            let resulting_target_node = resulting_aggregation_root.mut_node(&parent_path)?;
+            let resulting_target_node = resulting_aggregation_root.mut_node_at(&parent_path)?;
             let aggregation_parent = path
                 .last()
                 .ok_or(ArtError::NoChanges)
@@ -808,7 +820,7 @@ where
 
     /// Searches for the left most blank node and returns the vector of directions to it.
     pub(crate) fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
-        for (node, path) in TreeNodeIterWithPath::new(self.root()) {
+        for (node, path) in self.root().node_iter_with_path() {
             if node.is_leaf() && !matches!(node.status(), Some(LeafStatus::Active)) {
                 let mut node_path = Vec::with_capacity(path.len());
 

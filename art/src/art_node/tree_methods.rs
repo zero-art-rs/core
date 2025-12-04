@@ -78,7 +78,7 @@ where
     }
 
     fn mut_child_node(&mut self, dir: Direction) -> Option<&mut Self> {
-        self.mut_child(dir)
+        self.mut_child(dir).as_mut().map(|child| child.as_mut())
     }
 }
 

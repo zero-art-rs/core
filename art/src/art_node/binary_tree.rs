@@ -1,5 +1,5 @@
 use crate::art::ProverArtefacts;
-use crate::art_node::{ArtNode, ArtNodePreview, NodeIterWithPath};
+use crate::art_node::{ArtNode, ArtNodePreview};
 use crate::changes::aggregations::{ProverAggregationData, VerifierAggregationData};
 use crate::changes::branch_change::{BranchChange, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -71,16 +71,6 @@ pub struct BinaryTreeNode<D> {
     pub data: D,
 }
 
-pub struct BinaryTreeNodeWrapper<'a, D> {
-    node: &'a BinaryTreeNode<D>,
-}
-
-impl<'a, D> BinaryTreeNodeWrapper<'a, D> {
-    pub fn new(node: &'a BinaryTreeNode<D>) -> Self {
-        BinaryTreeNodeWrapper { node }
-    }
-}
-
 impl<D> BinaryTreeNode<D> {
     pub fn new_leaf(data: D) -> Self {
         Self {
@@ -88,6 +78,14 @@ impl<D> BinaryTreeNode<D> {
             r: None,
             data,
         }
+    }
+
+    pub fn new_internal(data: D, l: Option<Box<Self>>, r: Option<Box<Self>>) -> Self {
+        Self { l, r, data }
+    }
+
+    pub fn data(&self) -> &D {
+        &self.data
     }
 
     pub fn node_at(&self, path: &[Direction]) -> Result<&Self, ArtError> {
@@ -103,7 +101,8 @@ impl<D> BinaryTreeNode<D> {
         self.l.is_none() && self.r.is_none()
     }
 
-    pub fn mut_node(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
+    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
+    pub fn mut_node_at(&mut self, path: &[Direction]) -> Result<&mut Self, ArtError> {
         let mut parent = self;
         for direction in path {
             parent = parent
@@ -182,8 +181,20 @@ impl<D> BinaryTreeNode<D> {
         child.as_mut()
     }
 
-    pub(crate) fn node_iter_with_path(&self) -> BinaryTreeNodeIterWithPath<'_, D> {
-        BinaryTreeNodeIterWithPath::new(self)
+    pub fn node_iter_with_path(&self) -> NodeIterWithPath<&Self> {
+        NodeIterWithPath::new(self)
+    }
+
+    pub fn leaf_iter_with_path(&self) -> LeafIterWithPath<&Self> {
+        LeafIterWithPath::new(self)
+    }
+
+    pub fn node_iter(&self) -> NodeIter<&Self> {
+        NodeIter::new(self)
+    }
+
+    pub fn leaf_iter(&self) -> LeafIter<&Self> {
+        LeafIter::new(self)
     }
 }
 
@@ -218,7 +229,7 @@ where
 
         self.extend_tree_with(change, prover_artefacts)?;
 
-        let target_leaf = self.mut_node(&leaf_path)?;
+        let target_leaf = self.mut_node_at(&leaf_path)?;
         target_leaf.data.change_type.push(change_type_hint);
 
         Ok(())
@@ -318,7 +329,7 @@ where
     type Error = ArtError;
 
     fn try_from(prover_aggregation: &BinaryTreeNode<D1>) -> Result<Self, Self::Error> {
-        let mut iter = BinaryTreeNodeIterWithPath::new(prover_aggregation);
+        let mut iter = NodeIterWithPath::new(prover_aggregation);
         let (node, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
         let verifier_data = D2::from(node.data.clone());
@@ -330,7 +341,7 @@ where
                 let verifier_data = D2::from(node.data.clone());
                 let next_node = BinaryTreeNode::from(verifier_data);
 
-                if let Ok(child) = aggregation.mut_node(&node_path) {
+                if let Ok(child) = aggregation.mut_node_at(&node_path) {
                     child.set_child(last_dir, next_node);
                 }
             }
@@ -347,7 +358,7 @@ where
     type Error = ArtError;
 
     fn try_from(prover_aggregation: &ArtNode<G>) -> Result<Self, Self::Error> {
-        let mut iter = NodeIterWithPath::new(prover_aggregation);
+        let mut iter = LeafIterWithPath::new(prover_aggregation);
         let (_, _) = iter.next().ok_or(ArtError::EmptyArt)?;
 
         let mut aggregation = BinaryTreeNode::from(false);
@@ -357,7 +368,7 @@ where
             if let Some(last_dir) = node_path.pop() {
                 let next_node = BinaryTreeNode::from(false);
 
-                if let Ok(child) = aggregation.mut_node(&node_path) {
+                if let Ok(child) = aggregation.mut_node_at(&node_path) {
                     child.set_child(last_dir, next_node);
                 }
             }
@@ -376,7 +387,7 @@ where
     fn try_from(value: &BinaryTreeNode<ProverAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = BinaryTreeNodeIterWithPath::new(value);
+        let mut node_iter = NodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
@@ -409,7 +420,7 @@ where
     fn try_from(value: &BinaryTreeNode<VerifierAggregationData<G>>) -> Result<Self, Self::Error> {
         let mut resulting_tree: Self = Self::new(None);
 
-        let mut node_iter = BinaryTreeNodeIterWithPath::new(value);
+        let mut node_iter = NodeIterWithPath::new(value);
 
         let (root, _) = node_iter.next().ok_or(ArtError::EmptyArt)?;
         resulting_tree
@@ -433,31 +444,31 @@ where
     }
 }
 
-/// Iterator for aggregation tree (`AggregationNode`).
+/// Iterator for a binary tree.
 ///
-/// `AggregationNodeIterWithPath` can be used for traversal of all the nodes in the
-/// aggregation tree. Besides the target node, this iterator also returns pairs of
-/// `(&'a AggregationNode<D>, Direction)` on path from the root to the current node.
+/// `NodeIterWithPath` can be used for traversal of all the nodes in the
+/// binary tree. Besides the target node, this iterator is meant to return pairs of
+/// node and path direction `(N, Direction)` on path from the root to the current node.
 #[derive(Debug, Clone)]
-pub struct BinaryTreeNodeIterWithPath<'a, D> {
-    pub(crate) current_node: Option<&'a BinaryTreeNode<D>>,
-    pub(crate) path: Vec<(&'a BinaryTreeNode<D>, Direction)>,
+pub struct NodeIterWithPath<N> {
+    pub(crate) current_node: Option<N>,
+    pub(crate) path: Vec<(N, Direction)>,
 }
 
-/// NodeIter iterates over all the nodes, performing a depth-first traversal
-impl<'a, D> BinaryTreeNodeIterWithPath<'a, D> {
-    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
-        BinaryTreeNodeIterWithPath {
+impl<N> NodeIterWithPath<N> {
+    pub fn new(root: N) -> Self {
+        NodeIterWithPath {
             current_node: Some(root),
             path: vec![],
         }
     }
 }
 
-impl<'a, D> From<&'a BinaryTree<D>> for BinaryTreeNodeIterWithPath<'a, D> {
+/// NodeIter iterates over all the nodes, performing a depth-first traversal
+impl<'a, D> From<&'a BinaryTree<D>> for NodeIterWithPath<&'a BinaryTreeNode<D>> {
     fn from(value: &'a BinaryTree<D>) -> Self {
         match &value.root {
-            None => BinaryTreeNodeIterWithPath {
+            None => NodeIterWithPath {
                 current_node: None,
                 path: vec![],
             },
@@ -466,7 +477,7 @@ impl<'a, D> From<&'a BinaryTree<D>> for BinaryTreeNodeIterWithPath<'a, D> {
     }
 }
 
-impl<'a, D> Iterator for BinaryTreeNodeIterWithPath<'a, D> {
+impl<'a, D> Iterator for NodeIterWithPath<&'a BinaryTreeNode<D>> {
     type Item = (
         &'a BinaryTreeNode<D>,
         Vec<(&'a BinaryTreeNode<D>, Direction)>,
@@ -526,103 +537,7 @@ impl<'a, D> Iterator for BinaryTreeNodeIterWithPath<'a, D> {
     }
 }
 
-/// `LeafIterWithPath` iterates over all the leaves in a tree from left most to right most,
-/// performing a depth-first traversal.
-///
-/// Along with the leaf, this iterator returns pairs `(&'a ArtNode<G>, Direction)` on path from
-/// root to the node, as `TreeNodeIterWithPath` do.
-pub struct BinaryLeafIterWithPath<'a, D> {
-    inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
-}
-
-impl<'a, D> BinaryLeafIterWithPath<'a, D> {
-    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
-        Self {
-            inner_iter: BinaryTreeNodeIterWithPath::new(root),
-        }
-    }
-}
-
-impl<'a, D> Iterator for BinaryLeafIterWithPath<'a, D> {
-    type Item = (
-        &'a BinaryTreeNode<D>,
-        Vec<(&'a BinaryTreeNode<D>, Direction)>,
-    );
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for (item, path) in &mut self.inner_iter {
-            if item.is_leaf() {
-                return Some((item, path));
-            }
-        }
-
-        None
-    }
-}
-
-/// `BinaryNodeIter` iterates over all the nodes, performing a depth-first traversal.
-pub struct BinaryNodeIter<'a, D> {
-    pub inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
-}
-
-impl<'a, D> BinaryNodeIter<'a, D> {
-    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
-        Self {
-            inner_iter: BinaryTreeNodeIterWithPath::new(root),
-        }
-    }
-}
-
-impl<'a, D> Iterator for BinaryNodeIter<'a, D> {
-    type Item = &'a BinaryTreeNode<D>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner_iter.next().map(|item| item.0)
-    }
-}
-
-/// `LeafIter` iterates over leaves from left most to right most, performing a depth-first traversal
-///
-/// It is a default iterator for `ArtNode`.
-pub struct BinaryLeafIter<'a, D> {
-    pub inner_iter: BinaryTreeNodeIterWithPath<'a, D>,
-}
-
-impl<'a, D> BinaryLeafIter<'a, D> {
-    pub fn new(root: &'a BinaryTreeNode<D>) -> Self {
-        BinaryLeafIter {
-            inner_iter: BinaryTreeNodeIterWithPath::new(root),
-        }
-    }
-}
-
-impl<'a, D> Iterator for BinaryLeafIter<'a, D> {
-    type Item = &'a BinaryTreeNode<D>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (&mut self.inner_iter)
-            .map(|(item, _)| item)
-            .find(|&item| item.is_leaf())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TreeNodeIterWithPath<N> {
-    pub(crate) current_node: Option<N>,
-    pub(crate) path: Vec<(N, Direction)>,
-}
-
-/// NodeIter iterates over all the nodes, performing a depth-first traversal
-impl<N> TreeNodeIterWithPath<N> {
-    pub fn new(root: N) -> Self {
-        Self {
-            current_node: Some(root),
-            path: vec![],
-        }
-    }
-}
-
-impl<'a, G> Iterator for TreeNodeIterWithPath<ArtNodePreview<'a, G>>
+impl<'a, G> Iterator for NodeIterWithPath<ArtNodePreview<'a, G>>
 where
     G: AffineRepr,
 {
@@ -691,5 +606,136 @@ where
         }
 
         None
+    }
+}
+
+/// `LeafIterWithPath` iterates over all the leaves in a tree from left most to right most,
+/// performing a depth-first traversal.
+///
+/// Along with the leaf, this iterator returns pairs `(Node, Direction)` on path from
+/// root to the node, as `NodeIterWithPath` do.
+pub struct LeafIterWithPath<N> {
+    inner_iter: NodeIterWithPath<N>,
+}
+
+impl<N> LeafIterWithPath<N> {
+    pub fn new(root: N) -> Self {
+        Self {
+            inner_iter: NodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for LeafIterWithPath<&'a BinaryTreeNode<D>> {
+    type Item = (
+        &'a BinaryTreeNode<D>,
+        Vec<(&'a BinaryTreeNode<D>, Direction)>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (item, path) in &mut self.inner_iter {
+            if item.is_leaf() {
+                return Some((item, path));
+            }
+        }
+
+        None
+    }
+}
+
+impl<'a, G: AffineRepr> Iterator for LeafIterWithPath<ArtNodePreview<'a, G>> {
+    type Item = (
+        ArtNodePreview<'a, G>,
+        Vec<(ArtNodePreview<'a, G>, Direction)>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (item, path) in &mut self.inner_iter {
+            if item.is_leaf() {
+                return Some((item, path));
+            }
+        }
+
+        None
+    }
+}
+
+/// `BinaryNodeIter` iterates over all the nodes, performing a depth-first traversal.
+pub struct NodeIter<N> {
+    pub inner_iter: NodeIterWithPath<N>,
+}
+
+impl<N> NodeIter<N> {
+    pub fn new(root: N) -> Self {
+        Self {
+            inner_iter: NodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for NodeIter<&'a BinaryTreeNode<D>> {
+    type Item = &'a BinaryTreeNode<D>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner_iter.next().map(|item| item.0)
+    }
+}
+
+impl<'a, G: AffineRepr> Iterator for NodeIter<ArtNodePreview<'a, G>> {
+    type Item = ArtNodePreview<'a, G>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner_iter.next().map(|item| item.0)
+    }
+}
+
+/// `LeafIter` iterates over leaves from left most to right most, performing a depth-first traversal
+pub struct LeafIter<N> {
+    pub inner_iter: NodeIterWithPath<N>,
+}
+
+impl<N> LeafIter<N> {
+    pub fn new(root: N) -> Self {
+        LeafIter {
+            inner_iter: NodeIterWithPath::new(root),
+        }
+    }
+}
+
+impl<'a, D> Iterator for LeafIter<&'a BinaryTreeNode<D>> {
+    type Item = &'a BinaryTreeNode<D>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (&mut self.inner_iter)
+            .map(|(item, _)| item)
+            .find(|&item| item.is_leaf())
+    }
+}
+
+impl<'a, G: AffineRepr> Iterator for LeafIter<ArtNodePreview<'a, G>> {
+    type Item = ArtNodePreview<'a, G>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (&mut self.inner_iter)
+            .map(|(item, _)| item)
+            .find(|&item| item.is_leaf())
+    }
+}
+
+impl<'a, D> IntoIterator for &'a BinaryTreeNode<D> {
+    type Item = &'a BinaryTreeNode<D>;
+    type IntoIter = LeafIter<&'a BinaryTreeNode<D>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.leaf_iter()
+    }
+}
+
+impl<'a, G: AffineRepr> IntoIterator for ArtNodePreview<'a, G> {
+    type Item = ArtNodePreview<'a, G>;
+    type IntoIter = LeafIter<ArtNodePreview<'a, G>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.leaf_iter()
     }
 }

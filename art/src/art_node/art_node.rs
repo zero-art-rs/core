@@ -1,12 +1,11 @@
 use crate::art::PublicMergeData;
-use crate::art_node::BinaryTreeNode;
+use crate::art_node::{BinaryTreeNode, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath};
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::{Direction, NodeIndex};
 use ark_ec::AffineRepr;
 use ark_ec::CurveGroup;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -50,7 +49,7 @@ where
 /// The node in the ART tree.
 #[derive(Deserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 #[serde(bound = "")]
-pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
+pub enum ArtNodeData<G: AffineRepr> {
     Leaf {
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         public_key: G,
@@ -60,43 +59,20 @@ pub enum ArtNode<G: AffineRepr + CanonicalSerialize + CanonicalDeserialize> {
     Internal {
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         public_key: G,
-        l: Box<ArtNode<G>>,
-        r: Box<ArtNode<G>>,
         weight: usize,
     },
 }
 
-impl<G> Default for ArtNode<G>
-where
-    G: AffineRepr,
-{
-    fn default() -> Self {
-        Self::new_leaf(G::zero())
+impl<G: AffineRepr> ArtNodeData<G> {
+    pub fn new_internal(public_key: G, weight: usize) -> Self {
+        Self::Internal { public_key, weight }
     }
-}
 
-impl<G> ArtNode<G>
-where
-    G: AffineRepr,
-{
-    /// Creates a new ArtNode leaf with the given public key.
-    pub fn new_leaf(public_key: G) -> Self {
+    pub fn new_leaf(public_key: G, status: LeafStatus, metadata: Vec<u8>) -> Self {
         Self::Leaf {
             public_key,
-            status: LeafStatus::Active,
-            metadata: vec![],
-        }
-    }
-
-    /// Creates a new ArtNode internal node with the given public key.
-    pub fn new_internal_node(public_key: G, l: Box<Self>, r: Box<Self>) -> Self {
-        let weight = l.weight() + r.weight();
-
-        Self::Internal {
-            public_key,
-            l,
-            r,
-            weight,
+            status,
+            metadata,
         }
     }
 
@@ -113,8 +89,8 @@ where
 
     pub fn mut_weight(&mut self) -> Result<&mut usize, ArtError> {
         match self {
-            ArtNode::Leaf { .. } => Err(ArtError::InternalNodeOnly),
-            ArtNode::Internal { weight, .. } => Ok(weight),
+            Self::Leaf { .. } => Err(ArtError::InternalNodeOnly),
+            Self::Internal { weight, .. } => Ok(weight),
         }
     }
 
@@ -150,59 +126,45 @@ where
             Self::Leaf { public_key, .. } => public_key,
         }
     }
+}
 
-    pub fn child<'a>(&'a self, child: Direction) -> Option<&'a Self> {
-        match self {
-            ArtNode::Leaf { .. } => None,
-            ArtNode::Internal { l, r, .. } => match child {
-                Direction::Left => Some(l.as_ref()),
-                Direction::Right => Some(r.as_ref()),
-            },
-        }
+pub type ArtNode<G> = BinaryTreeNode<ArtNodeData<G>>;
+
+impl<G> Default for ArtNode<G>
+where
+    G: AffineRepr,
+{
+    fn default() -> Self {
+        Self::new_leaf(ArtNodeData::new_leaf(G::zero(), Default::default(), vec![]))
     }
+}
 
-    pub fn mut_child(&mut self, child: Direction) -> Option<&mut Self> {
-        match self {
-            ArtNode::Leaf { .. } => None,
-            ArtNode::Internal { l, r, .. } => match child {
-                Direction::Left => Some(l.as_mut()),
-                Direction::Right => Some(r.as_mut()),
-            },
+impl<G> ArtNode<G>
+where
+    G: AffineRepr,
+{
+    pub fn full_node(data: ArtNodeData<G>, l: Box<Self>, r: Box<Self>) -> Self {
+        Self {
+            l: Some(l),
+            r: Some(r),
+            data,
         }
-    }
-
-    /// If exists, returns reference on the node at the end of the given path form root. Else return `ArtError`.
-    pub(crate) fn mut_node_at(&mut self, path: &[Direction]) -> Result<&mut ArtNode<G>, ArtError> {
-        let mut node = self;
-        for direction in path {
-            if let Some(child_node) = node.mut_child(*direction) {
-                node = child_node;
-            } else {
-                return Err(ArtError::PathNotExists);
-            }
-        }
-
-        Ok(node)
-    }
-
-    pub fn is_leaf(&self) -> bool {
-        matches!(self, ArtNode::Leaf { .. })
     }
 
     /// Move current node down to left child, and append other node to the right. The current node
     /// becomes internal.
     pub fn extend(&mut self, other: Self) {
-        let new_weight = self.weight() + other.weight();
+        let weight = self.data().weight() + other.data().weight();
 
         let mut tmp = Self::default();
         mem::swap(self, &mut tmp);
 
-        let mut new_self = Self::Internal {
-            public_key: self.public_key(),
-            l: Box::new(tmp),
-            r: Box::new(other),
-            weight: new_weight,
-        };
+        let public_key = self.data().public_key();
+        let mut new_self = Self::new_internal(
+            ArtNodeData::Internal { public_key, weight },
+            Some(Box::new(tmp)),
+            Some(Box::new(other)),
+        );
 
         mem::swap(&mut new_self, self);
     }
@@ -216,14 +178,10 @@ where
     /// If the node is temporary, replace the node, else moves current node down to left,
     /// and append other node to the right.
     pub fn extend_or_replace(&mut self, other: Self) -> Result<(), ArtError> {
-        match self {
-            ArtNode::Leaf { status, .. } => {
-                match status {
-                    LeafStatus::Active => self.extend(other),
-                    _ => _ = self.replace_with(other),
-                };
-            }
-            ArtNode::Internal { .. } => return Err(ArtError::LeafOnly),
+        match self.data().status() {
+            Some(LeafStatus::Active | LeafStatus::PendingRemoval) => self.extend(other),
+            Some(LeafStatus::Blank) => _ = self.replace_with(other),
+            None => return Err(ArtError::LeafOnly),
         }
 
         Ok(())
@@ -231,8 +189,8 @@ where
 
     /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
     pub fn leaf_with(&self, public_key: G) -> Result<&Self, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self) {
-            if node.is_leaf() && node.public_key().eq(&public_key) {
+        for (node, _) in LeafIterWithPath::new(self) {
+            if node.is_leaf() && node.data().public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
@@ -242,8 +200,8 @@ where
 
     /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
     pub fn node_with(&self, public_key: G) -> Result<&ArtNode<G>, ArtError> {
-        for (node, _) in NodeIterWithPath::new(self) {
-            if node.public_key().eq(&public_key) {
+        for (node, _) in LeafIterWithPath::new(self) {
+            if node.data().public_key().eq(&public_key) {
                 return Ok(node);
             }
         }
@@ -253,8 +211,8 @@ where
 
     /// Searches for a leaf with the provided `public_key`. If there is no such leaf, return `ArtError`.
     pub fn path_to_leaf_with(&self, public_key: G) -> Result<Vec<Direction>, ArtError> {
-        for (node, path) in NodeIterWithPath::new(self) {
-            if node.is_leaf() && node.public_key().eq(&public_key) {
+        for (node, path) in LeafIterWithPath::new(self) {
+            if node.is_leaf() && node.data().public_key().eq(&public_key) {
                 return Ok(path
                     .iter()
                     .map(|(_, direction)| *direction)
@@ -266,7 +224,7 @@ where
     }
 
     pub(crate) fn preview_public_key(&self, merge_data: &PublicMergeData<G>) -> G {
-        let mut resulting_public_key = self.public_key();
+        let mut resulting_public_key = self.data().public_key();
 
         if let Some(strong_key) = &merge_data.strong_key {
             resulting_public_key = *strong_key;
@@ -284,13 +242,13 @@ where
         merge_data: Option<&PublicMergeData<G>>,
     ) -> Result<G, ArtError> {
         if let Some(merge_data) = merge_data {
-            *self.mut_public_key() = self.preview_public_key(merge_data);
+            *self.data.mut_public_key() = self.preview_public_key(merge_data);
 
             if let Some(status) = &merge_data.status {
-                self.set_status(*status)?;
+                self.data.set_status(*status)?;
             }
 
-            if let Ok(weight) = self.mut_weight() {
+            if let Ok(weight) = self.data.mut_weight() {
                 match merge_data.weight_change.cmp(&0) {
                     Ordering::Less => *weight -= merge_data.weight_change.abs() as usize,
                     Ordering::Equal => {}
@@ -299,7 +257,7 @@ where
             }
         };
 
-        Ok(self.public_key())
+        Ok(self.data().public_key())
     }
 }
 
@@ -380,7 +338,7 @@ where
 
     pub fn public_key(&self) -> G {
         match self {
-            Self::ArtNodeOnly { art_node } => art_node.public_key(),
+            Self::ArtNodeOnly { art_node } => art_node.data().public_key(),
             Self::MergeNodeOnly { merge_node } => merge_node.preview_public_key(),
             Self::Full {
                 art_node,
@@ -391,7 +349,7 @@ where
 
     pub fn status(&self) -> Option<LeafStatus> {
         match self {
-            Self::ArtNodeOnly { art_node } => art_node.status(),
+            Self::ArtNodeOnly { art_node } => art_node.data().status(),
             Self::MergeNodeOnly { merge_node } => merge_node.status(),
             Self::Full { merge_node, .. } => merge_node.status(),
         }
@@ -399,13 +357,13 @@ where
 
     pub fn weight(&self) -> usize {
         match self {
-            Self::ArtNodeOnly { art_node } => art_node.weight(),
+            Self::ArtNodeOnly { art_node } => art_node.data().weight(),
             Self::MergeNodeOnly { merge_node } => merge_node.data.weight_change as usize,
             Self::Full {
                 merge_node,
                 art_node,
             } => {
-                let mut weight = art_node.weight();
+                let mut weight = art_node.data().weight();
                 match merge_node.data.weight_change.cmp(&0) {
                     Ordering::Less => weight -= merge_node.data.weight_change.abs() as usize,
                     Ordering::Equal => {}
@@ -438,184 +396,20 @@ where
 
         left.is_none() && right.is_none()
     }
-}
 
-/// `NodeIterWithPath` iterates over all the nodes, performing a depth-first traversal.
-///
-/// In addition to the node, this iterator returns vector of pairs
-/// `(&'a ArtNode<G>, Direction)` on path from root to the node.
-pub struct NodeIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    pub current_node: Option<&'a ArtNode<G>>,
-    pub path: Vec<(&'a ArtNode<G>, Direction)>,
-}
-
-impl<'a, G> NodeIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    pub fn new(root: &'a ArtNode<G>) -> Self {
-        NodeIterWithPath {
-            current_node: Some(root),
-            path: vec![],
-        }
+    pub fn node_iter_with_path(&self) -> NodeIterWithPath<Self> {
+        NodeIterWithPath::new(self.clone())
     }
-}
 
-impl<'a, G> Iterator for NodeIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    type Item = (&'a ArtNode<G>, Vec<(&'a ArtNode<G>, Direction)>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current_node) = self.current_node {
-            let return_item = (current_node, self.path.clone());
-
-            if current_node.is_leaf() {
-                loop {
-                    match self.path.pop() {
-                        Some((parent, last_direction)) => {
-                            if last_direction == Direction::Right {
-                                self.current_node = Some(parent);
-                            } else if last_direction == Direction::Left {
-                                self.path.push((parent, Direction::Right));
-                                self.current_node = parent.child(Direction::Right);
-                                break;
-                            }
-                        }
-                        None => {
-                            self.current_node = None;
-                            return Some(return_item);
-                        }
-                    }
-                }
-            } else {
-                self.path.push((current_node, Direction::Left));
-                self.current_node = current_node.child(Direction::Left);
-            }
-
-            Some(return_item)
-        } else {
-            None
-        }
+    pub fn leaf_iter_with_path(&self) -> LeafIterWithPath<Self> {
+        LeafIterWithPath::new(self.clone())
     }
-}
 
-/// `LeafIterWithPath` iterates over all the leaves in a tree from left most to right most,
-/// performing a depth-first traversal.
-///
-/// Along with the leaf, this iterator returns pairs `(&'a ArtNode<G>, Direction)` on path from
-/// root to the node, as `NodeIterWithPath` do.
-pub struct LeafIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    pub inner_iter: NodeIterWithPath<'a, G>,
-}
-
-impl<'a, G> LeafIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    pub fn new(root: &'a ArtNode<G>) -> Self {
-        LeafIterWithPath {
-            inner_iter: NodeIterWithPath::new(root),
-        }
+    pub fn node_iter(&self) -> NodeIter<Self> {
+        NodeIter::new(self.clone())
     }
-}
 
-impl<'a, G> Iterator for LeafIterWithPath<'a, G>
-where
-    G: AffineRepr,
-{
-    type Item = (&'a ArtNode<G>, Vec<(&'a ArtNode<G>, Direction)>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for (item, path) in &mut self.inner_iter {
-            if item.is_leaf() {
-                return Some((item, path));
-            }
-        }
-
-        None
-    }
-}
-
-/// `NodeIter` iterates over all the nodes, performing a depth-first traversal.
-pub struct NodeIter<'a, G>
-where
-    G: AffineRepr,
-{
-    pub inner_iter: NodeIterWithPath<'a, G>,
-}
-
-impl<'a, G> NodeIter<'a, G>
-where
-    G: AffineRepr,
-{
-    pub fn new(root: &'a ArtNode<G>) -> Self {
-        NodeIter {
-            inner_iter: NodeIterWithPath::new(root),
-        }
-    }
-}
-
-impl<'a, G> Iterator for NodeIter<'a, G>
-where
-    G: AffineRepr,
-{
-    type Item = &'a ArtNode<G>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner_iter.next().map(|item| item.0)
-    }
-}
-
-/// `LeafIter` iterates over leaves from left most to right most, performing a depth-first traversal
-///
-/// It is a default iterator for `ArtNode`.
-pub struct LeafIter<'a, G>
-where
-    G: AffineRepr,
-{
-    pub inner_iter: NodeIterWithPath<'a, G>,
-}
-
-impl<'a, G> LeafIter<'a, G>
-where
-    G: AffineRepr,
-{
-    pub fn new(root: &'a ArtNode<G>) -> Self {
-        LeafIter {
-            inner_iter: NodeIterWithPath::new(root),
-        }
-    }
-}
-
-impl<'a, G> Iterator for LeafIter<'a, G>
-where
-    G: AffineRepr,
-{
-    type Item = &'a ArtNode<G>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (&mut self.inner_iter)
-            .map(|(item, _)| item)
-            .find(|&item| item.is_leaf())
-    }
-}
-
-impl<'a, G> IntoIterator for &'a ArtNode<G>
-where
-    G: AffineRepr,
-{
-    type Item = &'a ArtNode<G>;
-    type IntoIter = LeafIter<'a, G>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        LeafIter::new(self)
+    pub fn leaf_iter(&self) -> LeafIter<Self> {
+        LeafIter::new(self.clone())
     }
 }

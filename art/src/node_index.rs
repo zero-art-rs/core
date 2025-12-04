@@ -381,30 +381,44 @@ mod tests {
         let node_pk = tree
             .node(&NodeIndex::Coordinate(0, 0))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().public_key();
+        let root_pk = tree.root().data().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Coordinate(1, 0))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().child(Direction::Left).unwrap().public_key();
+        let root_pk = tree
+            .root()
+            .child(Direction::Left)
+            .unwrap()
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Coordinate(1, 1))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().child(Direction::Right).unwrap().public_key();
+        let root_pk = tree
+            .root()
+            .child(Direction::Right)
+            .unwrap()
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Coordinate(4, 0))
             .unwrap()
+            .data()
             .public_key();
         let root_pk = tree
             .root()
@@ -415,6 +429,7 @@ mod tests {
                 Direction::Left,
             ])
             .unwrap()
+            .data()
             .public_key();
         assert!(root_pk.eq(&node_pk));
 
@@ -422,6 +437,7 @@ mod tests {
             .public_art()
             .node(&NodeIndex::Coordinate(4, 11))
             .unwrap()
+            .data()
             .public_key();
         let root_pk = tree
             .root()
@@ -432,6 +448,7 @@ mod tests {
                 Direction::Right,
             ])
             .unwrap()
+            .data()
             .public_key();
         assert!(root_pk.eq(&node_pk));
 
@@ -439,6 +456,7 @@ mod tests {
             .public_art()
             .node(&NodeIndex::Coordinate(4, 15))
             .unwrap()
+            .data()
             .public_key();
         let root_pk = tree
             .root()
@@ -449,6 +467,7 @@ mod tests {
                 Direction::Right,
             ])
             .unwrap()
+            .data()
             .public_key();
         assert!(root_pk.eq(&node_pk));
 
@@ -456,6 +475,7 @@ mod tests {
             .public_art()
             .node(&NodeIndex::Coordinate(5, 31))
             .unwrap()
+            .data()
             .public_key();
         let root_pk = tree
             .root()
@@ -467,6 +487,7 @@ mod tests {
                 Direction::Right,
             ])
             .unwrap()
+            .data()
             .public_key();
         assert!(root_pk.eq(&node_pk));
     }
@@ -485,30 +506,44 @@ mod tests {
             .public_art()
             .node(&NodeIndex::Index(1))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().public_key();
+        let root_pk = tree.root().data().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Index(2))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().child(Direction::Left).unwrap().public_key();
+        let root_pk = tree
+            .root()
+            .child(Direction::Left)
+            .unwrap()
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Index(3))
             .unwrap()
+            .data()
             .public_key();
-        let root_pk = tree.root().child(Direction::Right).unwrap().public_key();
+        let root_pk = tree
+            .root()
+            .child(Direction::Right)
+            .unwrap()
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
             .public_art()
             .node(&NodeIndex::Index(27))
             .unwrap()
+            .data()
             .public_key();
         let root_pk = tree
             .root()
@@ -519,6 +554,7 @@ mod tests {
                 Direction::Right,
             ])
             .unwrap()
+            .data()
             .public_key();
         assert!(root_pk.eq(&node_pk));
 
@@ -531,6 +567,7 @@ mod tests {
             .public_art()
             .node(&NodeIndex::Index(node_index))
             .unwrap()
+            .data()
             .public_key();
         assert!(node_pk.eq(&rec_node_pk));
     }

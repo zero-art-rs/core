@@ -1,7 +1,5 @@
 use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData};
-use crate::art_node::{
-    BinaryTree, BinaryTreeNode, BinaryTreeNodeIterWithPath, LeafStatus, TreeMethods,
-};
+use crate::art_node::{BinaryTree, BinaryTreeNode, LeafStatus, NodeIterWithPath, TreeMethods};
 use crate::changes::aggregations::{AggregatedChange, ProverAggregationData};
 use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
 use crate::errors::ArtError;
@@ -176,10 +174,10 @@ where
         let path = self.operation_tree.find_place_for_new_node()?;
 
         let target_node = self.operation_tree.root().node_at(&path)?;
-        let target_status = target_node.status();
+        let target_status = target_node.data().status();
         let mut ext_pk = None;
         if matches!(target_status, Some(LeafStatus::Active)) {
-            ext_pk = Some(target_node.public_key())
+            ext_pk = Some(target_node.data().public_key())
         };
 
         let (artefacts, change) = self
@@ -219,7 +217,7 @@ where
     ) -> Result<(), ArtError> {
         let path = target_leaf.get_path()?;
         let append_changes = matches!(
-            self.operation_tree.node_at(&path)?.status(),
+            self.operation_tree.node_at(&path)?.data().status(),
             Some(LeafStatus::Blank)
         );
 
@@ -257,6 +255,7 @@ where
         self.operation_tree.commit()?;
         self.operation_tree
             .mut_node_at(&path)?
+            .data
             .set_status(LeafStatus::PendingRemoval)
             .unwrap();
 
@@ -294,11 +293,14 @@ where
             return Ok(());
         };
 
-        for (node, path) in BinaryTreeNodeIterWithPath::new(agg_root) {
+        for (node, path) in NodeIterWithPath::new(agg_root) {
             let full_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
             let mut path = full_path.clone();
 
-            let art_node_preview = art.node_at(&full_path).ok().map(|node| node.public_key());
+            let art_node_preview = art
+                .node_at(&full_path)
+                .ok()
+                .map(|node| node.data().public_key());
 
             let merge_node = if let Some(last_dir) = path.pop() {
                 // update other nodes
@@ -369,7 +371,7 @@ where
             if let Some(agg_children) = co_agg_node {
                 partial_co_path.push(agg_children.data.public_key);
             } else if let Some(art_children) = co_art_node {
-                partial_co_path.push(art_children.public_key());
+                partial_co_path.push(art_children.data().public_key());
             } else {
                 return Err(ArtError::InvalidAggregation);
             }

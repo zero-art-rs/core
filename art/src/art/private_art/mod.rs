@@ -3,9 +3,9 @@ use crate::art::public_art::PublicArtApplySnapshot;
 use crate::art::{
     AggregationContext, ArtLevel, ProverArtefacts, PublicArt, PublicArtPreview, PublicMergeData,
 };
-use crate::art_node::{ArtNode, BinaryTree, LeafIterWithPath, LeafStatus, TreeMethods};
+use crate::art_node::{ArtNode, ArtNodeData, BinaryTree, LeafStatus, TreeMethods};
 use crate::changes::ApplicableChange;
-use crate::changes::aggregations::{AggregatedChange, PrivateAggregatedChange};
+use crate::changes::aggregations::{AggregatedChange, AggregationData, PrivateAggregatedChange};
 use crate::changes::branch_change::{BranchChange, BranchChangeType};
 use crate::errors::ArtError;
 use crate::helper_tools;
@@ -15,6 +15,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::{ProverNodeData, VerifierNodeData};
 
 #[cfg(test)]
@@ -397,9 +398,9 @@ where
 
         // Process leaves of the tree
         for leaf_secret in secrets {
-            level_nodes.push(Box::new(ArtNode::new_leaf(
-                G::generator().mul(leaf_secret).into_affine(),
-            )));
+            let public_key = G::generator().mul(leaf_secret).into_affine();
+            let leaf_data = ArtNodeData::new_leaf(public_key, LeafStatus::Active, vec![]);
+            level_nodes.push(Box::new(ArtNode::new_leaf(leaf_data)));
         }
 
         // Fully fit leaf nodes in the next level by combining only part of them
@@ -464,6 +465,8 @@ where
         change.apply(self)
     }
 
+    /// Returns helper data with current merge configuration. Can be used to revert change
+    /// applications after last `commit()`.
     pub fn snapshot(&self) -> PrivateArtApplySnapshot<G> {
         PrivateArtApplySnapshot::new(
             self.public_art.snapshot(),
@@ -473,6 +476,7 @@ where
         )
     }
 
+    /// Return merge configuration fo the state specified in provided `snapshot`.
     pub fn undo_apply(&mut self, snapshot: PrivateArtApplySnapshot<G>) {
         self.public_art.undo_apply(snapshot.public_art_snapshot);
         self.secrets.secrets_preview = snapshot.secrets_snapshot;
@@ -480,6 +484,7 @@ where
         self.node_index.node_index_preview = snapshot.node_index_snapshot;
     }
 
+    /// Update art with all the stored epoch changes. removes all the merge data.
     pub fn commit(&mut self) -> Result<(), ArtError> {
         let reserve_clone = self.clone();
 
@@ -495,6 +500,7 @@ where
         Ok(())
     }
 
+    /// Clears current merge state without commiting.
     pub fn discard(&mut self) {
         self.public_art.discard();
         self.node_index.discard();
@@ -557,13 +563,20 @@ where
                     break;
                 }
 
-                let ark_common_secret =
-                    iota_function(&left_node.public_key().mul(right_secret).into_affine())?;
+                let ark_common_secret = iota_function(
+                    &left_node
+                        .data()
+                        .public_key()
+                        .mul(right_secret)
+                        .into_affine(),
+                )?;
                 right_secret = ark_common_secret;
                 last_secret = ark_common_secret;
 
-                right_node = Box::new(ArtNode::new_internal_node(
-                    G::generator().mul(&ark_common_secret).into_affine(),
+                let weight = left_node.data().weight() + right_node.data().weight();
+                let public_key = G::generator().mul(&ark_common_secret).into_affine();
+                right_node = Box::new(ArtNode::full_node(
+                    ArtNodeData::new_internal(public_key, weight),
                     left_node,
                     right_node,
                 ));
@@ -604,13 +617,16 @@ where
 
             let common_secret = iota_function(
                 &left_node
+                    .data()
                     .public_key()
                     .mul(level_secrets.remove(0))
                     .into_affine(),
             )?;
 
-            let node = ArtNode::new_internal_node(
-                G::generator().mul(&common_secret).into_affine(),
+            let weight = left_node.data().weight() + right_node.data().weight();
+            let public_key = G::generator().mul(&common_secret).into_affine();
+            let node = ArtNode::full_node(
+                ArtNodeData::new_internal(public_key, weight),
                 left_node,
                 right_node,
             );
@@ -687,8 +703,8 @@ where
 
     /// Searches for the left most blank node and returns the vector of directions to it.
     pub(crate) fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
-        for (node, path) in LeafIterWithPath::new(self.root()) {
-            if node.is_leaf() && !matches!(node.status(), Some(LeafStatus::Active)) {
+        for (node, path) in self.root().leaf_iter_with_path() {
+            if node.is_leaf() && !matches!(node.data().status(), Some(LeafStatus::Active)) {
                 let mut node_path = Vec::with_capacity(path.len());
 
                 for (_, dir) in path {
@@ -716,7 +732,7 @@ where
                 .child(Direction::Right)
                 .ok_or(ArtError::PathNotExists)?;
 
-            let next_direction = match l.weight() <= r.weight() {
+            let next_direction = match l.data().weight() <= r.data().weight() {
                 true => Direction::Left,
                 false => Direction::Right,
             };
@@ -727,8 +743,13 @@ where
                 .ok_or(ArtError::InvalidInput)?;
         }
 
-        while let ArtNode::Internal { l, r, .. } = candidate {
-            if l.weight() <= r.weight() {
+        while let ArtNode {
+            l: Some(l),
+            r: Some(r),
+            ..
+        } = candidate
+        {
+            if l.data().weight() <= r.data().weight() {
                 next.push(Direction::Left);
                 candidate = l;
             } else {
@@ -742,9 +763,16 @@ where
 
     pub fn verification_branch(
         &self,
-        changes: &BranchChange<G>,
+        change: &BranchChange<G>,
     ) -> Result<Vec<VerifierNodeData<G>>, ArtError> {
-        self.public_art.verification_branch(changes)
+        self.public_art.verification_branch(change)
+    }
+
+    pub fn verification_tree(
+        &self,
+        change: &AggregatedChange<G>,
+    ) -> Result<VerifierAggregationTree<G>, ArtError> {
+        self.public_art.verification_tree(change)
     }
 }
 
@@ -763,7 +791,7 @@ where
         let mut use_all_secrets = false;
         let add_co_path_from_change =
             if matches!(self.change_type, BranchChangeType::AddMember) && target_node.is_leaf() {
-                match target_node.status() {
+                match target_node.data().status() {
                     None => return Err(ArtError::ArtLogic),
                     Some(LeafStatus::Blank) => false,
                     _ => {
