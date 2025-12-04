@@ -23,40 +23,6 @@ pub enum ARTDisplayTree {
     },
 }
 
-// impl<G> From<&ArtNode<G>> for ARTDisplayTree
-// where
-//     G: AffineRepr,
-// {
-//     fn from(node: &ArtNode<G>) -> Self {
-//         let blank_marker = match node {
-//             ArtNode::Leaf { status, .. } => match status {
-//                 LeafStatus::Active => "Active",
-//                 LeafStatus::PendingRemoval => "PendingRemoval",
-//                 LeafStatus::Blank => "Blank",
-//             },
-//             ArtNode::Internal { .. } => "",
-//         };
-//
-//         let pk_marker = prepare_short_marker_for_option(&node.public_key().x());
-//
-//         match node {
-//             ArtNode::Leaf { .. } => ARTDisplayTree::Leaf {
-//                 public_key: format!(
-//                     "{} leaf of weight: {}, x: {}",
-//                     blank_marker,
-//                     node.weight(),
-//                     pk_marker,
-//                 ),
-//             },
-//             ArtNode::Internal { l, r, .. } => ARTDisplayTree::Inner {
-//                 public_key: format!("Node of weight: {}, x: {}", node.weight(), pk_marker,),
-//                 left: Box::new(ARTDisplayTree::from(l.as_ref())),
-//                 right: Box::new(ARTDisplayTree::from(r.as_ref())),
-//             },
-//         }
-//     }
-// }
-
 impl<'a, G> From<ArtNodePreview<'a, G>> for AggregationDisplayTree
 where
     G: AffineRepr,
@@ -87,27 +53,19 @@ where
 
 impl<G: AffineRepr> Display for ArtNodeData<G> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        let pk_marker =
+            prepare_short_marker_for_option(&self.public_key().x());
+
+        match self {
+            ArtNodeData::Leaf { status, metadata, .. } => {
+                write!(f, "Leaf {{public_key: ({pk_marker}, _), status: {status:?}, metadata: {metadata:?}}}", )
+            }
+            ArtNodeData::Internal { weight, .. } => {
+                write!(f, "Internal {{public_key: ({pk_marker}..., _), weight: {weight}}}", )
+            }
+        }
     }
 }
-
-// impl<G> Display for ArtNode<G>
-// where
-//     G: AffineRepr,
-// {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         write!(
-//             f,
-//             "{}",
-//             format_tree!(
-//                 ARTDisplayTree::from(self),
-//                 Style::default()
-//                     .indentation(4)
-//                     .char_set(CharSet::SINGLE_LINE)
-//             )
-//         )
-//     }
-// }
 
 #[derive(DisplayTree, Debug, Clone)]
 pub enum AggregationDisplayTree {

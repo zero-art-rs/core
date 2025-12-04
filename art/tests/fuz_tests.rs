@@ -128,6 +128,7 @@ mod tests {
                 .root()
                 .node(&change.node_index)
                 .unwrap()
+                .data()
                 .public_key(),
             CortadoAffine::generator().mul(new_sk).into_affine(),
             "Key updated correctly"
@@ -181,6 +182,7 @@ mod tests {
                     .root()
                     .node(&change.node_index)
                     .unwrap()
+                    .data()
                     .public_key(),
                 CortadoAffine::generator().mul(new_sk).into_affine(),
                 "Key updated correctly."
@@ -193,6 +195,7 @@ mod tests {
                     .unwrap()
                     .child(Direction::Right)
                     .unwrap()
+                    .data()
                     .public_key(),
                 CortadoAffine::generator().mul(new_sk).into_affine(),
                 "Key updated correctly."
@@ -278,6 +281,7 @@ mod tests {
                 .root()
                 .node(&change.node_index)
                 .unwrap()
+                .data()
                 .public_key(),
             CortadoAffine::generator().mul(new_sk).into_affine(),
             "Key updated correctly"
