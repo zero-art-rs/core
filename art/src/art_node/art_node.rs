@@ -327,6 +327,28 @@ where
         Ok(node)
     }
 
+    /// If exists, return a reference on the leaf with the provided `public_key`. Else return `ArtError`.
+    pub fn leaf_with(&self, public_key: G) -> Result<Self, ArtError> {
+        for node in self.leaf_iter() {
+            if node.is_leaf() && node.public_key().eq(&public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
+    /// If exists, return a mutable reference on the node with the provided `public_key`. Else return `ArtError`.
+    pub fn node_with(&self, public_key: G) -> Result<Self, ArtError> {
+        for node in self.leaf_iter() {
+            if node.public_key().eq(&public_key) {
+                return Ok(node);
+            }
+        }
+
+        Err(ArtError::PathNotExists)
+    }
+
     /// Returns merge node is exists, else `None`.
     pub(crate) fn merge_node(&self) -> Option<&'a BinaryTreeNode<PublicMergeData<G>>> {
         match self {
