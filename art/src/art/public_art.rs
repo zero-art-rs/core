@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::fmt::Debug;
 use std::mem;
+use tracing::{debug, error, trace, warn};
 use zrt_zk::aggregated_art::VerifierAggregationTree;
 use zrt_zk::art::VerifierNodeData;
 
@@ -363,7 +364,7 @@ where
         for direction in &path {
             if parent.is_leaf() {
                 if let BranchChangeType::AddMember = change.change_type
-                    && matches!(parent.data().status(), Some(LeafStatus::Active))
+                    && matches!(parent.data().status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
                 {
                     // The current node is a part of the co-path
                     co_path.push(parent.data().public_key())
