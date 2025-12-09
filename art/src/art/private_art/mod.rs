@@ -253,12 +253,12 @@ impl<'a, G: AffineRepr> ArtSecretsPreview<'a, G> {
     }
 
     pub fn secret(&self, i: usize) -> Option<G::ScalarField> {
-        let secrets_len = self.art_secrets.secrets_preview.len();
+        let secrets_len = self.art_secrets.secrets.len();
         if i < secrets_len {
             if let Some(sk_preview) = self.art_secrets.secrets_preview.get(i) {
                 Some(sk_preview.preview(self.art_secrets.secrets[i]))
             } else {
-                None
+                self.art_secrets.secrets.get(i).cloned()
             }
         } else {
             self.art_secrets
@@ -269,14 +269,10 @@ impl<'a, G: AffineRepr> ArtSecretsPreview<'a, G> {
     }
 
     pub fn root(&self) -> G::ScalarField {
-        if let Some(root_preview) = self.art_secrets.secrets_preview_excess.get(0) {
-            root_preview.preview()
+        if let Some(root_preview) = self.art_secrets.secrets_preview.get(0) {
+            root_preview.preview(self.art_secrets.secrets[0])
         } else {
-            if let Some(root_preview) = self.art_secrets.secrets_preview.get(0) {
-                root_preview.preview(self.art_secrets.secrets[0])
-            } else {
-                self.art_secrets.secrets[0]
-            }
+            self.art_secrets.secrets[0]
         }
     }
 }

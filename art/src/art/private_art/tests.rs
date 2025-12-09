@@ -202,7 +202,46 @@ fn test_flow_append_join_update() {
         tk2, tk1,
         "Sanity check: old tk is different from the new one."
     );
+
+    verify_secrets_are_correct(&user0).unwrap();
+    verify_secrets_are_correct(&user1).unwrap();
 }
+
+#[test]
+fn test_root_retrieval_correctness_after_update() {
+    init_tracing();
+
+    // Init test context.
+    let mut rng = StdRng::seed_from_u64(0);
+    let secret_key_0 = Fr::rand(&mut rng);
+
+    let mut user0 = PrivateArt::setup(&vec![secret_key_0]).unwrap();
+    assert_eq!(
+        user0.leaf_public_key(),
+        CortadoAffine::generator().mul(secret_key_0).into_affine(),
+        "New node is in the art, and it is on the correct path.",
+    );
+
+    // Add member with user0
+    let secret_key_1 = Fr::rand(&mut rng);
+    assert_ne!(secret_key_0, secret_key_1);
+    let (_, change0) = user0.add_member(secret_key_1).unwrap();
+
+
+    verify_secrets_are_correct(&user0).unwrap();
+    let tk = change0.apply(&mut user0).unwrap();
+    let tree_key  = user0.secrets().preview().root();
+    let tree_public_key  = user0.preview().root().public_key();
+    let real_public_key = CortadoAffine::generator().mul(tree_key).into_affine();
+    assert_eq!(tree_public_key, real_public_key);
+    verify_secrets_are_correct(&user0).unwrap();
+}
+
+// /// Test flow
+// #[test]
+// fn test_flow_join_update_update() {
+//
+// }
 
 /// Creator, after computing the art with several users, removes the target_user. The
 /// remaining users updates their art, and one of them, also removes target_user (instead
@@ -698,8 +737,7 @@ fn test_apply_key_update_changes_twice() {
 
     // User0 updates his key.
     let new_sk0 = Fr::rand(&mut rng);
-    let (tk0, key_update_change0) = user0.update_key(new_sk0).unwrap();
-    let tk_r0 = user0.root_secret_key();
+    let (_, key_update_change0) = user0.update_key(new_sk0).unwrap();
 
     // Update art for other users.
     key_update_change0.apply(&mut user1).unwrap();
@@ -751,6 +789,8 @@ fn test_correctness_for_method_from() {
 #[test]
 fn test_get_node() {
     init_tracing();
+
+    debug!("Some data");
 
     // Init test context.
     let mut rng = StdRng::seed_from_u64(0);
@@ -1594,10 +1634,20 @@ pub(crate) fn verify_secrets_are_correct(
         .rev()
         .cloned()
         .collect::<Vec<_>>();
+    let mut preview_secrets = Vec::new();
+    let mut i = 0;
+    while let Some(sk) = private_art.secrets.preview().secret(i) {
+        preview_secrets.push(sk);
+        i += 1;
+    }
+    preview_secrets.reverse();
+
     // trace!("secrets verification: {:#?}\n\ton path: {:?}", secrets, path);
     let root_secret = secrets.pop().unwrap();
+    let root_secret_preview = preview_secrets.pop().unwrap();
 
     let mut parent = private_art.root();
+    let mut parent_preview = private_art.preview().root();
 
     // trace!("parent:\n{}", parent);
 
@@ -1617,13 +1667,23 @@ pub(crate) fn verify_secrets_are_correct(
             private_art.root()
         );
         return Err(());
-    } else {
-        // trace!(
-        //     "Correct computations for root:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
-        //     root_secret,
-        //     parent.data().public_key().x(),
-        //     CortadoAffine::generator().mul(root_secret).into_affine().x(),
-        // );
+    }
+
+    if parent_preview
+        .public_key()
+        .ne(&CortadoAffine::generator().mul(root_secret_preview).into_affine())
+    {
+        error!(
+            "error in root computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}\n for tree:\n{}",
+            root_secret,
+            parent.data().public_key().x(),
+            CortadoAffine::generator()
+                .mul(root_secret)
+                .into_affine()
+                .x(),
+            private_art.root()
+        );
+        return Err(());
     }
 
     for (sk, dir) in secrets.iter().rev().zip(path.iter()) {
@@ -1642,13 +1702,6 @@ pub(crate) fn verify_secrets_are_correct(
                 private_art.root()
             );
             return Err(());
-        } else {
-            // trace!(
-            //     "Correct computations:\n\tsk: {},\n\treal pk_x: {:?},\n\tcomputed pk: {:?}",
-            //     sk,
-            //     parent.data().public_key().x(),
-            //     CortadoAffine::generator().mul(sk).into_affine().x(),
-            // );
         }
     }
 
