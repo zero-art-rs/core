@@ -1,0 +1,458 @@
+use crate::art::{ArtAdvancedOps, PrivateArt, ProverArtefacts, PublicArt, PublicMergeData};
+use crate::art_node::{BinaryTree, BinaryTreeNode, LeafStatus, NodeIterWithPath, TreeMethods};
+use crate::changes::aggregations::{AggregatedChange, ProverAggregationData};
+use crate::changes::branch_change::{BranchChangeType, BranchChangeTypeHint};
+use crate::errors::ArtError;
+use crate::helper_tools::recompute_artefacts;
+use crate::node_index::{Direction, NodeIndex};
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::PrimeField;
+use cortado::CortadoAffine;
+use tracing::{debug, error, trace};
+use zrt_zk::aggregated_art::ProverAggregationTree;
+
+#[cfg(test)]
+mod tests;
+
+/// Context for Aggregation changes and their proof creation
+#[derive(Debug, Clone)]
+pub struct AggregationContext<T, G>
+where
+    G: AffineRepr,
+{
+    pub(crate) prover_aggregation: BinaryTree<ProverAggregationData<G>>,
+    pub(crate) operation_tree: T,
+}
+
+impl<T, G> AggregationContext<T, G>
+where
+    G: AffineRepr,
+{
+    /// Returns a state of the updated art.
+    pub fn operation_tree(&self) -> &T {
+        &self.operation_tree
+    }
+}
+
+impl<G> From<PrivateArt<G>> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+{
+    fn from(operation_tree: PrivateArt<G>) -> Self {
+        Self {
+            prover_aggregation: Default::default(),
+            operation_tree,
+        }
+    }
+}
+
+impl<G> From<AggregationContext<PrivateArt<G>, G>> for PrivateArt<G>
+where
+    G: AffineRepr,
+{
+    fn from(agg: AggregationContext<PrivateArt<G>, G>) -> Self {
+        agg.operation_tree
+    }
+}
+
+impl<'a, T> TryFrom<&'a AggregationContext<T, CortadoAffine>>
+    for ProverAggregationTree<CortadoAffine>
+{
+    type Error = ArtError;
+
+    fn try_from(value: &'a AggregationContext<T, CortadoAffine>) -> Result<Self, Self::Error> {
+        Self::try_from(&value.prover_aggregation)
+    }
+}
+
+impl<'a, T, G> TryFrom<&'a AggregationContext<T, G>> for AggregatedChange<G>
+where
+    G: AffineRepr,
+{
+    type Error = ArtError;
+
+    fn try_from(value: &'a AggregationContext<T, G>) -> Result<Self, Self::Error> {
+        Self::try_from(&value.prover_aggregation)
+    }
+}
+
+impl<G> BinaryTree<ProverAggregationData<G>>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    pub(crate) fn update_branch(
+        &mut self,
+        prover_artefacts: &ProverArtefacts<G>,
+        update_path: &[Direction],
+        type_hint: Option<BranchChangeTypeHint<G>>,
+    ) -> Result<&mut BinaryTreeNode<ProverAggregationData<G>>, ArtError> {
+        if update_path.len() + 1 != prover_artefacts.path.len()
+            || update_path.len() + 1 != prover_artefacts.secrets.len()
+            || update_path.len() != prover_artefacts.co_path.len()
+        {
+            error!(
+                "Fail to update branch with provided dimensions {{ update path ({}), \
+                public path ({}), public co-path ({}) and secrets path ({}) }}",
+                update_path.len(),
+                prover_artefacts.path.len(),
+                prover_artefacts.secrets.len(),
+                prover_artefacts.co_path.len()
+            );
+
+            return Err(ArtError::InvalidBranchChange);
+        }
+
+        let mut current_node = self.root.get_or_insert_default();
+        let root_pk = *prover_artefacts.path.last().ok_or(ArtError::NoChanges)?;
+        let root_sk = *prover_artefacts.secrets.last().ok_or(ArtError::NoChanges)?;
+        current_node.data.aggregate(root_pk, None, root_sk, None);
+
+        let artefacts_iterator = update_path
+            .iter()
+            .zip(prover_artefacts.path[..update_path.len()].iter().rev())
+            .zip(prover_artefacts.secrets[..update_path.len()].iter().rev())
+            .zip(prover_artefacts.co_path.iter().rev())
+            .map(|(((dir, pk), sk), co_pk)| (dir, pk, sk, co_pk));
+
+        for (dir, pk, sk, co_pk) in artefacts_iterator {
+            if let Some(co_node) = current_node.mut_child(dir.other()) {
+                co_node.data.co_public_key = Some(*pk);
+            }
+            current_node = current_node.mut_child(*dir).get_or_insert_default();
+            current_node.data.aggregate(*pk, Some(*co_pk), *sk, None);
+        }
+
+        if let Some(type_hint) = type_hint {
+            current_node.data.update_change_type(type_hint);
+        }
+
+        Ok(current_node)
+    }
+}
+
+impl<G> ArtAdvancedOps<G, ()> for AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn add_member(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.add_member_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn remove_member(
+        &mut self,
+        target: &NodeIndex,
+        new_key: G::ScalarField,
+    ) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.remove_member_without_rollback(target, new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn leave_group(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.leave_group_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+
+    fn update_key(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let reserve_clone = self.clone();
+        self.update_key_without_rollback(new_key)
+            .inspect_err(|_| *self = reserve_clone)
+    }
+}
+
+impl<G> AggregationContext<PrivateArt<G>, G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    fn add_member_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let path = self.operation_tree.find_place_for_new_node()?;
+
+        let target_node = self.operation_tree.root().node_at(&path)?;
+        let target_status = target_node.data().status();
+        let mut ext_pk = None;
+        if matches!(target_status, Some(LeafStatus::Active | LeafStatus::PendingRemoval)) {
+            ext_pk = Some(target_node.data().public_key())
+        };
+
+        let (artefacts, change) = self
+            .operation_tree
+            .insert_or_extend_node_change(new_key, &path)?;
+
+        let hint = BranchChangeTypeHint::AddMember {
+            pk: G::generator().mul(new_key).into_affine(),
+            ext_pk,
+        };
+        if ext_pk.is_some() {
+            let mut update_path = path.to_vec();
+            update_path.push(Direction::Right);
+            self.prover_aggregation
+                .update_branch(&artefacts, &update_path, None)?;
+
+            let parent_node = self
+                .prover_aggregation
+                .mut_node_at(&path)
+                .ok_or(ArtError::PathNotExists)?;
+            parent_node.data.update_change_type(hint);
+        } else {
+            self.prover_aggregation
+                .update_branch(&artefacts, &path, Some(hint))?;
+        }
+
+        self.operation_tree.apply(&change)?;
+        self.operation_tree.commit()?;
+
+        Ok(())
+    }
+
+    fn remove_member_without_rollback(
+        &mut self,
+        target_leaf: &NodeIndex,
+        new_key: G::ScalarField,
+    ) -> Result<(), ArtError> {
+        let path = target_leaf.get_path()?;
+        let append_changes = matches!(
+            self.operation_tree.node_at(&path)?.data().status(),
+            Some(LeafStatus::Blank)
+        );
+
+        if append_changes {
+            return Err(ArtError::InvalidMergeInput);
+        }
+
+        let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
+        change.change_type = BranchChangeType::RemoveMember;
+        let hint = BranchChangeTypeHint::RemoveMember {
+            pk: G::generator().mul(new_key).into_affine(),
+            merge: append_changes,
+        };
+        self.prover_aggregation
+            .update_branch(&artefacts, &target_leaf.get_path()?, Some(hint))?;
+
+        self.operation_tree.apply(&change)?;
+        self.operation_tree.commit()?;
+
+        Ok(())
+    }
+
+    fn leave_group_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let path = self.operation_tree.node_index().get_path()?;
+        let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
+        change.change_type = BranchChangeType::Leave;
+
+        let hint = BranchChangeTypeHint::Leave {
+            pk: G::generator().mul(new_key).into_affine(),
+        };
+        self.prover_aggregation
+            .update_branch(&artefacts, &path, Some(hint))?;
+
+        self.operation_tree.apply(&new_key)?;
+        self.operation_tree.commit()?;
+        self.operation_tree
+            .mut_node_at(&path)?
+            .data
+            .set_status(LeafStatus::PendingRemoval)
+            .unwrap();
+
+        Ok(())
+    }
+
+    fn update_key_without_rollback(&mut self, new_key: G::ScalarField) -> Result<(), ArtError> {
+        let path = self.operation_tree.node_index().get_path()?;
+        let (artefacts, mut change) = self.operation_tree.update_node_key_change(new_key, &path)?;
+        change.change_type = BranchChangeType::UpdateKey;
+
+        let hint = BranchChangeTypeHint::UpdateKey {
+            pk: G::generator().mul(new_key).into_affine(),
+        };
+        self.prover_aggregation
+            .update_branch(&artefacts, &path, Some(hint))?;
+
+        self.operation_tree.apply(&new_key)?;
+        self.operation_tree.commit()?;
+
+        Ok(())
+    }
+}
+
+impl<G> AggregatedChange<G>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    pub(crate) fn pub_art_unrecoverable_apply(
+        &self,
+        art: &mut PublicArt<G>,
+    ) -> Result<(), ArtError> {
+        let Some(agg_root) = &self.root else {
+            return Ok(());
+        };
+
+        for (node, path) in NodeIterWithPath::new(agg_root) {
+            let full_path = path.iter().map(|(_, dir)| *dir).collect::<Vec<_>>();
+            let mut path = full_path.clone();
+
+            let art_node_preview = art
+                .node_at(&full_path)
+                .ok()
+                .map(|node| node.data().public_key());
+
+            let merge_node = if let Some(last_dir) = path.pop() {
+                // update other nodes
+                let merge_node = art
+                    .merge_tree
+                    .mut_node_at(&path)
+                    .ok_or(ArtError::InvalidAggregation)?
+                    .mut_child(last_dir);
+
+                let merge_node = if let Some(merge_node) = merge_node {
+                    merge_node
+                } else {
+                    if art_node_preview.is_some() {
+                        merge_node.get_or_insert_default()
+                    } else {
+                        return Err(ArtError::InvalidAggregation);
+                    }
+                };
+
+                merge_node
+            } else {
+                // Update root.
+                art.merge_tree.root.get_or_insert_default()
+            };
+
+            if let Some(art_node_preview) = art_node_preview {
+                merge_node.data.strong_key = Some(art_node_preview);
+            }
+
+            for change in &node.data.change_type {
+                merge_node.apply(change)?;
+            }
+
+            merge_node.data.strong_key = Some(node.data.public_key);
+
+            for change in &node.data.change_type {
+                if let Some(increment) = match change {
+                    BranchChangeTypeHint::AddMember { .. } => Some(true),
+                    BranchChangeTypeHint::RemoveMember { merge: false, .. } => Some(false),
+                    _ => None,
+                } {
+                    art.merge_tree
+                        .mut_root()
+                        .as_mut()
+                        .ok_or(ArtError::InvalidAggregation)?
+                        .update_weight(&path, increment)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn aggregation_co_path(
+        &self,
+        art: &PrivateArt<G>,
+        path: &[Direction],
+    ) -> Result<Vec<G>, ArtError> {
+        let mut partial_co_path = Vec::new();
+
+        let mut agg_node = self.root();
+        let mut art_node = Some(art.root());
+
+        for dir in path {
+            let co_agg_node = agg_node.and_then(|node| node.child(dir.other()));
+            let co_art_node = art_node.and_then(|node| node.child(dir.other()));
+
+            if let Some(agg_children) = co_agg_node {
+                partial_co_path.push(agg_children.data.public_key);
+            } else if let Some(art_children) = co_art_node {
+                partial_co_path.push(art_children.data().public_key());
+            } else {
+                return Err(ArtError::InvalidAggregation);
+            }
+
+            agg_node = agg_node.and_then(|node| node.child(*dir));
+            art_node = art_node.and_then(|node| node.child(*dir));
+        }
+
+        partial_co_path.reverse();
+        Ok(partial_co_path)
+    }
+
+    pub(crate) fn private_art_secrets_unrecoverable_apply(
+        &self,
+        art: &mut PrivateArt<G>,
+        user_secret: Option<G::ScalarField>,
+    ) -> Result<G::ScalarField, ArtError> {
+        let Some(agg_root) = self.root() else {
+            return Err(ArtError::NoChanges);
+        };
+
+        let path = art.node_index().get_path()?;
+
+        let (level_sk, co_path, use_all_secrets) = if let Some(mut node) = self.node_at(&path) {
+            let mut user_leaf_path = path.clone();
+            while let Some(child) = node.child(Direction::Left) {
+                user_leaf_path.push(Direction::Left);
+                art.node_index.push(Direction::Left);
+
+                node = child;
+            }
+
+            // Update path on AddMember
+            if let Some(_) = node.child(Direction::Right) {
+                user_leaf_path.push(Direction::Left);
+                art.node_index.push(Direction::Left);
+            }
+
+            let co_path = self.aggregation_co_path(&art, &user_leaf_path)?;
+
+            let leaf_sk = match user_secret {
+                Some(leaf_sk) => leaf_sk,
+                None => art.leaf_secret_key(),
+            };
+
+            (leaf_sk, co_path, true)
+        } else {
+            let intersection = agg_root.get_intersection(&path);
+
+            let level_sk = art
+                .secrets
+                .secret(intersection.len() + 1)
+                .ok_or(ArtError::InvalidAggregation)?;
+
+            let co_path = self.aggregation_co_path(&art, &path[..intersection.len() + 1])?;
+
+            (level_sk, co_path, false)
+        };
+
+        let artefacts = recompute_artefacts(level_sk, &co_path)?;
+
+        if use_all_secrets {
+            art.secrets.update(artefacts.secrets.iter().rev(), false)?;
+        } else {
+            art.secrets
+                .update(artefacts.secrets[1..].iter().rev(), false)?;
+        }
+
+        Ok(*artefacts
+            .secrets
+            .last()
+            .ok_or(ArtError::InvalidAggregation)?)
+    }
+
+    pub(crate) fn private_art_unrecoverable_apply(
+        &self,
+        art: &mut PrivateArt<G>,
+    ) -> Result<G::ScalarField, ArtError> {
+        self.pub_art_unrecoverable_apply(&mut art.public_art)?;
+        let tk = self.private_art_secrets_unrecoverable_apply(art, None)?;
+
+        Ok(tk)
+    }
+}

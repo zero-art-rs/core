@@ -11,6 +11,8 @@ pub enum ArtError {
     ArtLogic,
     #[error("Invalid input provided.")]
     InvalidInput,
+    #[error("Invalid PublicBranchChange provided.")]
+    InvalidBranchChange,
     #[error("Fail to update. Path to user leaf is a subpath of updated path.")]
     SubPath,
     #[error("Postcard error: {0}")]
@@ -33,6 +35,8 @@ pub enum ArtError {
     InapplicableKeyUpdate,
     #[error("Can't apply leave operation update change to itself.")]
     InapplicableLeave,
+    #[error("Can't apply aggregation change.")]
+    InapplicableAggregation,
     #[error("The method can't be applied to the non leaf node.")]
     LeafOnly,
     #[error("The method can't be applied to the leaf node.")]
@@ -47,4 +51,12 @@ pub enum ArtError {
     R1CS(#[from] R1CSError),
     #[error("ZKError: {0}")]
     Zk(#[from] ZKError),
+    #[error("Invalid marker tree used.")]
+    InvalidMarkerTree,
+    #[error("There are some issues with the provided atr update data.")]
+    InvalidUpdateData,
+    #[error("No associated data provided.")]
+    NoAssociatedData,
+    #[error("Failed to update secrets, as preview is invalid.")]
+    SecretsPreview,
 }

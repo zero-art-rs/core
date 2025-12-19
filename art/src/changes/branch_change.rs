@@ -1,15 +1,18 @@
 //! Module with branch changes of the ART.
 
-use crate::art::ProverArtefacts;
+use crate::art::PrivateArt;
+use crate::changes::ApplicableChange;
 use crate::errors::ArtError;
+use crate::helper_tools;
 use crate::helper_tools::{ark_de, ark_se};
 use crate::node_index::NodeIndex;
 use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use zrt_zk::EligibilityArtefact;
 
+/// Marker for a `BranchChange` type.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum BranchChangeType {
     #[default]
@@ -21,7 +24,7 @@ pub enum BranchChangeType {
 
 /// Helper data type, which contains information about ART change. Can be used to apply this
 /// change to the different ART.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, Eq, PartialEq)]
 #[serde(bound = "")]
 pub struct BranchChange<G>
 where
@@ -38,60 +41,58 @@ where
     pub node_index: NodeIndex,
 }
 
-/// Helper data structure, which along with the `branch_change` of a the contain additional
-/// artefacts, which can be used to create a proof.
+/// Helper data type, which along with the `branch_change` contain additional
+/// artefacts, which can be used to create a proof. Can be used to update ART tree
+/// after your own key update. Note that you can use secret key directly.
 #[derive(Debug, Clone)]
-pub struct ArtOperationOutput<G>
+pub struct PrivateBranchChange<G: AffineRepr>(G::ScalarField, BranchChange<G>);
+
+impl<G> PrivateBranchChange<G>
 where
     G: AffineRepr,
 {
-    pub(crate) branch_change: BranchChange<G>,
-    pub(crate) artefacts: ProverArtefacts<G>,
-    pub(crate) eligibility: EligibilityArtefact,
+    pub fn new(sk: G::ScalarField, change: BranchChange<G>) -> Self {
+        Self(sk, change)
+    }
+
+    pub fn change(&self) -> &BranchChange<G> {
+        &self.1
+    }
+
+    pub fn key(&self) -> &G::ScalarField {
+        &self.0
+    }
 }
 
-fn tmp<G>(a: ArtOperationOutput<G>)
+impl<G> ApplicableChange<PrivateArt<G>, G::ScalarField> for PrivateBranchChange<G>
 where
     G: AffineRepr,
+    G::BaseField: PrimeField,
 {
-}
-
-impl<G> ArtOperationOutput<G>
-where
-    G: AffineRepr,
-{
-    pub fn new(
-        branch_change: BranchChange<G>,
-        artefacts: ProverArtefacts<G>,
-        eligibility: EligibilityArtefact,
-    ) -> Self {
-        Self {
-            branch_change,
-            artefacts,
-            eligibility,
+    fn apply(&self, art: &mut PrivateArt<G>) -> Result<G::ScalarField, ArtError> {
+        if matches!(self.1.change_type, BranchChangeType::UpdateKey)
+            && self.1.node_index.eq(art.node_index())
+        {
+            helper_tools::inner_apply_own_key_update(art, self.0)
+        } else {
+            self.1.apply(art)
         }
     }
-
-    pub fn get_branch_change(&self) -> &BranchChange<G> {
-        &self.branch_change
-    }
-
-    pub fn get_eligibility(&self) -> &EligibilityArtefact {
-        &self.eligibility
-    }
 }
 
-impl<G> From<ArtOperationOutput<G>> for BranchChange<G>
+impl<G> From<PrivateBranchChange<G>> for BranchChange<G>
 where
     G: AffineRepr,
 {
-    fn from(output: ArtOperationOutput<G>) -> Self {
-        output.branch_change
+    fn from(output: PrivateBranchChange<G>) -> Self {
+        output.1
     }
 }
 
+/// Marker for a `BranchChange` type. Similar to `BranchChangesType`, but with
+/// additional public data.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-pub enum BranchChangesTypeHint<G>
+pub enum BranchChangeTypeHint<G>
 where
     G: AffineRepr,
 {
@@ -104,7 +105,7 @@ where
         merge: bool,
     },
     AddMember {
-        /// If `Some<new_pk>`, then the node was extended and the `new_pk` is the new public key
+        /// If `Some<ext_pk>`, then the node was extended and the `ext_pk` is the new public key
         /// of the node, else the node was replaced.
         #[serde(serialize_with = "ark_se", deserialize_with = "ark_de")]
         ext_pk: Option<G>,
@@ -125,54 +126,16 @@ where
     },
 }
 
-impl<G> From<&BranchChangesTypeHint<G>> for BranchChangeType
+impl<G> From<&BranchChangeTypeHint<G>> for BranchChangeType
 where
     G: AffineRepr,
 {
-    fn from(value: &BranchChangesTypeHint<G>) -> Self {
+    fn from(value: &BranchChangeTypeHint<G>) -> Self {
         match value {
-            BranchChangesTypeHint::RemoveMember { .. } => BranchChangeType::RemoveMember,
-            BranchChangesTypeHint::AddMember { .. } => BranchChangeType::AddMember,
-            BranchChangesTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
-            BranchChangesTypeHint::Leave { .. } => BranchChangeType::Leave,
-        }
-    }
-}
-
-/// Helper data structure, which can combine several changes from different
-/// users into one merge change.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct MergeBranchChange<T, C> {
-    pub(crate) applied_helper_data: Option<(T, C)>,
-    pub(crate) unapplied_changes: Vec<C>,
-}
-
-impl<T, C> MergeBranchChange<T, C> {
-    pub fn new(
-        base_fork: Option<T>,
-        applied_change: Option<C>,
-        unapplied_changes: Vec<C>,
-    ) -> Result<Self, ArtError> {
-        Ok(match (base_fork, applied_change) {
-            (Some(base_fork), Some(applied_change)) => {
-                Self::new_for_participant(base_fork, applied_change, unapplied_changes)
-            }
-            (None, None) => Self::new_for_observer(unapplied_changes),
-            _ => return Err(ArtError::InvalidMergeInput),
-        })
-    }
-
-    pub fn new_for_observer(unapplied_changes: Vec<C>) -> Self {
-        MergeBranchChange {
-            applied_helper_data: None,
-            unapplied_changes,
-        }
-    }
-
-    pub fn new_for_participant(base_fork: T, applied_change: C, unapplied_changes: Vec<C>) -> Self {
-        MergeBranchChange {
-            applied_helper_data: Some((base_fork, applied_change)),
-            unapplied_changes,
+            BranchChangeTypeHint::RemoveMember { .. } => BranchChangeType::RemoveMember,
+            BranchChangeTypeHint::AddMember { .. } => BranchChangeType::AddMember,
+            BranchChangeTypeHint::UpdateKey { .. } => BranchChangeType::UpdateKey,
+            BranchChangeTypeHint::Leave { .. } => BranchChangeType::Leave,
         }
     }
 }

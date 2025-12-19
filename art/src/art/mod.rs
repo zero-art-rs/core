@@ -1,22 +1,21 @@
-//! Crate with ART types, operations and tools.
+//! Crate with ART types, which are build on top of the ART tree. Includes ART update operations
+//! and other tools.
 
+mod aggregations;
 mod art_advanced_operations;
-mod art_basic_operations;
-pub mod art_node;
-pub mod art_types;
 mod artefacts;
+mod private_art;
+mod public_art;
 
+pub use aggregations::AggregationContext;
 pub use art_advanced_operations::ArtAdvancedOps;
-pub use art_basic_operations::ArtBasicOps;
-pub use artefacts::{ProverArtefacts, VerifierArtefacts};
+pub use private_art::{ArtSecretPreview, ArtSecrets, PrivateArt, PrivateArtApplySnapshot};
+pub use public_art::{PublicArt, PublicArtApplySnapshot, PublicArtPreview, PublicMergeData};
+
+pub(crate) use artefacts::ProverArtefacts;
 
 /// Helper data type, returned after the most art update operations.
 pub(crate) type ArtLevel<G> = (
-    Vec<Box<crate::art::art_node::ArtNode<G>>>,
+    Vec<Box<crate::art_node::ArtNode<G>>>,
     Vec<<G as ark_ec::AffineRepr>::ScalarField>,
-);
-pub(crate) type ArtUpdateOutput<G> = (
-    <G as ark_ec::AffineRepr>::ScalarField,
-    crate::changes::branch_change::BranchChange<G>,
-    ProverArtefacts<G>,
 );

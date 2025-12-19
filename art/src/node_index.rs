@@ -94,8 +94,12 @@ impl NodeIndex {
     }
 
     pub fn is_subpath_of(&self, other: &Self) -> Result<bool, ArtError> {
+        self.is_subpath_of_vec(&other.get_path()?)
+    }
+
+    pub fn is_subpath_of_vec(&self, other: &[Direction]) -> Result<bool, ArtError> {
         let mut is_subpath = true;
-        for (a, b) in self.get_path()?.iter().zip(&other.get_path()?) {
+        for (a, b) in self.get_path()?.iter().zip(other) {
             if a != b {
                 is_subpath = false;
                 break;
@@ -253,8 +257,8 @@ impl From<(u64, u64)> for NodeIndex {
 #[cfg(test)]
 mod tests {
     use super::{Direction, NodeIndex};
-    use crate::TreeMethods;
-    use crate::art::art_types::PrivateArt;
+    use crate::art::PrivateArt;
+    use crate::art_node::TreeMethods;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_std::UniformRand;
     use ark_std::rand::SeedableRng;
@@ -375,95 +379,107 @@ mod tests {
 
         let tree = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let node_pk = tree
-            .get_node(&NodeIndex::Coordinate(0, 0))
+            .node(&NodeIndex::Coordinate(0, 0))
             .unwrap()
-            .get_public_key();
-        let root_pk = tree.get_root().get_public_key();
+            .data()
+            .public_key();
+        let root_pk = tree.root().data().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(1, 0))
+            .public_art()
+            .node(&NodeIndex::Coordinate(1, 0))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_child(Direction::Left)
+            .root()
+            .child(Direction::Left)
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(1, 1))
+            .public_art()
+            .node(&NodeIndex::Coordinate(1, 1))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_child(Direction::Right)
+            .root()
+            .child(Direction::Right)
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(4, 0))
+            .public_art()
+            .node(&NodeIndex::Coordinate(4, 0))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_node_at(&[
+            .root()
+            .node_at(&[
                 Direction::Left,
                 Direction::Left,
                 Direction::Left,
                 Direction::Left,
             ])
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(4, 11))
+            .public_art()
+            .node(&NodeIndex::Coordinate(4, 11))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_node_at(&[
+            .root()
+            .node_at(&[
                 Direction::Right,
                 Direction::Left,
                 Direction::Right,
                 Direction::Right,
             ])
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(4, 15))
+            .public_art()
+            .node(&NodeIndex::Coordinate(4, 15))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_node_at(&[
+            .root()
+            .node_at(&[
                 Direction::Right,
                 Direction::Right,
                 Direction::Right,
                 Direction::Right,
             ])
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Coordinate(5, 31))
+            .public_art()
+            .node(&NodeIndex::Coordinate(5, 31))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_node_at(&[
+            .root()
+            .node_at(&[
                 Direction::Right,
                 Direction::Right,
                 Direction::Right,
@@ -471,7 +487,8 @@ mod tests {
                 Direction::Right,
             ])
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
     }
 
@@ -486,67 +503,72 @@ mod tests {
 
         let mut tree = PrivateArt::<CortadoAffine>::setup(&secrets).unwrap();
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Index(1))
+            .public_art()
+            .node(&NodeIndex::Index(1))
             .unwrap()
-            .get_public_key();
-        let root_pk = tree.get_root().get_public_key();
+            .data()
+            .public_key();
+        let root_pk = tree.root().data().public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Index(2))
+            .public_art()
+            .node(&NodeIndex::Index(2))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_child(Direction::Left)
+            .root()
+            .child(Direction::Left)
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Index(3))
+            .public_art()
+            .node(&NodeIndex::Index(3))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_child(Direction::Right)
+            .root()
+            .child(Direction::Right)
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Index(27))
+            .public_art()
+            .node(&NodeIndex::Index(27))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         let root_pk = tree
-            .get_root()
-            .get_node_at(&[
+            .root()
+            .node_at(&[
                 Direction::Right,
                 Direction::Left,
                 Direction::Right,
                 Direction::Right,
             ])
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(root_pk.eq(&node_pk));
 
         let node_pk = CortadoAffine::generator().mul(&secrets[2]).into_affine();
         let node_index = NodeIndex::get_index_from_path(
-            &tree
-                .get_public_art()
-                .get_path_to_leaf_with(node_pk)
-                .unwrap(),
+            &tree.public_art().root().path_to_leaf_with(node_pk).unwrap(),
         )
         .unwrap();
         let rec_node_pk = tree
-            .get_public_art()
-            .get_node(&NodeIndex::Index(node_index))
+            .public_art()
+            .node(&NodeIndex::Index(node_index))
             .unwrap()
-            .get_public_key();
+            .data()
+            .public_key();
         assert!(node_pk.eq(&rec_node_pk));
     }
 }

@@ -1,4 +1,6 @@
-use crate::art::ProverArtefacts;
+use crate::art::{PrivateArt, ProverArtefacts};
+use crate::changes::ApplicableChange;
+use crate::changes::branch_change::BranchChangeType;
 use crate::errors::ArtError;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField};
@@ -69,7 +71,40 @@ where
     Ok(artefacts)
 }
 
-/// Return first 8 chars from the string with three following dots.
-pub(crate) fn prepare_short_marker(full_marker: &str) -> String {
-    full_marker.chars().take(8).collect::<String>() + "..."
+/// If Some(.), return first 8 chars from the string with three following dots. Else return
+/// None as string.
+pub(crate) fn prepare_short_marker_for_option<T>(full_marker: &Option<T>) -> String
+where
+    T: ToString,
+{
+    if let Some(full_marker) = full_marker {
+        full_marker.to_string().chars().take(8).collect::<String>() + "..."
+    } else {
+        "None...".to_string()
+    }
+}
+
+/// apply key update change to the provided `art` tree, with the given leaf `secret_key`.
+pub(crate) fn inner_apply_own_key_update<G>(
+    art: &mut PrivateArt<G>,
+    secret_key: G::ScalarField,
+) -> Result<G::ScalarField, ArtError>
+where
+    G: AffineRepr,
+    G::BaseField: PrimeField,
+{
+    let path = art.node_index().get_path()?;
+    let co_path = art.public_art().co_path(&path)?;
+    let artefacts = recompute_artefacts(secret_key, &co_path)?;
+
+    let key_update_change =
+        artefacts.derive_branch_change(BranchChangeType::UpdateKey, art.node_index().clone())?;
+    key_update_change.apply(&mut art.public_art)?;
+
+    art.secrets.update(artefacts.secrets.iter().rev(), false)?;
+
+    Ok(*artefacts
+        .secrets
+        .last()
+        .ok_or(ArtError::InvalidBranchChange)?)
 }

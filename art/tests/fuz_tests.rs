@@ -12,19 +12,18 @@ mod tests {
     use cortado::{CortadoAffine, Fr};
     use postcard::{from_bytes, to_allocvec};
     use std::cmp::{max, min};
-    use std::io::ErrorKind::NotADirectory;
     use std::ops::Mul;
     use tracing::{debug, info, warn};
-    use zrt_art::TreeMethods;
     use zrt_art::art::ArtAdvancedOps;
-    use zrt_art::art::art_node::LeafIterWithPath;
-    use zrt_art::art::art_types::{PrivateArt, PublicArt};
+    use zrt_art::art::{PrivateArt, PublicArt};
+    use zrt_art::art_node::{LeafIterWithPath, TreeMethods};
     use zrt_art::changes::ApplicableChange;
     use zrt_art::errors::ArtError;
-    use zrt_art::node_index::NodeIndex;
+    use zrt_art::node_index::{Direction, NodeIndex};
 
     pub const SEED: u64 = 23;
-    pub const GROUP_SIZE: usize = 10;
+    // pub const GROUP_INIT_SIZE: usize = 100;
+    pub const GROUP_SIZE: usize = 100;
     pub const FUZ_LENGTH: usize = 500;
 
     trait TestART {
@@ -37,7 +36,7 @@ mod tests {
         fn min_max_leaf_height(&self) -> Result<(u64, u64), ArtError> {
             let mut min_height = u64::MAX;
             let mut max_height = u64::MIN;
-            let root = self.get_root();
+            let root = self.root();
 
             for (_, path) in LeafIterWithPath::new(root) {
                 min_height = min(min_height, path.len() as u64);
@@ -60,7 +59,7 @@ mod tests {
 
         info!(
             "Init test context for group of size {}, with seed: {}.",
-            FUZ_LENGTH, SEED
+            GROUP_SIZE, SEED,
         );
         // let mut seeded_rng = StdRng::seed_from_u64(seed);
         let mut rng = StdRng::seed_from_u64(SEED);
@@ -74,9 +73,8 @@ mod tests {
         let mut group_arts = Vec::with_capacity(GROUP_SIZE);
 
         for sk in &group_secrets {
-            group_arts.push(
-                PrivateArt::<CortadoAffine>::new(user0.get_public_art().clone(), *sk).unwrap(),
-            )
+            group_arts
+                .push(PrivateArt::<CortadoAffine>::new(user0.public_art().clone(), *sk).unwrap())
         }
 
         // Assert all the arts are correctly computed
@@ -86,8 +84,8 @@ mod tests {
                 "Deserialized art is the same as the source one."
             );
             assert_eq!(
-                art.get_node_index().get_path().unwrap().len() + 1,
-                art.get_secrets().len(),
+                art.node_index().get_path().unwrap().len() + 1,
+                art.secrets().secrets().len(),
             );
         }
 
@@ -117,37 +115,43 @@ mod tests {
     ) {
         info!(
             "Fuz test: key update for user {:?}.",
-            group_arts[target_user].get_node_index()
+            group_arts[target_user].node_index()
         );
 
         let new_sk = Fr::rand(&mut *rng);
-        let change = group_arts[target_user].update_key(new_sk).unwrap();
+        let (_, change) = group_arts[target_user].update_key(new_sk).unwrap();
+        group_arts[target_user].apply(&new_sk).unwrap();
+        group_arts[target_user].commit().unwrap();
 
         assert_eq!(
             group_arts[target_user]
-                .get_public_art()
-                .get_node(&change.node_index)
+                .root()
+                .node(&change.node_index)
                 .unwrap()
-                .get_public_key(),
+                .data()
+                .public_key(),
             CortadoAffine::generator().mul(new_sk).into_affine(),
             "Key updated correctly"
         );
 
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].get_secrets()[0];
+            let old_sk = group_arts[i].secrets().leaf();
 
             if i != target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                group_arts[i].apply(&change).unwrap();
+                group_arts[i].commit().unwrap();
             }
 
+            if i != target_user {
+                assert_eq!(
+                    old_sk,
+                    group_arts[i].leaf_secret_key(),
+                    "Sanity check: User secret key didn't changed."
+                );
+            }
             assert_eq!(
-                old_sk,
-                group_arts[i].get_secrets()[0],
-                "Sanity check: User secret key didn't changed."
-            );
-            assert_eq!(
-                group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].get_secrets().len(),
+                group_arts[i].node_index().get_path().unwrap().len() + 1,
+                group_arts[i].secrets().secrets().len(),
             );
             assert_eq!(
                 group_arts[target_user], group_arts[i],
@@ -163,53 +167,73 @@ mod tests {
     ) {
         info!(
             "Fuz test: add member using user {:?}.",
-            group_arts[target_user].get_node_index()
+            group_arts[target_user].node_index()
         );
 
         let new_sk = Fr::rand(&mut *rng);
-        let change = group_arts[target_user].add_member(new_sk).unwrap();
+        let (_, change) = group_arts[target_user].add_member(new_sk).unwrap();
+        group_arts[target_user].apply(&change).unwrap();
+        group_arts[target_user].commit().unwrap();
 
-        assert_eq!(
-            group_arts[target_user]
-                .get_public_art()
-                .get_node(&change.node_index)
-                .unwrap()
-                .get_public_key(),
-            CortadoAffine::generator().mul(new_sk).into_affine(),
-            "Key updated correctly."
-        );
+        let index_len = change.node_index.get_path().unwrap().len();
+        if index_len + 1 == change.public_keys.len() {
+            assert_eq!(
+                group_arts[target_user]
+                    .root()
+                    .node(&change.node_index)
+                    .unwrap()
+                    .data()
+                    .public_key(),
+                CortadoAffine::generator().mul(new_sk).into_affine(),
+                "Key updated correctly."
+            );
+        } else if index_len + 2 == change.public_keys.len() {
+            assert_eq!(
+                group_arts[target_user]
+                    .root()
+                    .node(&change.node_index)
+                    .unwrap()
+                    .child(Direction::Right)
+                    .unwrap()
+                    .data()
+                    .public_key(),
+                CortadoAffine::generator().mul(new_sk).into_affine(),
+                "Key updated correctly."
+            );
+        } else {
+            panic!("Invalid key update change.")
+        }
 
         // Serialise and deserialize art for the new user.
-        let public_art_bytes = to_allocvec(&group_arts[target_user].get_public_art()).unwrap();
+        let public_art_bytes = to_allocvec(&group_arts[target_user].public_art()).unwrap();
         let public_art: PublicArt<CortadoAffine> = from_bytes(&public_art_bytes).unwrap();
         let new_user: PrivateArt<CortadoAffine> = PrivateArt::new(public_art, new_sk).unwrap();
 
-        info!("    New user node: {:?}.", new_user.get_node_index());
-
         // Sync arts for other users other users
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].get_secrets()[0];
+            let old_sk = group_arts[i].leaf_secret_key();
 
             if i != target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                change.apply(&mut group_arts[i]).unwrap();
+                group_arts[i].commit().unwrap();
             }
 
             assert_eq!(
                 old_sk,
-                group_arts[i].get_secrets()[0],
+                group_arts[i].leaf_secret_key(),
                 "Sanity check: secret key didn't changed for user {:?}.",
-                group_arts[i].get_node_index(),
+                group_arts[i].node_index(),
             );
             assert_eq!(
-                group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].get_secrets().len(),
+                group_arts[i].node_index().get_path().unwrap().len() + 1,
+                group_arts[i].secrets().secrets().len(),
                 "Length of `path_secrets` = direction_path + 1 for user {}: {:?}.",
                 i,
-                group_arts[i].get_node_index(),
+                group_arts[i].node_index(),
             );
             assert_eq!(
-                group_arts[target_user].get_root_secret_key().unwrap(),
-                group_arts[i].get_root_secret_key().unwrap(),
+                group_arts[target_user].root_secret_key(),
+                group_arts[i].root_secret_key(),
                 "Both users have the same view on the state of the art.",
             );
             assert_eq!(
@@ -220,7 +244,7 @@ mod tests {
                 group_arts[i].get_disbalance().unwrap() < 2,
                 "Sanity check: art disbalance {} stays low. in art\n{}",
                 group_arts[i].get_disbalance().unwrap(),
-                group_arts[i].get_root(),
+                group_arts[i].root(),
             );
         }
 
@@ -236,33 +260,36 @@ mod tests {
     ) {
         info!(
             "Fuz test: make user {:?} blank, using user {:?}.",
-            group_arts[blank_target_user].get_node_index(),
-            group_arts[target_user].get_node_index(),
+            group_arts[blank_target_user].node_index(),
+            group_arts[target_user].node_index(),
         );
 
         let blank_target_node_path = group_arts[blank_target_user]
-            .get_node_index()
+            .node_index()
             .get_path()
             .unwrap();
         let blank_target_node_index = NodeIndex::from(blank_target_node_path.to_vec());
         let new_sk = Fr::rand(&mut *rng);
-        let change = group_arts[target_user]
+        let (_, change) = group_arts[target_user]
             .remove_member(&blank_target_node_index, new_sk)
             .unwrap();
+        group_arts[target_user].apply(&change).unwrap();
+        group_arts[target_user].commit().unwrap();
 
         assert_eq!(
             group_arts[target_user]
-                .get_public_art()
-                .get_node(&change.node_index)
+                .root()
+                .node(&change.node_index)
                 .unwrap()
-                .get_public_key(),
+                .data()
+                .public_key(),
             CortadoAffine::generator().mul(new_sk).into_affine(),
             "Key updated correctly"
         );
 
         // Sync arts for other users other users
         for i in 0..group_arts.len() {
-            let old_sk = group_arts[i].get_secrets()[0];
+            let old_sk = group_arts[i].leaf_secret_key();
 
             // bug fix for blank member
             if i == blank_target_user {
@@ -270,20 +297,21 @@ mod tests {
             }
 
             if i != target_user && i != blank_target_user {
-                change.update(&mut group_arts[i]).unwrap()
+                change.apply(&mut group_arts[i]).unwrap();
+                group_arts[i].commit().unwrap();
             }
 
             assert_eq!(
                 old_sk,
-                group_arts[i].get_secrets()[0],
+                group_arts[i].leaf_secret_key(),
                 "Sanity check: secret key didn't changed for user {:?}.",
-                group_arts[i].get_node_index(),
+                group_arts[i].node_index(),
             );
             assert_eq!(
-                group_arts[i].get_node_index().get_path().unwrap().len() + 1,
-                group_arts[i].get_secrets().len(),
+                group_arts[i].node_index().get_path().unwrap().len() + 1,
+                group_arts[i].secrets().secrets().len(),
                 "Length of path secrets is length of direction path to node + 1 for user_{i}: {:?}.",
-                group_arts[i].get_node_index(),
+                group_arts[i].node_index(),
             );
             assert_eq!(
                 group_arts[target_user], group_arts[i],
