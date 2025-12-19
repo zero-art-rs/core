@@ -6,6 +6,8 @@ use crate::node_index::Direction;
 use ark_ec::AffineRepr;
 use display_tree::{CharSet, DisplayTree, Style, StyleBuilder, format_tree};
 use std::fmt::{Display, Formatter};
+use serde_json::to_string;
+use tracing_subscriber::fmt::format;
 
 #[derive(DisplayTree)]
 pub enum ARTDisplayTree {
@@ -29,23 +31,27 @@ where
 {
     fn from(value: ArtNodePreview<'a, G>) -> Self {
         let pk_marker = prepare_short_marker_for_option(&value.public_key().x());
+        let status = value
+            .status()
+            .map(|s| format!("{:?}", s))
+            .unwrap_or("None".to_string());
 
         match (value.child(Direction::Left), value.child(Direction::Right)) {
             (Some(l), Some(r)) => AggregationDisplayTree::BinaryNode {
-                public_key: format!("Node {}", pk_marker),
+                public_key: format!("Node {{ pk_marker={pk_marker}, status={status} }}"),
                 left: Box::new(l.into()),
                 right: Box::new(r.into()),
             },
             (Some(c), None) => AggregationDisplayTree::UnaryNode {
-                public_key: format!("{:?}: {}", Direction::Left, pk_marker),
+                public_key: format!("{:?}: {{ pk_marker={pk_marker}, status={status} }}", Direction::Left),
                 child: Box::new(c.into()),
             },
             (None, Some(c)) => AggregationDisplayTree::UnaryNode {
-                public_key: format!("{:?}: {}", Direction::Right, pk_marker),
+                public_key: format!("{:?}: {{ pk_marker={pk_marker}, status={status} }}", Direction::Right),
                 child: Box::new(c.into()),
             },
             (None, None) => AggregationDisplayTree::Leaf {
-                public_key: format!("Leaf: {}", pk_marker),
+                public_key: format!("Leaf: {{ pk_marker={pk_marker}, status={status} }}"),
             },
         }
     }

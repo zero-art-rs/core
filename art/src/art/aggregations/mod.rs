@@ -176,7 +176,7 @@ where
         let target_node = self.operation_tree.root().node_at(&path)?;
         let target_status = target_node.data().status();
         let mut ext_pk = None;
-        if matches!(target_status, Some(LeafStatus::Active)) {
+        if matches!(target_status, Some(LeafStatus::Active | LeafStatus::PendingRemoval)) {
             ext_pk = Some(target_node.data().public_key())
         };
 

@@ -672,7 +672,7 @@ where
         let target_node = self.preview().root().node_at(&target_leaf_path)?;
         match target_node.status() {
             None => return Err(ArtError::LeafOnly),
-            Some(LeafStatus::Active) | Some(LeafStatus::PendingRemoval) => {
+            Some(LeafStatus::Active | LeafStatus::PendingRemoval) => {
                 co_path.push(target_node.public_key())
             }
             _ => {}

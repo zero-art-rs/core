@@ -706,7 +706,7 @@ where
         for direction in &path {
             if parent.is_leaf() {
                 if let BranchChangeType::AddMember = change.change_type
-                    && matches!(parent.status(), Some(LeafStatus::Active))
+                    && matches!(parent.status(), Some(LeafStatus::Active | LeafStatus::PendingRemoval))
                 {
                     // The current node is a part of the co-path
                     co_path.push(parent.public_key())
@@ -822,7 +822,7 @@ where
     /// Searches for the left most blank node and returns the vector of directions to it.
     pub(crate) fn find_path_to_left_most_blank_node(&self) -> Option<Vec<Direction>> {
         for (node, path) in self.root().node_iter_with_path() {
-            if node.is_leaf() && !matches!(node.status(), Some(LeafStatus::Active)) {
+            if node.is_leaf() && matches!(node.status(), Some(LeafStatus::Blank)) {
                 let mut node_path = Vec::with_capacity(path.len());
 
                 for (_, dir) in path {

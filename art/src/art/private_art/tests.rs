@@ -234,6 +234,7 @@ fn test_root_retrieval_correctness_after_update() {
     let tree_public_key  = user0.preview().root().public_key();
     let real_public_key = CortadoAffine::generator().mul(tree_key).into_affine();
     assert_eq!(tree_public_key, real_public_key);
+    assert_eq!(tk, tree_key);
     verify_secrets_are_correct(&user0).unwrap();
 }
 
