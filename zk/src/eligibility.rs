@@ -26,7 +26,10 @@ pub(crate) enum EligibilityProof {
 pub enum EligibilityArtefact {
     Member((Fr, CortadoAffine)), // just normal member of the group, needed for UpdateKey & ConfirmRemove ops.
     Owner((Fr, CortadoAffine)),  // owner of the group, could perform AddMember, RemoveMember
-    CredentialHolder((Fr, Credential)), // holder of a credential, needed for anonymous AddMember & RemoveMember ops.
+    /// holder of a credential, needed for anonymous AddMember & RemoveMember ops, with the
+    /// current revocation list: it shapes the presentation circuit, so it must be the list the
+    /// verifier uses (`EligibilityRequirement::Previleged`)
+    CredentialHolder((Fr, Credential, Vec<Scalar>)),
 }
 
 #[derive(Debug, Clone)]
@@ -141,8 +144,12 @@ impl<'a> ZeroArtProverContext<'a> {
                 let sigma_proof = prover.prove_compact();
                 EligibilityProof::Member(sigma_proof)
             }
-            EligibilityArtefact::CredentialHolder((s, cred)) => {
-                EligibilityProof::CredentialHolder(cred.present(self.ad(), s.clone(), vec![])?)
+            EligibilityArtefact::CredentialHolder((s, cred, revocation_list)) => {
+                EligibilityProof::CredentialHolder(cred.present(
+                    self.ad(),
+                    s.clone(),
+                    revocation_list.clone(),
+                )?)
             }
         })
     }
@@ -197,5 +204,57 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_ff::UniformRand;
+
+    /// Proves eligibility as the holder of a credential through the prover engine and checks it
+    /// against a privileged requirement with the same non-empty revocation list.
+    fn credential_eligibility(revoke_holder: bool) -> Result<(), ZKError> {
+        let mut rng = rand::thread_rng();
+        let issuer_sk = Fr::rand(&mut rng);
+        let issuer_pk = (CortadoAffine::generator() * issuer_sk).into_affine();
+        let holder_sk = Fr::rand(&mut rng);
+        let holder_pk = (CortadoAffine::generator() * holder_sk).into_affine();
+        let credential = Credential::issue(issuer_sk, 3600, holder_pk)?;
+        let mut revocation_list = vec![Scalar::from(1u64), Scalar::from(2u64), Scalar::from(3u64)];
+        if revoke_holder {
+            revocation_list.push(credential.claims.id.into_scalar());
+        }
+        let ad: &[u8] = b"eligibility test";
+
+        let prover_engine = ZeroArtProverEngine::default();
+        let prover = prover_engine
+            .new_context(EligibilityArtefact::CredentialHolder((
+                holder_sk,
+                credential,
+                revocation_list.clone(),
+            )))
+            .with_associated_data(ad);
+        let proof = prover.prove_eligibility()?;
+
+        let verifier_engine = ZeroArtVerifierEngine::default();
+        let verifier = verifier_engine
+            .new_context(EligibilityRequirement::Previleged((
+                issuer_pk,
+                revocation_list,
+            )))
+            .with_associated_data(ad);
+        verifier.verify_eligibility(&proof)
+    }
+
+    #[test]
+    fn credential_holder_is_eligible_with_a_revocation_list() {
+        assert!(credential_eligibility(false).is_ok());
+    }
+
+    #[test]
+    fn revoked_credential_holder_is_not_eligible() {
+        assert!(credential_eligibility(true).is_err());
     }
 }

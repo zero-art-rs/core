@@ -35,9 +35,9 @@ fn get_poseidon_params() -> PoseidonParams {
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct CredentialClaims {
-    id: cortado::Fq,  // credential unique identifier (seed)
-    Q: CortadoAffine, // credential holder public key
-    expiration: u64,  // credential expiration time as UNIX timestamp
+    pub(crate) id: cortado::Fq, // credential unique identifier (seed)
+    Q: CortadoAffine,           // credential holder public key
+    expiration: u64,            // credential expiration time as UNIX timestamp
 }
 
 impl ToBytes for CredentialClaims {}
@@ -220,6 +220,17 @@ impl Credential {
         k: cortado::Fr,
         revocation_list: Vec<Scalar>,
     ) -> Result<CredentialPresentationProof, R1CSError> {
+        self.present_at(ad, k, revocation_list, Utc::now())
+    }
+
+    /// create credential presentation proof claiming `claimed_time` as the present time
+    pub(crate) fn present_at(
+        &self,
+        ad: &[u8],
+        k: cortado::Fr,
+        revocation_list: Vec<Scalar>,
+        claimed_time: DateTime<Utc>,
+    ) -> Result<CredentialPresentationProof, R1CSError> {
         let start = Instant::now();
         let mut transcript = Transcript::new(b"GadgetCredentialPresentation");
         transcript.append_message(b"ad", ad);
@@ -243,7 +254,6 @@ impl Credential {
                 .try_into()
                 .unwrap(),
         ))?;
-        let claimed_time = Utc::now();
 
         Self::credential_presentation_gadget(
             &mut prover,
@@ -318,15 +328,14 @@ impl Credential {
             s_var,
         )?;
 
-        if Utc::now()
-            - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0).unwrap_or_default()
-            > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64)
-        {
+        // the claimed time must be close to the verifier's clock, in either direction: a claim in
+        // the future would keep the proof acceptable long after it was made
+        let skew = Utc::now()
+            - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0).unwrap_or_default();
+        if skew.abs() > chrono::Duration::seconds(TIME_PROVER_VERIFIER_TIME_TOLERANCE as i64) {
             debug!(
-                "Credential presentation proof claimed time is within tolerance {:?}",
-                Utc::now()
-                    - chrono::DateTime::from_timestamp(proof.claimed_time as i64, 0)
-                        .unwrap_or_default()
+                "Credential presentation proof claimed time is outside the tolerance: {:?}",
+                skew
             );
             return Err(R1CSError::VerificationError);
         }
@@ -417,5 +426,37 @@ mod tests {
             Credential::verify_presentation(b"cred", &proof, issuer_public_key, revocation_list)
                 .is_err()
         );
+    }
+
+    /// Presents a valid credential claiming `now + offset_secs` as the present time, and returns
+    /// whether the presentation verifies now.
+    fn presentation_verifies_with_time_offset(offset_secs: i64) -> bool {
+        let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_public_key = (CortadoAffine::generator() * issuer_secret_key).into_affine();
+        let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+        // valid for two hours, so a claim one hour ahead is still before the expiration
+        let credential = Credential::issue(issuer_secret_key, 7200, holder_public_key).unwrap();
+
+        let claimed_time = Utc::now() + chrono::Duration::seconds(offset_secs);
+        let proof = credential
+            .present_at(b"cred", holder_secret_key, vec![], claimed_time)
+            .unwrap();
+        Credential::verify_presentation(b"cred", &proof, issuer_public_key, vec![]).is_ok()
+    }
+
+    #[test]
+    fn presentation_with_current_time_verifies() {
+        assert!(presentation_verifies_with_time_offset(0));
+    }
+
+    #[test]
+    fn presentation_claiming_a_past_time_is_rejected() {
+        assert!(!presentation_verifies_with_time_offset(-3600));
+    }
+
+    #[test]
+    fn presentation_claiming_a_future_time_is_rejected() {
+        assert!(!presentation_verifies_with_time_offset(3600));
     }
 }

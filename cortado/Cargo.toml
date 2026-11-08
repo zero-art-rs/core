@@ -11,5 +11,8 @@ ark-serialize = { workspace = true, features = ["derive"] }
 ark-algebra-test-templates = { version = "0.5.0" }
 curve25519-dalek = { workspace = true }
 
+[dev-dependencies]
+sha2 = "0.10"
+
 [profile.test]
 inherits = "release"
