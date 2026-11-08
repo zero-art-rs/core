@@ -318,17 +318,18 @@ impl CanonicalDeserialize for CompressedRistretto {
 pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u8) -> usize {
     let eps = 5;
 
+    // multipliers of one scalar multiplication: 254 bits + 2 + 253 steps of 7 (v1) or 4 (v2)
     let scalar_mul_complexity = match dh_ver {
-        1 => 1521,
+        1 => 2027,
         2 => 1268,
         _ => 0,
     };
 
     let level_complexity: usize = match dh_ver {
         #[cfg(feature = "cross_sigma")]
-        1 => 1521,
+        1 => 2027,
         #[cfg(not(feature = "cross_sigma"))]
-        1 => 3042,
+        1 => 4054,
         #[cfg(feature = "cross_sigma")]
         2 => 1268,
         #[cfg(not(feature = "cross_sigma"))]
