@@ -364,11 +364,14 @@ pub(crate) fn shared_bp_gens(capacity: usize) -> Arc<BulletproofGens> {
 pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u8) -> usize {
     let eps = 5;
 
-    // multipliers of one scalar multiplication: 254 bits + 127 for their canonical range + 2
-    // + 253 steps of 7 (v1) or 4 (v2)
-    let scalar_mul_complexity = match dh_ver {
-        1 => 2154,
-        2 => 1395,
+    // multipliers of one scalar multiplication: the decomposition of the scalar (254 bits + 127
+    // for their canonical range) and the walk over its bits (2 + 253 steps of 7 (v1) or 4 (v2))
+    //
+    // A level proves two scalar multiplications; a leaf's level proves a third one, the leaf key,
+    // which walks the bits already decomposed for the DH: only the walk counts for leaves.
+    let walk_complexity = match dh_ver {
+        1 => 1773,
+        2 => 1014,
         _ => 0,
     };
 
@@ -384,7 +387,7 @@ pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u8) -> usiz
         _ => 0,
     };
 
-    1 << log2(leaves * scalar_mul_complexity + height * (level_complexity + eps))
+    1 << log2(leaves * walk_complexity + height * (level_complexity + eps))
 }
 
 impl<'a> ZeroArtProverContext<'a> {
