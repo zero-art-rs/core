@@ -7,6 +7,7 @@ use std::time::Instant;
 use crate::art::{
     ArtProof, CompressedRistretto, ProverNodeData, ProverNodeDataWithBlinding, R1CSProof,
     UpdateProof, VerifierNodeData, co_public_key, estimate_bp_gens, read_length_prefixed,
+    shared_bp_gens,
 };
 use crate::dh::art_level_gadget;
 use crate::eligibility::EligibilityRequirement;
@@ -118,14 +119,11 @@ impl<'a> ZeroArtProverContext<'a> {
         aggregated_tree: &ProverAggregationTreeWithBlinding<CortadoAffine>,
     ) -> Result<AggregatedTreeProof, ZKError> {
         let start = Instant::now();
-        let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(
-                aggregated_tree.get_nodes().len() - 1,       // number of edges
-                (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
-            1,
-        );
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            aggregated_tree.get_nodes().len() - 1,       // number of edges
+            (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
+            self.engine.options.scalar_mul_gadget_ver,
+        ));
         let aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
         let root_id = aggregated_tree
             .get_root_node()
@@ -223,13 +221,10 @@ impl<'a> ZeroArtProverContext<'a> {
         aggregated_tree: &ProverAggregationTreeWithBlinding<CortadoAffine>,
     ) -> Result<AggregatedTreeProof, ZKError> {
         let start = Instant::now();
-        let bp_gens = Arc::new(BulletproofGens::new(
-            estimate_bp_gens(
-                1, // number of edges
-                1, // number of leaves (presuming binary tree)
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
-            1,
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            1, // number of edges
+            1, // number of leaves (presuming binary tree)
+            self.engine.options.scalar_mul_gadget_ver,
         ));
         let aggregated_proof = AggregatedTreeProof::from(aggregated_tree);
 
@@ -449,14 +444,11 @@ impl<'a> ZeroArtVerifierContext<'a> {
         if nodes == 0 {
             return Err(ZKError::InvalidAggregation);
         }
-        let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(
-                nodes - 1,       // number of edges
-                (nodes + 1) / 2, // number of leaves (presuming binary tree)
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
-            1,
-        );
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            nodes - 1,       // number of edges
+            (nodes + 1) / 2, // number of leaves (presuming binary tree)
+            self.engine.options.scalar_mul_gadget_ver,
+        ));
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad());
         let mut verifier = Verifier::new(&mut transcript);
@@ -516,13 +508,10 @@ impl<'a> ZeroArtVerifierContext<'a> {
     ) -> Result<(), ZKError> {
         let start = Instant::now();
 
-        let bp_gens = Arc::new(BulletproofGens::new(
-            estimate_bp_gens(
-                1, // number of edges
-                1, // number of leaves (presuming binary tree)
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
-            1,
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            1, // number of edges
+            1, // number of leaves (presuming binary tree)
+            self.engine.options.scalar_mul_gadget_ver,
         ));
 
         let root_id = aggregated_tree

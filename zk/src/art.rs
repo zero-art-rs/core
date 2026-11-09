@@ -145,7 +145,9 @@ pub(crate) fn read_length_prefixed<R: std::io::Read>(
     let mut bytes = Vec::new();
     reader.by_ref().take(len as u64).read_to_end(&mut bytes)?;
     if bytes.len() != len {
-        return Err(SerializationError::IoError(std::io::ErrorKind::UnexpectedEof.into()));
+        return Err(SerializationError::IoError(
+            std::io::ErrorKind::UnexpectedEof.into(),
+        ));
     }
     Ok(bytes)
 }
@@ -331,6 +333,33 @@ impl CanonicalDeserialize for CompressedRistretto {
     }
 }
 
+/// The largest generators `shared_bp_gens` keeps: 32768 multipliers, about 10 MB. Larger ones,
+/// for single-threaded proofs of deep branches or big aggregations, are built for each proof.
+const MAX_SHARED_BP_GENS: usize = 1 << 15;
+
+/// Bulletproof generators for `capacity` multipliers, built once per capacity and shared.
+///
+/// They depend on nothing but the capacity, and building them took most of the time of verifying
+/// a branch proof (about 180 ms of 250 ms for 8192 multipliers): every proof and every
+/// verification built its own.
+pub(crate) fn shared_bp_gens(capacity: usize) -> Arc<BulletproofGens> {
+    static SHARED: std::sync::OnceLock<
+        Mutex<std::collections::HashMap<usize, Arc<BulletproofGens>>>,
+    > = std::sync::OnceLock::new();
+
+    if capacity > MAX_SHARED_BP_GENS {
+        return Arc::new(BulletproofGens::new(capacity, 1));
+    }
+    let mut shared = SHARED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    shared
+        .entry(capacity)
+        .or_insert_with(|| Arc::new(BulletproofGens::new(capacity, 1)))
+        .clone()
+}
+
 /// Estimate the number of generators needed for the given depth
 pub(crate) fn estimate_bp_gens(height: usize, leaves: usize, dh_ver: u8) -> usize {
     let eps = 5;
@@ -404,14 +433,11 @@ impl<'a> ZeroArtProverContext<'a> {
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
-        let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(
-                branch_nodes.len() - 1,
-                1,
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            branch_nodes.len() - 1,
             1,
-        );
+            self.engine.options.scalar_mul_gadget_ver,
+        ));
         let mut commitments = Vec::new();
         let mut vars = Vec::new();
         let mut transcript = Transcript::new(b"ARTGadget");
@@ -468,9 +494,10 @@ impl<'a> ZeroArtProverContext<'a> {
     ) -> Result<(Vec<R1CSProof>, Vec<CompressedRistretto>), R1CSError> {
         let start = Instant::now();
         let k = branch_nodes.len() - 1;
-        let bp_gens = Arc::new(BulletproofGens::new(
-            estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
             1,
+            1,
+            self.engine.options.scalar_mul_gadget_ver,
         ));
 
         let (proofs, commitments): (
@@ -597,10 +624,11 @@ impl<'a> ZeroArtVerifierContext<'a> {
         if proofs.len() != 1 || commitments.len() != k + 1 {
             return Err(R1CSError::VerificationError);
         }
-        let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(k, 1, self.engine.options.scalar_mul_gadget_ver),
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
+            k,
             1,
-        );
+            self.engine.options.scalar_mul_gadget_ver,
+        ));
 
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad());
@@ -648,13 +676,11 @@ impl<'a> ZeroArtVerifierContext<'a> {
         if proofs.len() != k || commitments.len() != expected_commitments {
             return Err(R1CSError::VerificationError);
         }
-        let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
+        let bp_gens = shared_bp_gens(estimate_bp_gens(
             1,
-        );
-
-        let bp_gens = Arc::new(bp_gens.clone());
-        let bp_gens = Arc::clone(&bp_gens);
+            1,
+            self.engine.options.scalar_mul_gadget_ver,
+        ));
 
         std::thread::scope(|s| {
             (0..k)
