@@ -141,17 +141,42 @@ pub fn canonical_bits_gadget<CS: ConstraintSystem>(
 // sketch2: Com((λ_a, r), (P1, H1)) ∈ G1, check if DL equal across Com, Q_a; Q_b, Q_ab ∈ G2: compute λ_ab=x([λ_a]Q_B) => check Q_ab==[λ_ab]P2
 // we use https://eprint.iacr.org/2022/1593.pdf to prove that λ_a is equal across G1, G2 (generalization of Chaum-Pedersen proto (G1=G2))
 
+/// The bits of a committed scalar: decomposed once, with `bin_equality_gadget`, and
+/// range-checked once, with `canonical_bits_gadget`, so that they are the bits of the one integer
+/// below ℓ the commitment holds. Every scalar multiplication by that scalar in a circuit can walk
+/// the same bits (`scalar_mul_bits_gadget`), instead of decomposing it again for 381 multipliers.
+#[derive(Clone, Debug)]
+pub struct ScalarBits {
+    vars: Vec<Variable>,
+    assignment: Option<Scalar>,
+}
+
+/// Decomposes and range-checks the bits of `x`, for `scalar_mul_bits_gadget`.
+pub fn scalar_bits_gadget<CS: ConstraintSystem>(
+    cs: &mut CS,
+    x: AllocatedScalar,
+) -> Result<ScalarBits, R1CSError> {
+    let vars = bin_equality_gadget(
+        cs,
+        &LinearCombination::from(x.variable),
+        x.assignment,
+        MODULUS_BIT_SIZE,
+    )?;
+    canonical_bits_gadget(cs, &vars)?;
+    Ok(ScalarBits {
+        vars,
+        assignment: x.assignment,
+    })
+}
+
 /// gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
 /// based on https://eprint.iacr.org/archive/2024/397/20240622:224417
-fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
+fn scalar_mul_bits_v1<CS: ConstraintSystem>(
     cs: &mut CS,
-    λ_a: AllocatedScalar,
+    k: &ScalarBits,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    let AllocatedScalar {
-        variable: var_a,
-        assignment: λ_a,
-    } = λ_a;
+    let λ_a = k.assignment;
     let (w_a, w_b) = (
         cortado::Parameters::COEFF_A.into_scalar(),
         cortado::Parameters::COEFF_B.into_scalar(),
@@ -180,8 +205,7 @@ fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         .map(|(x, y)| (*x + y).into_affine())
         .collect();
     finite_table(&Q_b, &Δ2)?;
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
-    canonical_bits_gadget(cs, &k_vars)?;
+    let k_vars = &k.vars;
 
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply(
@@ -286,15 +310,12 @@ struct Witness {
 
 /// second ver. of gadget for scalar multiplication, returns constrainted variable R = λ_a * Q_b
 /// based on https://eprint.iacr.org/archive/2024/397/20250504:183956
-fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
+fn scalar_mul_bits_v2<CS: ConstraintSystem>(
     cs: &mut CS,
-    λ_a: AllocatedScalar,
+    k: &ScalarBits,
     Q_b: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
-    let AllocatedScalar {
-        variable: var_a,
-        assignment: λ_a,
-    } = λ_a;
+    let λ_a = k.assignment;
     let l = (MODULUS_BIT_SIZE) as i32;
     let Δ1 = S.get_or_init(|| {
         let G = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
@@ -319,8 +340,7 @@ fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         .map(|(x, y)| (*x + y).into_affine())
         .collect();
     finite_table(&Q_b, &Δ2)?;
-    let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
-    canonical_bits_gadget(cs, &k_vars)?;
+    let k_vars = &k.vars;
 
     // P_0 = Δ_0
     let (_, _, x0) = cs.multiply(
@@ -418,14 +438,23 @@ pub fn scalar_mul_gadget<CS: ConstraintSystem>(
     x: AllocatedScalar,
     Q: CortadoAffine,
 ) -> Result<AllocatedPoint, R1CSError> {
+    let k = scalar_bits_gadget(cs, x)?;
+    scalar_mul_bits_gadget(ver, cs, &k, Q)
+}
+
+/// `scalar_mul_gadget` for a scalar whose bits are already decomposed (`scalar_bits_gadget`).
+pub fn scalar_mul_bits_gadget<CS: ConstraintSystem>(
+    ver: u8,
+    cs: &mut CS,
+    k: &ScalarBits,
+    Q: CortadoAffine,
+) -> Result<AllocatedPoint, R1CSError> {
     match ver {
-        1 => scalar_mul_gadget_v1(cs, x, Q),
-        2 => scalar_mul_gadget_v2(cs, x, Q),
-        _ => {
-            return Err(R1CSError::GadgetError {
-                description: "invalid scalar mul gadget version".into(),
-            });
-        }
+        1 => scalar_mul_bits_v1(cs, k, Q),
+        2 => scalar_mul_bits_v2(cs, k, Q),
+        _ => Err(R1CSError::GadgetError {
+            description: "invalid scalar mul gadget version".into(),
+        }),
     }
 }
 
@@ -437,20 +466,16 @@ pub fn dh_gadget<CS: ConstraintSystem>(
     λ_ab: AllocatedScalar,
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
-    let AllocatedScalar {
-        variable: var_ab,
-        assignment: _,
-    } = λ_ab;
-    let var_R = match ver {
-        1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
-        2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
-        _ => return Err(R1CSError::VerificationError),
-    };
-    cs.constrain(var_R.x.variable - var_ab);
+    let var_R = scalar_mul_gadget(ver, cs, λ_a, Q_b)?;
+    cs.constrain(var_R.x.variable - λ_ab.variable);
     Ok(())
 }
 
-/// gadget constraining λ_ab = x(λ_a * Q_b) & Q_ab = [λ_ab]P
+/// gadget constraining λ_ab = x(λ_a * Q_b) & Q_ab = [λ_ab]P, and at level 0 also Q_a = [λ_a]P
+///
+/// At level 0 both scalar multiplications by λ_a walk one decomposition of it: besides saving
+/// 381 multipliers, which keeps a level-0 proof within 4096, it makes the leaf key and the DH use
+/// the same integer by construction.
 pub fn art_level_gadget<CS: ConstraintSystem>(
     ver: u8,
     cs: &mut CS,
@@ -465,34 +490,20 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
     let (Q_a_x, Q_a_y) = affine_coordinates(&Q_a)?;
     let (Q_ab_x, Q_ab_y) = affine_coordinates(&Q_ab)?;
 
+    let k_a = scalar_bits_gadget(cs, λ_a)?;
     if level == 0 {
         // constrain Q_a = [λ_a]P
-        let var_Q = match ver {
-            1 => scalar_mul_gadget_v1(cs, λ_a, CortadoAffine::generator())?,
-            2 => scalar_mul_gadget_v2(cs, λ_a, CortadoAffine::generator())?,
-            _ => return Err(R1CSError::VerificationError),
-        };
+        let var_Q = scalar_mul_bits_gadget(ver, cs, &k_a, CortadoAffine::generator())?;
         cs.constrain(var_Q.x.variable - Q_a_x);
         cs.constrain(var_Q.y.variable - Q_a_y);
     }
+
     // constrain λ_ab = x(λ_a * Q_b)
-    let AllocatedScalar {
-        variable: var_ab,
-        assignment: _,
-    } = λ_ab;
-    let var_R = match ver {
-        1 => scalar_mul_gadget_v1(cs, λ_a, Q_b)?,
-        2 => scalar_mul_gadget_v2(cs, λ_a, Q_b)?,
-        _ => return Err(R1CSError::VerificationError),
-    };
-    cs.constrain(var_R.x.variable - var_ab);
+    let var_R = scalar_mul_bits_gadget(ver, cs, &k_a, Q_b)?;
+    cs.constrain(var_R.x.variable - λ_ab.variable);
 
     // constrain Q_ab = [λ_ab]P
-    let var_Q = match ver {
-        1 => scalar_mul_gadget_v1(cs, λ_ab, CortadoAffine::generator())?,
-        2 => scalar_mul_gadget_v2(cs, λ_ab, CortadoAffine::generator())?,
-        _ => return Err(R1CSError::VerificationError),
-    };
+    let var_Q = scalar_mul_gadget(ver, cs, λ_ab, CortadoAffine::generator())?;
     cs.constrain(var_Q.x.variable - Q_ab_x);
     cs.constrain(var_Q.y.variable - Q_ab_y);
 
@@ -834,11 +845,22 @@ mod soundness_tests {
         Ok(bits)
     }
 
-    /// The tables, the bit decomposition (with the bits of `k`) and P_0, as both gadgets build
+    /// The constraints of `scalar_bits_gadget` for `var_a`, assigning the bits of `k`.
+    fn mirror_bits<CS: ConstraintSystem>(
+        cs: &mut CS,
+        var_a: Variable,
+        k: &BigInt<4>,
+    ) -> Result<Vec<Variable>, R1CSError> {
+        let k_vars = decompose(cs, var_a, k)?;
+        canonical_bits_gadget(cs, &k_vars)?;
+        Ok(k_vars)
+    }
+
+    /// The tables and P_0 for the bits `k_vars` (assigned the bits of `k`), as both gadgets build
     /// them.
     fn walk_start<CS: ConstraintSystem>(
         cs: &mut CS,
-        var_a: Variable,
+        k_vars: &[Variable],
         k: &BigInt<4>,
         Q_b: CortadoAffine,
     ) -> Result<WalkStart, R1CSError> {
@@ -869,8 +891,7 @@ mod soundness_tests {
             .zip(δ.iter())
             .map(|(x, y)| (*x + y).into_affine())
             .collect();
-        let k_vars = decompose(cs, var_a, k)?;
-        canonical_bits_gadget(cs, &k_vars)?;
+        let k_vars = k_vars.to_vec();
         let (_, _, x0) = cs.multiply(
             Variable::One() * d1[0].x().unwrap().into_scalar()
                 + k_vars[0] * (d2[0].x().unwrap() - d1[0].x().unwrap()).into_scalar(),
@@ -902,10 +923,24 @@ mod soundness_tests {
         )
     }
 
-    /// The constraints of `scalar_mul_gadget_v1`, with `witness`.
+    /// The constraints of `scalar_mul_gadget(1 or 2, ..)` (decomposition, then walk), with
+    /// `witness`.
     fn mirror_v1<CS: ConstraintSystem>(
         cs: &mut CS,
         λ_a: AllocatedScalar,
+        Q_b: CortadoAffine,
+        witness: Witness,
+    ) -> Result<AllocatedPoint, R1CSError> {
+        let k = bits_of(λ_a.assignment.unwrap(), witness);
+        let k_vars = mirror_bits(cs, λ_a.variable, &k)?;
+        mirror_walk_v1(cs, &k_vars, &k, Q_b, witness)
+    }
+
+    /// The constraints of `scalar_mul_bits_v1` for the bits `k_vars` of `k`, with `witness`.
+    fn mirror_walk_v1<CS: ConstraintSystem>(
+        cs: &mut CS,
+        k_vars: &[Variable],
+        k: &BigInt<4>,
         Q_b: CortadoAffine,
         witness: Witness,
     ) -> Result<AllocatedPoint, R1CSError> {
@@ -913,8 +948,7 @@ mod soundness_tests {
             cortado::Parameters::COEFF_A.into_scalar(),
             cortado::Parameters::COEFF_B.into_scalar(),
         );
-        let k = bits_of(λ_a.assignment.unwrap(), witness);
-        let st = walk_start(cs, λ_a.variable, &k, Q_b)?;
+        let st = walk_start(cs, k_vars, k, Q_b)?;
         let l = MODULUS_BIT_SIZE as usize;
         let sel = |i: usize| if k.get_bit(i) { st.d2[i] } else { st.d1[i] };
         let mut P_vars = vec![st.p0_vars];
@@ -965,7 +999,8 @@ mod soundness_tests {
         })
     }
 
-    /// The constraints of `scalar_mul_gadget_v2`, with `witness`.
+    /// The constraints of `scalar_mul_gadget(1 or 2, ..)` (decomposition, then walk), with
+    /// `witness`.
     fn mirror_v2<CS: ConstraintSystem>(
         cs: &mut CS,
         λ_a: AllocatedScalar,
@@ -973,7 +1008,19 @@ mod soundness_tests {
         witness: Witness,
     ) -> Result<AllocatedPoint, R1CSError> {
         let k = bits_of(λ_a.assignment.unwrap(), witness);
-        let st = walk_start(cs, λ_a.variable, &k, Q_b)?;
+        let k_vars = mirror_bits(cs, λ_a.variable, &k)?;
+        mirror_walk_v2(cs, &k_vars, &k, Q_b, witness)
+    }
+
+    /// The constraints of `scalar_mul_bits_v2` for the bits `k_vars` of `k`, with `witness`.
+    fn mirror_walk_v2<CS: ConstraintSystem>(
+        cs: &mut CS,
+        k_vars: &[Variable],
+        k: &BigInt<4>,
+        Q_b: CortadoAffine,
+        witness: Witness,
+    ) -> Result<AllocatedPoint, R1CSError> {
+        let st = walk_start(cs, k_vars, k, Q_b)?;
         let l = MODULUS_BIT_SIZE as usize;
         let sel = |i: usize| if k.get_bit(i) { st.d2[i] } else { st.d1[i] };
         let mut P_vars = vec![st.p0_vars];
@@ -1133,20 +1180,25 @@ mod soundness_tests {
         assert!(!dh_verifies(2, Witness::Aliased));
     }
 
-    /// Proves the constraints of `art_level_gadget(2, _, 0, ...)` with the mirrored v2 prover,
-    /// one witness per scalar multiplication (leaf key, DH, parent key), and returns whether the
-    /// gadget accepts the proof.
+    /// Proves the constraints of `art_level_gadget(2, _, 0, ...)` with the mirrored v2 prover and
+    /// returns whether the gadget accepts the proof. Like the gadget, the prover decomposes λ_a
+    /// once (assigning the bits for `a_bits`) and walks those bits for the leaf key and for the
+    /// DH, then decomposes and walks λ_ab for the parent key; `walks` is the witness of each walk.
+    ///
+    /// The generators hold 4096 multipliers: the honest proof fitting them is part of what
+    /// `level0_mirror_matches_gadget` checks.
     fn level0_verifies(
         λ_a: Scalar,
         λ_ab: Scalar,
         Q_a: CortadoAffine,
         Q_ab: CortadoAffine,
         Q_b: CortadoAffine,
-        witnesses: [Witness; 3],
+        a_bits: Witness,
+        walks: [Witness; 3],
     ) -> bool {
         let mut rng = rand::thread_rng();
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(8192, 1);
+        let bp_gens = BulletproofGens::new(4096, 1);
         let G = CortadoAffine::generator();
         let (qa_x, qa_y) = xy(&Q_a);
         let (qab_x, qab_y) = xy(&Q_ab);
@@ -1155,14 +1207,15 @@ mod soundness_tests {
         let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
         let (a_commitment, var_a) = prover.commit(λ_a, Scalar::random(&mut rng));
         let (ab_commitment, var_ab) = prover.commit(λ_ab, Scalar::random(&mut rng));
-        let a = AllocatedScalar::new(var_a, Some(λ_a));
         let ab = AllocatedScalar::new(var_ab, Some(λ_ab));
-        let q = mirror_v2(&mut prover, a, G, witnesses[0]).unwrap();
+        let k_a = bits_of(λ_a, a_bits);
+        let a_vars = mirror_bits(&mut prover, var_a, &k_a).unwrap();
+        let q = mirror_walk_v2(&mut prover, &a_vars, &k_a, G, walks[0]).unwrap();
         prover.constrain(q.x.variable - qa_x);
         prover.constrain(q.y.variable - qa_y);
-        let R = mirror_v2(&mut prover, a, Q_b, witnesses[1]).unwrap();
+        let R = mirror_walk_v2(&mut prover, &a_vars, &k_a, Q_b, walks[1]).unwrap();
         prover.constrain(R.x.variable - var_ab);
-        let q_ab = mirror_v2(&mut prover, ab, G, witnesses[2]).unwrap();
+        let q_ab = mirror_v2(&mut prover, ab, G, walks[2]).unwrap();
         prover.constrain(q_ab.x.variable - qab_x);
         prover.constrain(q_ab.y.variable - qab_y);
         let Ok(proof) = prover.prove(&bp_gens) else {
@@ -1206,6 +1259,7 @@ mod soundness_tests {
             Q_a,
             Q_ab,
             Q_b,
+            Witness::Honest,
             [Witness::Honest; 3]
         ));
     }
@@ -1227,26 +1281,42 @@ mod soundness_tests {
             Witness::FreeWires(λ_ab, Scalar::from(9u64)),
             Witness::Honest,
         ];
-        assert!(!level0_verifies(guess, λ_ab, Q_a, Q_ab, Q_b, witnesses));
+        assert!(!level0_verifies(
+            guess,
+            λ_ab,
+            Q_a,
+            Q_ab,
+            Q_b,
+            Witness::Honest,
+            witnesses
+        ));
     }
 
-    /// A level-0 proof whose leaf key uses the bits of λ_a and whose DH uses the bits of
-    /// λ_a + ℓ: the parent secret differs from the one the sibling subtree computes.
+    /// A level-0 proof whose one decomposition of λ_a holds the bits of λ_a + ℓ, walked honestly
+    /// for both the leaf key and the DH. Sharing the bits already makes the two use one integer;
+    /// the range check still rejects an integer at or above ℓ, which a later proof decomposing the
+    /// same commitment could read differently.
     #[test]
-    fn v2_rejects_level_proof_with_aliased_dh() {
+    fn v2_rejects_level_proof_with_aliased_bits() {
         let mut rng = rand::thread_rng();
         let G = CortadoAffine::generator();
         let Q_b = (G * rng.r#gen::<cortado::Fr>()).into_affine();
         let λ_a = Scalar::random(&mut rng);
-        let Q_a = (G * scalar_to_fr(&λ_a)).into_affine();
-        let honest = xy(&(Q_b * scalar_to_fr(&λ_a)).into_affine()).0;
+        // the walks compute with K = λ_a + ℓ
         let aliased = bits_of(λ_a, Witness::Aliased);
-        let λ_ab =
-            xy(&(Q_b * cortado::Fr::from_le_bytes_mod_order(&aliased.to_bytes_le())).into_affine())
-                .0;
-        assert_ne!(λ_ab, honest);
+        let K = cortado::Fr::from_le_bytes_mod_order(&aliased.to_bytes_le());
+        assert_ne!(K, scalar_to_fr(&λ_a));
+        let Q_a = (G * K).into_affine();
+        let λ_ab = xy(&(Q_b * K).into_affine()).0;
         let Q_ab = (G * scalar_to_fr(&λ_ab)).into_affine();
-        let witnesses = [Witness::Honest, Witness::Aliased, Witness::Honest];
-        assert!(!level0_verifies(λ_a, λ_ab, Q_a, Q_ab, Q_b, witnesses));
+        assert!(!level0_verifies(
+            λ_a,
+            λ_ab,
+            Q_a,
+            Q_ab,
+            Q_b,
+            Witness::Aliased,
+            [Witness::Honest; 3]
+        ));
     }
 }

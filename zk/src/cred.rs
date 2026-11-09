@@ -2,14 +2,14 @@
 
 use std::time::{self, Instant, SystemTime};
 
-use crate::art::{CompressedRistretto, R1CSProof};
+use crate::art::{CompressedRistretto, R1CSProof, shared_bp_gens};
 use crate::dh::{affine_coordinates, bin_equality_gadget, scalar_mul_gadget};
 use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
 use ark_ec::{AffineRepr, CurveGroup, short_weierstrass::SWCurveConfig};
 use ark_ff::{BigInt, BigInteger, Field, MontConfig, PrimeField, UniformRand};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Valid};
-use bulletproofs::{BulletproofGens, PedersenGens};
+use bulletproofs::PedersenGens;
 use bulletproofs::{
     ProofError,
     r1cs::{self, ConstraintSystem, LinearCombination, Prover, R1CSError, Variable, Verifier},
@@ -275,7 +275,7 @@ impl Credential {
             "Credential presentation gadget metrics: {:?}",
             prover.metrics()
         );
-        let proof = prover.prove(&BulletproofGens::new(8192, 1))?;
+        let proof = prover.prove(&shared_bp_gens(8192))?;
         debug!(
             "Credential presentation proof generated in {:?}",
             start.elapsed()
@@ -343,7 +343,7 @@ impl Credential {
             return Err(R1CSError::VerificationError);
         }
 
-        verifier.verify(&proof.proof.0, &pc_gens, &BulletproofGens::new(8192, 1))?;
+        verifier.verify(&proof.proof.0, &pc_gens, &shared_bp_gens(8192))?;
         debug!(
             "Credential presentation proof verified in {:?}",
             start.elapsed()
