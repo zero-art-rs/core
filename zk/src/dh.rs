@@ -179,6 +179,7 @@ fn scalar_mul_gadget_v1<CS: ConstraintSystem>(
         .zip(δ.iter())
         .map(|(x, y)| (*x + y).into_affine())
         .collect();
+    finite_table(&Q_b, &Δ2)?;
     let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     canonical_bits_gadget(cs, &k_vars)?;
 
@@ -317,6 +318,7 @@ fn scalar_mul_gadget_v2<CS: ConstraintSystem>(
         .zip(δ.iter())
         .map(|(x, y)| (*x + y).into_affine())
         .collect();
+    finite_table(&Q_b, &Δ2)?;
     let k_vars = bin_equality_gadget(cs, &LinearCombination::from(var_a), λ_a, MODULUS_BIT_SIZE)?;
     canonical_bits_gadget(cs, &k_vars)?;
 
@@ -459,6 +461,10 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
     Q_ab: CortadoAffine,
     Q_b: CortadoAffine,
 ) -> Result<(), R1CSError> {
+    // the public keys come from the received change: a key at infinity is an error, not a panic
+    let (Q_a_x, Q_a_y) = affine_coordinates(&Q_a)?;
+    let (Q_ab_x, Q_ab_y) = affine_coordinates(&Q_ab)?;
+
     if level == 0 {
         // constrain Q_a = [λ_a]P
         let var_Q = match ver {
@@ -466,8 +472,8 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
             2 => scalar_mul_gadget_v2(cs, λ_a, CortadoAffine::generator())?,
             _ => return Err(R1CSError::VerificationError),
         };
-        cs.constrain(var_Q.x.variable - Q_a.x().unwrap().into_scalar());
-        cs.constrain(var_Q.y.variable - Q_a.y().unwrap().into_scalar());
+        cs.constrain(var_Q.x.variable - Q_a_x);
+        cs.constrain(var_Q.y.variable - Q_a_y);
     }
     // constrain λ_ab = x(λ_a * Q_b)
     let AllocatedScalar {
@@ -487,9 +493,31 @@ pub fn art_level_gadget<CS: ConstraintSystem>(
         2 => scalar_mul_gadget_v2(cs, λ_ab, CortadoAffine::generator())?,
         _ => return Err(R1CSError::VerificationError),
     };
-    cs.constrain(var_Q.x.variable - Q_ab.x().unwrap().into_scalar());
-    cs.constrain(var_Q.y.variable - Q_ab.y().unwrap().into_scalar());
+    cs.constrain(var_Q.x.variable - Q_ab_x);
+    cs.constrain(var_Q.y.variable - Q_ab_y);
 
+    Ok(())
+}
+
+/// The affine coordinates of `P` as scalars, or an error when `P` is the point at infinity.
+pub(crate) fn affine_coordinates(P: &CortadoAffine) -> Result<(Scalar, Scalar), R1CSError> {
+    match (P.x(), P.y()) {
+        (Some(x), Some(y)) => Ok((x.into_scalar(), y.into_scalar())),
+        _ => Err(R1CSError::GadgetError {
+            description: "point at infinity".into(),
+        }),
+    }
+}
+
+/// Rejects a base point `Q` at infinity, and tables in which some Δ2_i = Δ1_i + [2^i]Q is at
+/// infinity. Δ1_i = [c_i]H, so anyone can make Δ2_i infinite with Q = -[c_i / 2^i]H, without
+/// knowing any discrete log; such a Q can reach the verifier as a co-path key of a crafted tree.
+fn finite_table(Q: &CortadoAffine, Δ2: &[CortadoAffine]) -> Result<(), R1CSError> {
+    if Q.is_zero() || Δ2.iter().any(|p| p.is_zero()) {
+        return Err(R1CSError::GadgetError {
+            description: "scalar multiplication base or table point at infinity".into(),
+        });
+    }
     Ok(())
 }
 

@@ -1002,6 +1002,36 @@ mod tests {
                 verify_tampered_branch(2, multi_threaded, |_, nodes| nodes[0].co_public_key = None)
                     .is_err()
             );
+            // public keys at infinity, at the leaf and at the root
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[0].public_key = CortadoAffine::zero()
+                })
+                .is_err()
+            );
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[2].public_key = CortadoAffine::zero()
+                })
+                .is_err()
+            );
+            // a co-path key at infinity, and one for which Δ2_0 = [2]H + Q is at infinity
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[1].co_public_key = Some(CortadoAffine::zero())
+                })
+                .is_err()
+            );
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    let H = CortadoAffine::new_unchecked(
+                        cortado::ALT_GENERATOR_X,
+                        cortado::ALT_GENERATOR_Y,
+                    );
+                    nodes[0].co_public_key = Some((-(H * cortado::Fr::from(2u64))).into_affine())
+                })
+                .is_err()
+            );
         }
     }
 }

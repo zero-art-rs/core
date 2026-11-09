@@ -3,7 +3,7 @@
 use std::time::{self, Instant, SystemTime};
 
 use crate::art::{CompressedRistretto, R1CSProof};
-use crate::dh::{bin_equality_gadget, scalar_mul_gadget};
+use crate::dh::{affine_coordinates, bin_equality_gadget, scalar_mul_gadget};
 use crate::gadgets::poseidon_gadget::*;
 use crate::gadgets::r1cs_utils::*;
 use ark_ec::{AffineRepr, CurveGroup, short_weierstrass::SWCurveConfig};
@@ -171,14 +171,17 @@ impl Credential {
         R: AllocatedPoint,
         s: AllocatedScalar,
     ) -> Result<(), R1CSError> {
+        // the issuer key comes from the verifier's group state: at infinity it is an error
+        let (Q_issuer_x, Q_issuer_y) = affine_coordinates(&Q_issuer)?;
+
         // add inputs for the hash
         let input = [
             LinearCombination::from(id.variable),
             LinearCombination::from(Q_holder.x.variable),
             LinearCombination::from(Q_holder.y.variable),
             LinearCombination::from(expiration.variable),
-            LinearCombination::from(Variable::One() * Q_issuer.x().unwrap().into_scalar()),
-            LinearCombination::from(Variable::One() * Q_issuer.y().unwrap().into_scalar()),
+            LinearCombination::from(Variable::One() * Q_issuer_x),
+            LinearCombination::from(Variable::One() * Q_issuer_y),
             LinearCombination::from(R.x.variable),
             LinearCombination::from(R.y.variable),
         ];
@@ -458,5 +461,20 @@ mod tests {
     #[test]
     fn presentation_claiming_a_future_time_is_rejected() {
         assert!(!presentation_verifies_with_time_offset(3600));
+    }
+
+    #[test]
+    fn presentation_against_an_issuer_key_at_infinity_is_rejected() {
+        let holder_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let issuer_secret_key = cortado::Fr::rand(&mut rand::thread_rng());
+        let holder_public_key = (CortadoAffine::generator() * holder_secret_key).into_affine();
+        let credential = Credential::issue(issuer_secret_key, 3600, holder_public_key).unwrap();
+        let proof = credential
+            .present(b"cred", holder_secret_key, vec![])
+            .unwrap();
+        assert!(
+            Credential::verify_presentation(b"cred", &proof, CortadoAffine::zero(), vec![])
+                .is_err()
+        );
     }
 }
