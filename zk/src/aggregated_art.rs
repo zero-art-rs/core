@@ -540,37 +540,46 @@ impl<'a> ZeroArtVerifierContext<'a> {
             .filter_map(|node_id| aggregated_edge(aggregated_tree, proof_tree, node_id).transpose())
             .collect::<Result<Vec<_>, ZKError>>()?;
 
-        // Using scope to ensure all threads complete before function returns
-        std::thread::scope(|s| {
-            edges
-                .into_iter()
-                .map(|edge| {
-                    let bp_gens = bp_gens.clone();
-                    s.spawn(move || {
-                        self.verify_level(
-                            &bp_gens,
-                            edge.level,
-                            &edge.node,
-                            &edge.parent,
-                            (
-                                edge.proof.ok_or(R1CSError::VerificationError)?,
-                                (edge.commitment, edge.parent_commitment),
-                            ),
-                        )
+        // The tree comes from the received change, so it may have any number of edges: verify
+        // them a batch of `parallelism` threads at a time rather than one thread per edge.
+        let parallelism = std::thread::available_parallelism().map_or(1, |n| n.get());
+        for batch in edges.chunks(parallelism) {
+            std::thread::scope(|s| {
+                let handles = batch
+                    .iter()
+                    .map(|edge| {
+                        let bp_gens = bp_gens.clone();
+                        s.spawn(move || {
+                            self.verify_level(
+                                &bp_gens,
+                                edge.level,
+                                &edge.node,
+                                &edge.parent,
+                                (
+                                    edge.proof.clone().ok_or(R1CSError::VerificationError)?,
+                                    (edge.commitment.clone(), edge.parent_commitment.clone()),
+                                ),
+                            )
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
-                .collect::<Result<Vec<_>, R1CSError>>()?;
+                    .collect::<Vec<_>>();
+                // join every thread before looking at the results: a thread left to the scope
+                // would make it panic if that thread panicked
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
+                    .collect::<Vec<_>>()
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>, R1CSError>>()?;
+        }
 
-            debug!(
-                "verify_tree_multi_threaded for {} tree nodes verification time: {:?}",
-                aggregated_tree.get_nodes().len(),
-                start.elapsed()
-            );
-            Ok(())
-        })
+        debug!(
+            "verify_tree_multi_threaded for {} tree nodes verification time: {:?}",
+            aggregated_tree.get_nodes().len(),
+            start.elapsed()
+        );
+        Ok(())
     }
 
     pub(crate) fn verify_tree(
@@ -596,23 +605,22 @@ impl<'a> ZeroArtVerifierContext<'a> {
             } else {
                 return Err(ZKError::InvalidProofType);
             };
+        // Eligibility first: it is cheap, while the cost of the update proof grows with the
+        // received tree, so only an eligible prover gets the verifier to check that one.
         match self.engine.options.multi_threaded {
             false => {
-                self.verify_tree(aggregated_tree, aggregated_proof)?;
                 self.verify_eligibility(&proof.eligibility_proof)?;
+                self.verify_tree(aggregated_tree, aggregated_proof)?;
                 Ok(())
             }
+            // the threads turn a panic while verifying into an error
             true => std::thread::scope(|s| {
-                let update_handle = s.spawn(|| self.verify_tree(aggregated_tree, aggregated_proof));
-                let eligibility_handle =
-                    s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
-
-                update_handle
-                    .join()
-                    .unwrap_or(Err(ZKError::InvalidAggregation))?;
-                eligibility_handle
+                s.spawn(|| self.verify_eligibility(&proof.eligibility_proof))
                     .join()
                     .unwrap_or(Err(ZKError::EligibilityError))?;
+                s.spawn(|| self.verify_tree(aggregated_tree, aggregated_proof))
+                    .join()
+                    .unwrap_or(Err(ZKError::InvalidAggregation))?;
 
                 Ok(())
             }),

@@ -678,9 +678,13 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
+                // join every thread before looking at the results: a thread left to the scope
+                // would make it panic if that thread panicked
                 .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
-                .collect::<Result<(), _>>()
+                .collect::<Vec<_>>()
         })
+        .into_iter()
+        .collect::<Result<(), _>>()
         .and_then(|_| {
             debug!(
                 "verify_branch_multi_threaded for depth {} verification time: {:?}",
@@ -714,23 +718,22 @@ impl<'a> ZeroArtVerifierContext<'a> {
         } else {
             return Err(ZKError::InvalidProofType);
         };
+        // Eligibility first: it is cheap, so only an eligible prover gets the verifier to check
+        // the update proof.
         match self.engine.options.multi_threaded {
             false => {
-                self.verify_branch(branch_proof, branch_nodes)?;
                 self.verify_eligibility(&proof.eligibility_proof)?;
+                self.verify_branch(branch_proof, branch_nodes)?;
                 Ok(())
             }
+            // the threads turn a panic while verifying into an error
             true => std::thread::scope(|s| {
-                let branch_handle = s.spawn(|| self.verify_branch(branch_proof, branch_nodes));
-                let eligibility_handle =
-                    s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
-
-                branch_handle
-                    .join()
-                    .unwrap_or(Err(R1CSError::VerificationError))?;
-                eligibility_handle
+                s.spawn(|| self.verify_eligibility(&proof.eligibility_proof))
                     .join()
                     .unwrap_or(Err(ZKError::EligibilityError))?;
+                s.spawn(|| self.verify_branch(branch_proof, branch_nodes))
+                    .join()
+                    .unwrap_or(Err(R1CSError::VerificationError))?;
 
                 Ok(())
             }),
@@ -1003,6 +1006,21 @@ mod tests {
         assert!(point(32).is_ok());
         assert!(point(33).is_err());
         assert!(point(31).is_err());
+    }
+
+    #[test]
+    fn eligibility_is_checked_before_the_update_proof() {
+        for multi_threaded in [true, false] {
+            // an ineligible proof (a membership proof where ownership is required) with a branch
+            // the verifier rejects: the error is the eligibility one
+            let result = verify_tampered_branch(2, multi_threaded, |proof, nodes| {
+                if let EligibilityProof::Owner(sigma) = proof.eligibility_proof.clone() {
+                    proof.eligibility_proof = EligibilityProof::Member(sigma);
+                }
+                nodes.clear();
+            });
+            assert!(matches!(result, Err(ZKError::EligibilityError)));
+        }
     }
 
     #[test]
