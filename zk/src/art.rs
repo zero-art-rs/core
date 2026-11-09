@@ -772,7 +772,9 @@ pub fn art_prove(
     let eligibility = EligibilityArtefact::Member((s[0], R[0]));
 
     // Create prover context
-    let prover_context = prover_engine.new_context(eligibility);
+    let prover_context = prover_engine
+        .new_context(eligibility)
+        .with_associated_data(ad);
 
     // Generate proof
     let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
