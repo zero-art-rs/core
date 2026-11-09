@@ -64,11 +64,63 @@ impl<D> BinaryTree<D> {
 }
 
 /// Node of the aggregation tree. nodes contain data of some generic type `D`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct BinaryTreeNode<D> {
     pub(crate) l: Option<Box<Self>>,
     pub(crate) r: Option<Box<Self>>,
     pub(crate) data: D,
+}
+
+/// The deepest tree that deserialization accepts, counting the root as one level. Nodes are
+/// addressed by u64 heap indices (`NodeIndex::Index`), which already caps trees at 64 levels.
+pub const MAX_TREE_DEPTH: usize = 128;
+
+thread_local! {
+    /// The number of `BinaryTreeNode`s being deserialized on this thread, one inside the other.
+    static DESERIALIZATION_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// One level of `DESERIALIZATION_DEPTH`, released when dropped, including on errors.
+struct DepthGuard;
+
+impl DepthGuard {
+    fn enter() -> Option<Self> {
+        DESERIALIZATION_DEPTH.with(|depth| {
+            let next = depth.get() + 1;
+            (next <= MAX_TREE_DEPTH).then(|| {
+                depth.set(next);
+                DepthGuard
+            })
+        })
+    }
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        DESERIALIZATION_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
+
+/// The derived encoding, with a bound on the nesting depth: trees come from the network (changes,
+/// initial ARTs), and serde recurses once per level, so a deep enough tree overflows the stack
+/// and aborts the process.
+impl<'de, D: Deserialize<'de>> Deserialize<'de> for BinaryTreeNode<D> {
+    fn deserialize<De: serde::Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
+        /// The fields of `BinaryTreeNode`, in the same order and with the same names.
+        #[derive(Deserialize)]
+        #[serde(rename = "BinaryTreeNode")]
+        struct Fields<D> {
+            l: Option<Box<BinaryTreeNode<D>>>,
+            r: Option<Box<BinaryTreeNode<D>>>,
+            data: D,
+        }
+
+        let _guard = DepthGuard::enter().ok_or_else(|| {
+            serde::de::Error::custom(format!("tree deeper than {MAX_TREE_DEPTH} levels"))
+        })?;
+        let Fields { l, r, data } = Fields::deserialize(deserializer)?;
+        Ok(Self { l, r, data })
+    }
 }
 
 impl<D> BinaryTreeNode<D> {
@@ -737,5 +789,52 @@ impl<'a, G: AffineRepr> IntoIterator for ArtNodePreview<'a, G> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.leaf_iter()
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::*;
+
+    /// The postcard encoding of a `BinaryTree<u8>` whose `depth` nodes form a chain of left
+    /// children.
+    fn left_chain(depth: usize) -> Vec<u8> {
+        let mut bytes = vec![1u8; depth]; // the root, then l = Some for every node but the last
+        bytes.extend([0u8, 0, 7]); // the last node: l = None, r = None, data
+        bytes.extend([0u8, 7].repeat(depth - 1)); // r = None and data of the enclosing nodes
+        bytes
+    }
+
+    /// Deserializes on a thread with the stack of a tokio worker, which decodes requests in the
+    /// node: a stack overflow aborts the whole process.
+    fn deserializes_on_a_worker_stack(depth: usize) -> bool {
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || postcard::from_bytes::<BinaryTree<u8>>(&left_chain(depth)).is_ok())
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn deep_trees_are_rejected_without_overflowing_the_stack() {
+        assert!(!deserializes_on_a_worker_stack(1_000_000));
+    }
+
+    #[test]
+    fn trees_up_to_the_depth_limit_deserialize() {
+        assert!(deserializes_on_a_worker_stack(1));
+        assert!(deserializes_on_a_worker_stack(MAX_TREE_DEPTH));
+        assert!(!deserializes_on_a_worker_stack(MAX_TREE_DEPTH + 1));
+    }
+
+    #[test]
+    fn the_depth_limit_is_released_after_each_tree() {
+        // a rejected tree must not leave depth behind for the next one on the same thread
+        let chain = left_chain(MAX_TREE_DEPTH);
+        assert!(postcard::from_bytes::<BinaryTree<u8>>(&left_chain(MAX_TREE_DEPTH + 1)).is_err());
+        assert!(postcard::from_bytes::<BinaryTree<u8>>(&chain[..chain.len() - 1]).is_err());
+        let tree = postcard::from_bytes::<BinaryTree<u8>>(&chain).unwrap();
+        assert_eq!(postcard::to_allocvec(&tree).unwrap(), chain);
     }
 }
