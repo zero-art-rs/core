@@ -562,7 +562,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
             λ_a_next,
             node.public_key,
             next_node.public_key,
-            node.co_public_key.unwrap(),
+            co_public_key(node)?,
         )
         .and_then(|_| verifier.verify(&proof.0, &self.engine.pc_gens, &bp_gens))
     }
@@ -573,17 +573,16 @@ impl<'a> ZeroArtVerifierContext<'a> {
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
     ) -> Result<(), R1CSError> {
         let start = Instant::now();
-        let k = branch_nodes.len() - 1;
+        let k = branch_levels(branch_nodes)?;
+        // one proof for the whole branch, and a commitment per node
+        if proofs.len() != 1 || commitments.len() != k + 1 {
+            return Err(R1CSError::VerificationError);
+        }
         let bp_gens = BulletproofGens::new(
-            estimate_bp_gens(
-                branch_nodes.len() - 1,
-                1,
-                self.engine.options.scalar_mul_gadget_ver,
-            ),
+            estimate_bp_gens(k, 1, self.engine.options.scalar_mul_gadget_ver),
             1,
         );
 
-        assert!(k == 0 || (k == commitments.len() - 1), "length mismatch");
         let mut transcript = Transcript::new(b"ARTGadget");
         transcript.append_message(b"ad", self.ad());
         let mut verifier = Verifier::new(&mut transcript);
@@ -604,7 +603,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 vars[i + 1],
                 node.public_key,
                 next_node.public_key,
-                node.co_public_key.unwrap(),
+                co_public_key(node)?,
             )?;
         }
         verifier.verify(&proofs[0].0, &self.engine.pc_gens, &bp_gens)?;
@@ -624,13 +623,17 @@ impl<'a> ZeroArtVerifierContext<'a> {
         branch_nodes: &Vec<VerifierNodeData<CortadoAffine>>,
     ) -> Result<(), R1CSError> {
         let start = Instant::now();
-        let k = branch_nodes.len() - 1;
+        let k = branch_levels(branch_nodes)?;
+        // a proof per level, and a commitment per node (none when there is no level)
+        let expected_commitments = if k == 0 { 0 } else { k + 1 };
+        if proofs.len() != k || commitments.len() != expected_commitments {
+            return Err(R1CSError::VerificationError);
+        }
         let bp_gens = BulletproofGens::new(
             estimate_bp_gens(1, 1, self.engine.options.scalar_mul_gadget_ver),
             1,
         );
 
-        assert!(k == 0 || (k == commitments.len() - 1), "length mismatch");
         let bp_gens = Arc::new(bp_gens.clone());
         let bp_gens = Arc::clone(&bp_gens);
 
@@ -656,7 +659,7 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
-                .map(|handle| handle.join().unwrap())
+                .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
                 .collect::<Result<(), _>>()
         })
         .and_then(|_| {
@@ -703,13 +706,32 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 let eligibility_handle =
                     s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
 
-                branch_handle.join().unwrap()?;
-                eligibility_handle.join().unwrap()?;
+                branch_handle
+                    .join()
+                    .unwrap_or(Err(R1CSError::VerificationError))?;
+                eligibility_handle
+                    .join()
+                    .unwrap_or(Err(ZKError::EligibilityError))?;
 
                 Ok(())
             }),
         }
     }
+}
+
+/// The number of levels of a branch (its nodes minus one), or an error for an empty branch.
+pub(crate) fn branch_levels<G: AffineRepr>(
+    branch_nodes: &[VerifierNodeData<G>],
+) -> Result<usize, R1CSError> {
+    branch_nodes
+        .len()
+        .checked_sub(1)
+        .ok_or(R1CSError::VerificationError)
+}
+
+/// The co-path key of a node below the root, or an error for a node without one.
+pub(crate) fn co_public_key<G: AffineRepr>(node: &VerifierNodeData<G>) -> Result<G, R1CSError> {
+    node.co_public_key.ok_or(R1CSError::VerificationError)
 }
 
 /// generate an ART update proof provided basis, auxiliary data ad(typycally a hash of the ART or the ART itself), additional keypairs (s, R),
@@ -886,6 +908,98 @@ mod tests {
 
         for i in 0..16 {
             art_roundtrip(i).unwrap();
+        }
+    }
+
+    /// Proves a random branch of depth `k`, applies `tamper` to the proof and to the verifier's
+    /// branch, and verifies.
+    fn verify_tampered_branch(
+        k: u32,
+        multi_threaded: bool,
+        tamper: impl FnOnce(&mut ArtProof, &mut Vec<VerifierNodeData<CortadoAffine>>),
+    ) -> Result<(), ZKError> {
+        let G_1 = CortadoAffine::generator();
+        let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+        let gens = PedersenGens::default();
+        let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
+            G_1,
+            H_1,
+            ristretto255_to_ark(gens.B).unwrap(),
+            ristretto255_to_ark(gens.B_blinding).unwrap(),
+        );
+        let options = ZeroArtEngineOptions {
+            multi_threaded,
+            ..ZeroArtEngineOptions::default()
+        };
+        let ad: &[u8] = b"tampered branch";
+        let branch_nodes = random_witness_gen(k);
+        let mut verifier_nodes: Vec<VerifierNodeData<CortadoAffine>> = branch_nodes
+            .iter()
+            .map(|node| VerifierNodeData {
+                public_key: node.public_key,
+                co_public_key: node.co_public_key,
+            })
+            .collect();
+        let s = cortado::Fr::rand(&mut thread_rng());
+        let R = (G_1 * s).into_affine();
+
+        let prover_engine = ZeroArtProverEngine::new(basis.clone(), options.clone());
+        let mut proof = prover_engine
+            .new_context(EligibilityArtefact::Owner((s, R)))
+            .with_associated_data(ad)
+            .prove_singular(&branch_nodes, &mut thread_rng())?;
+        tamper(&mut proof, &mut verifier_nodes);
+
+        let verifier_engine = ZeroArtVerifierEngine::new(basis, options);
+        verifier_engine
+            .new_context(EligibilityRequirement::Previleged((R, vec![])))
+            .with_associated_data(ad)
+            .verify_singular(&proof, &verifier_nodes)
+    }
+
+    fn branch_proof(proof: &mut ArtProof) -> &mut (Vec<R1CSProof>, Vec<CompressedRistretto>) {
+        match &mut proof.update_proof {
+            UpdateProof::BranchProof(branch) => branch,
+            UpdateProof::AggregatedProof(_) => panic!("not a branch proof"),
+        }
+    }
+
+    #[test]
+    fn malformed_branch_proofs_are_rejected_without_panicking() {
+        for multi_threaded in [true, false] {
+            assert!(verify_tampered_branch(2, multi_threaded, |_, _| {}).is_ok());
+            // a missing commitment
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |proof, _| {
+                    branch_proof(proof).1.pop();
+                })
+                .is_err()
+            );
+            // no commitments
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |proof, _| branch_proof(proof).1.clear())
+                    .is_err()
+            );
+            // no proofs
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |proof, _| branch_proof(proof).0.clear())
+                    .is_err()
+            );
+            // an extra proof
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |proof, _| {
+                    let (proofs, _) = branch_proof(proof);
+                    proofs.push(proofs[0].clone());
+                })
+                .is_err()
+            );
+            // an empty branch
+            assert!(verify_tampered_branch(2, multi_threaded, |_, nodes| nodes.clear()).is_err());
+            // a node below the root without its co-path key
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| nodes[0].co_public_key = None)
+                    .is_err()
+            );
         }
     }
 }

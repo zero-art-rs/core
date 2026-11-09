@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::art::{
     ArtProof, CompressedRistretto, ProverNodeData, ProverNodeDataWithBlinding, R1CSProof,
-    UpdateProof, VerifierNodeData, estimate_bp_gens,
+    UpdateProof, VerifierNodeData, co_public_key, estimate_bp_gens,
 };
 use crate::dh::art_level_gadget;
 use crate::eligibility::EligibilityRequirement;
@@ -376,6 +376,73 @@ impl<'a> ZeroArtProverContext<'a> {
     }
 }
 
+/// What the verifier needs for the edge from a node to its parent.
+struct AggregatedEdge {
+    /// the number of children of the node (0 for a leaf)
+    level: usize,
+    node: VerifierNodeData<CortadoAffine>,
+    parent: VerifierNodeData<CortadoAffine>,
+    proof: Option<R1CSProof>,
+    commitment: CompressedRistretto,
+    parent_commitment: CompressedRistretto,
+}
+
+/// The edge from `node_id` to its parent, `None` for the root, or an error when the verifier's
+/// tree or the received proof tree lacks a node or a value the edge needs.
+fn aggregated_edge(
+    aggregated_tree: &VerifierAggregationTree<CortadoAffine>,
+    proof_tree: &AggregatedTreeProof,
+    node_id: &u64,
+) -> Result<Option<AggregatedEdge>, ZKError> {
+    let node = aggregated_tree
+        .get_node_by_id(node_id)
+        .ok_or(ZKError::InvalidAggregation)?;
+    let Some(parent_id) = node
+        .get_parent_id()
+        .map_err(|_| ZKError::InvalidAggregation)?
+    else {
+        return Ok(None);
+    };
+    let parent = aggregated_tree
+        .get_node_by_id(&parent_id)
+        .ok_or(ZKError::InvalidAggregation)?;
+    let node_data = node
+        .get_value()
+        .map_err(|_| ZKError::InvalidAggregation)?
+        .ok_or(ZKError::InvalidAggregation)?;
+    let parent_data = parent
+        .get_value()
+        .map_err(|_| ZKError::InvalidAggregation)?
+        .ok_or(ZKError::InvalidAggregation)?;
+    let (proof, commitment) = proof_tree
+        .0
+        .get_node_by_id(node_id)
+        .ok_or(ZKError::InvalidAggregation)?
+        .get_value()
+        .map_err(|_| ZKError::InvalidAggregation)?
+        .ok_or(ZKError::InvalidAggregation)?;
+    let (_, parent_commitment) = proof_tree
+        .0
+        .get_node_by_id(&parent_id)
+        .ok_or(ZKError::InvalidAggregation)?
+        .get_value()
+        .map_err(|_| ZKError::InvalidAggregation)?
+        .ok_or(ZKError::InvalidAggregation)?;
+    let level = node
+        .get_children_ids()
+        .map_err(|_| ZKError::InvalidAggregation)?
+        .len();
+
+    Ok(Some(AggregatedEdge {
+        level,
+        node: node_data,
+        parent: parent_data,
+        proof,
+        commitment,
+        parent_commitment,
+    }))
+}
+
 impl<'a> ZeroArtVerifierContext<'a> {
     pub(crate) fn verify_tree_single_threaded(
         &self,
@@ -383,10 +450,14 @@ impl<'a> ZeroArtVerifierContext<'a> {
         proof_tree: &AggregatedTreeProof,
     ) -> Result<(), ZKError> {
         let start = Instant::now();
+        let nodes = aggregated_tree.get_nodes().len();
+        if nodes == 0 {
+            return Err(ZKError::InvalidAggregation);
+        }
         let bp_gens = BulletproofGens::new(
             estimate_bp_gens(
-                aggregated_tree.get_nodes().len() - 1,       // number of edges
-                (aggregated_tree.get_nodes().len() + 1) / 2, // number of leaves (presuming binary tree)
+                nodes - 1,       // number of edges
+                (nodes + 1) / 2, // number of leaves (presuming binary tree)
                 self.engine.options.scalar_mul_gadget_ver,
             ),
             1,
@@ -404,59 +475,30 @@ impl<'a> ZeroArtVerifierContext<'a> {
             .traverse(&root_id, TraversalStrategy::PreOrder)
             .map_err(|_| ZKError::InvalidAggregation)?
         {
-            let node = aggregated_tree.get_node_by_id(&node_id).unwrap();
-            let parent_id = node
-                .get_parent_id()
-                .map_err(|_| ZKError::InvalidAggregation)?;
+            let Some(edge) = aggregated_edge(aggregated_tree, proof_tree, &node_id)? else {
+                continue;
+            };
 
-            if let Some(parent_id) = parent_id {
-                let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                let node_data = node
-                    .get_value()
-                    .map_err(|_| ZKError::InvalidAggregation)?
-                    .unwrap();
-                let parent_data = parent
-                    .get_value()
-                    .map_err(|_| ZKError::InvalidAggregation)?
-                    .unwrap();
+            let var_a = verifier.commit(edge.commitment.0);
+            let var_ab = verifier.commit(edge.parent_commitment.0);
+            let λ_a_i = AllocatedScalar::new(var_a, None);
+            let λ_a_next = AllocatedScalar::new(var_ab, None);
 
-                let proof_node = proof_tree.0.get_node_by_id(&node_id).unwrap();
-                let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-                let proof_node_data = proof_node
-                    .get_value()
-                    .map_err(|_| ZKError::InvalidAggregation)?;
-                let proof_parent_data = proof_parent
-                    .get_value()
-                    .map_err(|_| ZKError::InvalidAggregation)?;
-
-                let Q_a_i = node_data.public_key.clone();
-                let Q_b_i = node_data.co_public_key.unwrap().clone();
-                let Q_ab_i = parent_data.public_key.clone();
-                let (_, commitment_i) = proof_node_data.ok_or(ZKError::InvalidAggregation)?;
-                let (_, commitment_next) = proof_parent_data.ok_or(ZKError::InvalidAggregation)?;
-                let level = node.get_children_ids().unwrap().len();
-
-                let var_a = verifier.commit(commitment_i.0);
-                let var_ab = verifier.commit(commitment_next.0);
-                let λ_a_i = AllocatedScalar::new(var_a, None);
-                let λ_a_next = AllocatedScalar::new(var_ab, None);
-
-                art_level_gadget(
-                    self.engine.options.scalar_mul_gadget_ver,
-                    &mut verifier,
-                    level,
-                    λ_a_i,
-                    λ_a_next,
-                    Q_a_i,
-                    Q_ab_i,
-                    Q_b_i,
-                )?;
-            }
+            art_level_gadget(
+                self.engine.options.scalar_mul_gadget_ver,
+                &mut verifier,
+                edge.level,
+                λ_a_i,
+                λ_a_next,
+                edge.node.public_key,
+                edge.parent.public_key,
+                co_public_key(&edge.node)?,
+            )?;
         }
         let proof = proof_tree
             .0
             .get_node_by_id(&root_id)
-            .unwrap()
+            .ok_or(ZKError::InvalidAggregation)?
             .get_value()
             .map_err(|_| ZKError::InvalidAggregation)?
             .ok_or(ZKError::InvalidAggregation)?
@@ -494,51 +536,42 @@ impl<'a> ZeroArtVerifierContext<'a> {
             .get_node_id()
             .map_err(|_| ZKError::InvalidAggregation)?;
 
+        let node_ids = aggregated_tree
+            .traverse(&root_id, TraversalStrategy::PreOrder)
+            .map_err(|_| ZKError::InvalidAggregation)?;
+        // every edge, checked before any thread starts
+        let edges = node_ids
+            .iter()
+            .filter_map(|node_id| aggregated_edge(aggregated_tree, proof_tree, node_id).transpose())
+            .collect::<Result<Vec<_>, ZKError>>()?;
+
         // Using scope to ensure all threads complete before function returns
         std::thread::scope(|s| {
-            aggregated_tree
-                .traverse(&root_id, TraversalStrategy::PreOrder)
-                .map_err(|_| ZKError::InvalidAggregation)?
-                .iter()
-                .skip(1) // Skip the root node
-                .map(|node_id| {
-                    let node = aggregated_tree.get_node_by_id(node_id).unwrap();
-                    let parent_id = node.get_parent_id()?.unwrap();
-                    let parent = aggregated_tree.get_node_by_id(&parent_id).unwrap();
-                    let node_data = node.get_value()?.unwrap();
-                    let parent_data = parent.get_value()?.unwrap();
-
-                    let proof_node = proof_tree.0.get_node_by_id(node_id).unwrap();
-                    let proof_parent = proof_tree.0.get_node_by_id(&parent_id).unwrap();
-
-                    let (proof, commitment_i) = proof_node.get_value()?.unwrap();
-                    let (_, commitment_next) = proof_parent.get_value()?.unwrap();
-
-                    let level = node.get_children_ids()?.len();
+            edges
+                .into_iter()
+                .map(|edge| {
                     let bp_gens = bp_gens.clone();
-
-                    Ok(s.spawn(move || {
+                    s.spawn(move || {
                         self.verify_level(
                             &bp_gens,
-                            level,
-                            &node_data,
-                            &parent_data,
+                            edge.level,
+                            &edge.node,
+                            &edge.parent,
                             (
-                                proof.ok_or(R1CSError::VerificationError)?,
-                                (commitment_i.clone(), commitment_next.clone()),
+                                edge.proof.ok_or(R1CSError::VerificationError)?,
+                                (edge.commitment, edge.parent_commitment),
                             ),
                         )
-                    }))
+                    })
                 })
-                .collect::<tree_ds::prelude::Result<Vec<_>>>()
-                .map_err(|_| ZKError::InvalidAggregation)?
+                .collect::<Vec<_>>()
                 .into_iter()
-                .map(|handle| handle.join().unwrap())
+                .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
                 .collect::<Result<Vec<_>, R1CSError>>()?;
 
             debug!(
-                "verify_tree_multi_threaded for depth {} verification time: {:?}",
-                aggregated_tree.get_nodes().len() - 1,
+                "verify_tree_multi_threaded for {} tree nodes verification time: {:?}",
+                aggregated_tree.get_nodes().len(),
                 start.elapsed()
             );
             Ok(())
@@ -579,8 +612,12 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 let eligibility_handle =
                     s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
 
-                update_handle.join().unwrap()?;
-                eligibility_handle.join().unwrap()?;
+                update_handle
+                    .join()
+                    .unwrap_or(Err(ZKError::InvalidAggregation))?;
+                eligibility_handle
+                    .join()
+                    .unwrap_or(Err(ZKError::EligibilityError))?;
 
                 Ok(())
             }),
@@ -842,6 +879,90 @@ mod tests {
             .try_init();
         for i in 3..16 {
             aggregated_art_roundtrip(i);
+        }
+    }
+
+    /// Proves a random aggregation of `k` nodes, applies `tamper` to the received proof tree and
+    /// to the verifier's tree, and verifies.
+    fn verify_tampered_aggregation(
+        k: u64,
+        multi_threaded: bool,
+        tamper: impl FnOnce(&AggregatedTreeProof, &VerifierAggregationTree<CortadoAffine>),
+    ) -> Result<(), ZKError> {
+        let G_1 = CortadoAffine::generator();
+        let H_1 = CortadoAffine::new_unchecked(cortado::ALT_GENERATOR_X, cortado::ALT_GENERATOR_Y);
+        let gens = PedersenGens::default();
+        let basis = PedersenBasis::<CortadoAffine, Ed25519Affine>::new(
+            G_1,
+            H_1,
+            ristretto255_to_ark(gens.B).unwrap(),
+            ristretto255_to_ark(gens.B_blinding).unwrap(),
+        );
+        let options = ZeroArtEngineOptions {
+            multi_threaded,
+            ..ZeroArtEngineOptions::default()
+        };
+        let ad: &[u8] = b"tampered aggregation";
+        let prover_tree = generate_random_tree(k);
+        let verifier_tree = convert_to_verifier_tree(&prover_tree);
+        let s = cortado::Fr::rand(&mut thread_rng());
+        let R = (G_1 * s).into_affine();
+
+        let prover_engine = ZeroArtProverEngine::new(basis.clone(), options.clone());
+        let proof = prover_engine
+            .new_context(crate::eligibility::EligibilityArtefact::Member((s, R)))
+            .with_associated_data(ad)
+            .prove_aggregated(&prover_tree, &mut thread_rng())?;
+        if let UpdateProof::AggregatedProof(proof_tree) = &proof.update_proof {
+            tamper(proof_tree, &verifier_tree);
+        }
+
+        let verifier_engine = ZeroArtVerifierEngine::new(basis, options);
+        verifier_engine
+            .new_context(EligibilityRequirement::Member(R))
+            .with_associated_data(ad)
+            .verify_aggregated(&verifier_tree, &proof)
+    }
+
+    #[test]
+    fn malformed_aggregated_proofs_are_rejected_without_panicking() {
+        for multi_threaded in [true, false] {
+            assert!(verify_tampered_aggregation(5, multi_threaded, |_, _| {}).is_ok());
+            // a node of the proof tree without its proof and commitment
+            assert!(
+                verify_tampered_aggregation(5, multi_threaded, |proof_tree, _| {
+                    proof_tree
+                        .0
+                        .get_node_by_id(&1)
+                        .unwrap()
+                        .update_value(|v| *v = None)
+                        .unwrap();
+                })
+                .is_err()
+            );
+            // the root of the proof tree without its proof and commitment
+            assert!(
+                verify_tampered_aggregation(5, multi_threaded, |proof_tree, _| {
+                    proof_tree
+                        .0
+                        .get_node_by_id(&0)
+                        .unwrap()
+                        .update_value(|v| *v = None)
+                        .unwrap();
+                })
+                .is_err()
+            );
+            // a node of the verifier's tree without its public data
+            assert!(
+                verify_tampered_aggregation(5, multi_threaded, |_, verifier_tree| {
+                    verifier_tree
+                        .get_node_by_id(&1)
+                        .unwrap()
+                        .update_value(|v| *v = None)
+                        .unwrap();
+                })
+                .is_err()
+            );
         }
     }
 }

@@ -44,8 +44,15 @@ pub const G_GENERATOR_X: Fq =
 pub const G_GENERATOR_Y: Fq =
     MontFp!("5171267151717298187039489040680477076031932900992525155183606237639729989348");
 
+/// The alternative generator H, with no known discrete log with respect to the generator: x is
+/// the first SHA-256("zero-art/cortado/alt-generator/v1" ‖ counter as 4 bytes, little-endian)
+/// mod q, counter = 0, 1, ..., with x^3 + a·x + b a square (counter 2), and y is the square root
+/// whose integer is even. `tests::alt_generator` recomputes it.
+///
+/// The scalar multiplication gadgets add their offsets on H, and they are sound only while
+/// nobody knows that discrete log.
 pub const ALT_GENERATOR_X: Fq =
-    MontFp!("912055912964792115236642165826072245520938252839535000701742693549589451176");
+    MontFp!("3201766159355692452011165711944731975415909527808596938942611998347728901470");
 
 pub const ALT_GENERATOR_Y: Fq =
-    MontFp!("2885577819978800580291222739303930233079731755568722111656656924051472111782");
+    MontFp!("5298902490966213458215399080871210807668381048944778696879685077438962522038");
