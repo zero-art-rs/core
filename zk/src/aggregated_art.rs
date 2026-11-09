@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::art::{
     ArtProof, CompressedRistretto, ProverNodeData, ProverNodeDataWithBlinding, R1CSProof,
-    UpdateProof, VerifierNodeData, co_public_key, estimate_bp_gens,
+    UpdateProof, VerifierNodeData, co_public_key, estimate_bp_gens, read_length_prefixed,
 };
 use crate::dh::art_level_gadget;
 use crate::eligibility::EligibilityRequirement;
@@ -102,15 +102,10 @@ impl ark_serialize::Valid for AggregatedTreeProof {
 impl CanonicalDeserialize for AggregatedTreeProof {
     fn deserialize_with_mode<R: std::io::Read>(
         mut reader: R,
-        compress: ark_serialize::Compress,
-        validate: ark_serialize::Validate,
+        _compress: ark_serialize::Compress,
+        _validate: ark_serialize::Validate,
     ) -> Result<Self, ark_serialize::SerializationError> {
-        let proof_len = u32::deserialize_with_mode(&mut reader, compress, validate)? as usize;
-        let mut buf = vec![0u8; proof_len];
-
-        reader
-            .read_exact(&mut buf)
-            .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
+        let buf = read_length_prefixed(&mut reader, u32::MAX as usize)?;
         let tree: Tree<u64, (Option<R1CSProof>, CompressedRistretto)> = postcard::from_bytes(&buf)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
         Ok(AggregatedTreeProof(tree))
