@@ -149,6 +149,26 @@ pub fn constrain_lc_with_scalar<CS: ConstraintSystem>(
     cs.constrain(lc - LinearCombination::from(*scalar));
 }
 
+/// Enforces `lc != 0`: the prover supplies the inverse of `lc`, and `lc * inv = 1` has no
+/// solution when `lc` is zero.
+pub fn nonzero_lc_gadget<CS: ConstraintSystem>(
+    cs: &mut CS,
+    lc: LinearCombination,
+) -> Result<(), R1CSError> {
+    let assignment = cs.eval(&lc).map(|v| {
+        let inv = if v == Scalar::ZERO {
+            Scalar::ZERO
+        } else {
+            v.invert()
+        };
+        (v, inv)
+    });
+    let (left, _, out) = cs.allocate_multiplier(assignment)?;
+    cs.constrain(left - lc);
+    cs.constrain(out - Scalar::ONE);
+    Ok(())
+}
+
 /// Constrain that R = P - Q for Cortado points
 pub fn co_linear_gadget<CS: ConstraintSystem>(
     cs: &mut CS,
@@ -182,6 +202,13 @@ pub fn co_linear_gadget<CS: ConstraintSystem>(
     );
 
     cs.constrain(lhs - rhs);
+
+    // On-curve and co-linear also hold for R = Q and R = -P, whatever P and Q are, and for
+    // any R on the curve when Q = -P. Exclude these, so that R is the third point of the line
+    // through Q and -P, i.e. R = P - Q.
+    nonzero_lc_gadget(cs, x2 - x3)?;
+    nonzero_lc_gadget(cs, x1 - x3)?;
+    nonzero_lc_gadget(cs, x1 - x2)?;
 
     Ok(())
 }
@@ -226,5 +253,71 @@ fn set_non_membership_gadget_test() {
         set_non_membership_gadget(&mut verifier, x, S).unwrap();
 
         verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod co_linear_tests {
+    use super::*;
+    use ::cortado::{CortadoAffine, Fr, ToScalar};
+    use ark_ec::{AffineRepr, CurveGroup};
+    use rand::Rng;
+
+    fn random_point() -> CortadoAffine {
+        let k: Fr = thread_rng().r#gen();
+        (CortadoAffine::generator() * k).into_affine()
+    }
+
+    fn coords(p: &CortadoAffine) -> (Scalar, Scalar) {
+        (p.x().unwrap().into_scalar(), p.y().unwrap().into_scalar())
+    }
+
+    /// Whether a proof of `co_linear_gadget` for committed P, Q and R verifies.
+    fn co_linear_verifies(P: CortadoAffine, Q: CortadoAffine, R: CortadoAffine) -> bool {
+        let pc_gens = PedersenGens::default();
+        let bp_gens = BulletproofGens::new(16, 1);
+        let (p, q, r) = (coords(&P), coords(&Q), coords(&R));
+
+        let mut prover_transcript = Transcript::new(b"co_linear_test");
+        let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
+        let (P_var, P_com) = prover.allocate_point(p.0, p.1).unwrap();
+        let (Q_var, Q_com) = prover.allocate_point(q.0, q.1).unwrap();
+        let (R_var, R_com) = prover.allocate_point(r.0, r.1).unwrap();
+        co_linear_gadget(&mut prover, P_var, Q_var, R_var).unwrap();
+        let Ok(proof) = prover.prove(&bp_gens) else {
+            return false;
+        };
+
+        let mut verifier_transcript = Transcript::new(b"co_linear_test");
+        let mut verifier = Verifier::new(&mut verifier_transcript);
+        let P_var = verifier.allocate_point(P_com.0, P_com.1).unwrap();
+        let Q_var = verifier.allocate_point(Q_com.0, Q_com.1).unwrap();
+        let R_var = verifier.allocate_point(R_com.0, R_com.1).unwrap();
+        co_linear_gadget(&mut verifier, P_var, Q_var, R_var).unwrap();
+        verifier.verify(&proof, &pc_gens, &bp_gens).is_ok()
+    }
+
+    #[test]
+    fn co_linear_accepts_the_difference() {
+        let (P, Q) = (random_point(), random_point());
+        assert!(co_linear_verifies(P, Q, (P.into_group() - Q).into_affine()));
+    }
+
+    #[test]
+    fn co_linear_rejects_r_equal_to_q() {
+        let (P, Q) = (random_point(), random_point());
+        assert!(!co_linear_verifies(P, Q, Q));
+    }
+
+    #[test]
+    fn co_linear_rejects_r_equal_to_minus_p() {
+        let (P, Q) = (random_point(), random_point());
+        assert!(!co_linear_verifies(P, Q, -P));
+    }
+
+    #[test]
+    fn co_linear_rejects_any_r_when_q_is_minus_p() {
+        let P = random_point();
+        assert!(!co_linear_verifies(P, -P, random_point()));
     }
 }

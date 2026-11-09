@@ -239,6 +239,10 @@ impl SboxType {
 
         let (var_l, var_r, var_o) = cs.allocate_multiplier(a)?;
 
+        // `allocate_multiplier` does not tie the left wire to the input: without this, var_r
+        // is the inverse of a free value, not of `inp_plus_const`
+        cs.constrain(var_l - inp_plus_const);
+
         // Constrain product of `inp_plus_const` and its inverse to be 1.
         constrain_lc_with_scalar::<CS>(cs, var_o.into(), &Scalar::ONE);
 
