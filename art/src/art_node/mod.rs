@@ -6,6 +6,7 @@ mod tree_methods;
 
 pub use art_node::{ArtNode, ArtNodeData, ArtNodePreview, LeafStatus};
 pub use binary_tree::{
-    BinaryTree, BinaryTreeNode, LeafIter, LeafIterWithPath, NodeIter, NodeIterWithPath,
+    BinaryTree, BinaryTreeNode, LeafIter, LeafIterWithPath, MAX_TREE_DEPTH, NodeIter,
+    NodeIterWithPath,
 };
 pub use tree_methods::TreeMethods;

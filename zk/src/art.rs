@@ -129,6 +129,27 @@ where
     }
 }
 
+/// Reads a u32 length prefix, at most `max_len`, and that many bytes. The length is untrusted:
+/// the buffer grows with the bytes actually read, instead of being allocated up front, which
+/// let four bytes of input request a 4 GiB allocation.
+pub(crate) fn read_length_prefixed<R: std::io::Read>(
+    mut reader: R,
+    max_len: usize,
+) -> Result<Vec<u8>, SerializationError> {
+    use std::io::Read as _;
+
+    let len = u32::deserialize_compressed(&mut reader)? as usize;
+    if len > max_len {
+        return Err(SerializationError::InvalidData);
+    }
+    let mut bytes = Vec::new();
+    reader.by_ref().take(len as u64).read_to_end(&mut bytes)?;
+    if bytes.len() != len {
+        return Err(SerializationError::IoError(std::io::ErrorKind::UnexpectedEof.into()));
+    }
+    Ok(bytes)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct R1CSProof(pub BPR1CSProof);
 
@@ -173,9 +194,7 @@ impl CanonicalDeserialize for R1CSProof {
         _validate: ark_serialize::Validate,
     ) -> Result<Self, ark_serialize::SerializationError> {
         // Deserialize the proof
-        let proof_len = u32::deserialize_compressed(&mut reader)? as usize;
-        let mut proof_bytes = vec![0u8; proof_len];
-        reader.read_exact(&mut proof_bytes)?;
+        let proof_bytes = read_length_prefixed(&mut reader, u32::MAX as usize)?;
         let proof = bulletproofs::r1cs::R1CSProof::from_bytes(&proof_bytes)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
 
@@ -303,11 +322,9 @@ impl CanonicalDeserialize for CompressedRistretto {
         _compress: ark_serialize::Compress,
         _validate: ark_serialize::Validate,
     ) -> Result<Self, ark_serialize::SerializationError> {
-        // Deserialize the proof
-        let proof_len = u32::deserialize_compressed(&mut reader)? as usize;
-        let mut proof_bytes = vec![0u8; proof_len];
-        reader.read_exact(&mut proof_bytes)?;
-        let point = DalekCompressedRistretto::from_slice(&proof_bytes)
+        // Deserialize the point
+        let point_bytes = read_length_prefixed(&mut reader, 32)?;
+        let point = DalekCompressedRistretto::from_slice(&point_bytes)
             .map_err(|_| ark_serialize::SerializationError::InvalidData)?;
 
         Ok(CompressedRistretto(point))
@@ -661,9 +678,13 @@ impl<'a> ZeroArtVerifierContext<'a> {
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
+                // join every thread before looking at the results: a thread left to the scope
+                // would make it panic if that thread panicked
                 .map(|handle| handle.join().unwrap_or(Err(R1CSError::VerificationError)))
-                .collect::<Result<(), _>>()
+                .collect::<Vec<_>>()
         })
+        .into_iter()
+        .collect::<Result<(), _>>()
         .and_then(|_| {
             debug!(
                 "verify_branch_multi_threaded for depth {} verification time: {:?}",
@@ -697,23 +718,22 @@ impl<'a> ZeroArtVerifierContext<'a> {
         } else {
             return Err(ZKError::InvalidProofType);
         };
+        // Eligibility first: it is cheap, so only an eligible prover gets the verifier to check
+        // the update proof.
         match self.engine.options.multi_threaded {
             false => {
-                self.verify_branch(branch_proof, branch_nodes)?;
                 self.verify_eligibility(&proof.eligibility_proof)?;
+                self.verify_branch(branch_proof, branch_nodes)?;
                 Ok(())
             }
+            // the threads turn a panic while verifying into an error
             true => std::thread::scope(|s| {
-                let branch_handle = s.spawn(|| self.verify_branch(branch_proof, branch_nodes));
-                let eligibility_handle =
-                    s.spawn(|| self.verify_eligibility(&proof.eligibility_proof));
-
-                branch_handle
-                    .join()
-                    .unwrap_or(Err(R1CSError::VerificationError))?;
-                eligibility_handle
+                s.spawn(|| self.verify_eligibility(&proof.eligibility_proof))
                     .join()
                     .unwrap_or(Err(ZKError::EligibilityError))?;
+                s.spawn(|| self.verify_branch(branch_proof, branch_nodes))
+                    .join()
+                    .unwrap_or(Err(R1CSError::VerificationError))?;
 
                 Ok(())
             }),
@@ -755,7 +775,9 @@ pub fn art_prove(
     let eligibility = EligibilityArtefact::Member((s[0], R[0]));
 
     // Create prover context
-    let prover_context = prover_engine.new_context(eligibility);
+    let prover_context = prover_engine
+        .new_context(eligibility)
+        .with_associated_data(ad);
 
     // Generate proof
     let proof = prover_context.prove_singular(&branch_nodes, &mut thread_rng())?;
@@ -967,6 +989,41 @@ mod tests {
     }
 
     #[test]
+    fn length_prefixed_fields_reject_bad_lengths() {
+        // a length far beyond the input fails without allocating it
+        let mut input = u32::MAX.to_le_bytes().to_vec();
+        input.extend([0u8; 16]);
+        assert!(R1CSProof::deserialize_compressed(&input[..]).is_err());
+        assert!(AggregatedTreeProof::deserialize_compressed(&input[..]).is_err());
+        assert!(CompressedRistretto::deserialize_compressed(&input[..]).is_err());
+
+        // a compressed point is 32 bytes
+        let point = |len: u32| {
+            let mut input = len.to_le_bytes().to_vec();
+            input.extend(vec![0u8; len as usize]);
+            CompressedRistretto::deserialize_compressed(&input[..])
+        };
+        assert!(point(32).is_ok());
+        assert!(point(33).is_err());
+        assert!(point(31).is_err());
+    }
+
+    #[test]
+    fn eligibility_is_checked_before_the_update_proof() {
+        for multi_threaded in [true, false] {
+            // an ineligible proof (a membership proof where ownership is required) with a branch
+            // the verifier rejects: the error is the eligibility one
+            let result = verify_tampered_branch(2, multi_threaded, |proof, nodes| {
+                if let EligibilityProof::Owner(sigma) = proof.eligibility_proof.clone() {
+                    proof.eligibility_proof = EligibilityProof::Member(sigma);
+                }
+                nodes.clear();
+            });
+            assert!(matches!(result, Err(ZKError::EligibilityError)));
+        }
+    }
+
+    #[test]
     fn malformed_branch_proofs_are_rejected_without_panicking() {
         for multi_threaded in [true, false] {
             assert!(verify_tampered_branch(2, multi_threaded, |_, _| {}).is_ok());
@@ -1001,6 +1058,36 @@ mod tests {
             assert!(
                 verify_tampered_branch(2, multi_threaded, |_, nodes| nodes[0].co_public_key = None)
                     .is_err()
+            );
+            // public keys at infinity, at the leaf and at the root
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[0].public_key = CortadoAffine::zero()
+                })
+                .is_err()
+            );
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[2].public_key = CortadoAffine::zero()
+                })
+                .is_err()
+            );
+            // a co-path key at infinity, and one for which Δ2_0 = [2]H + Q is at infinity
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    nodes[1].co_public_key = Some(CortadoAffine::zero())
+                })
+                .is_err()
+            );
+            assert!(
+                verify_tampered_branch(2, multi_threaded, |_, nodes| {
+                    let H = CortadoAffine::new_unchecked(
+                        cortado::ALT_GENERATOR_X,
+                        cortado::ALT_GENERATOR_Y,
+                    );
+                    nodes[0].co_public_key = Some((-(H * cortado::Fr::from(2u64))).into_affine())
+                })
+                .is_err()
             );
         }
     }
